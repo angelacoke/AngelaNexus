@@ -40,3 +40,5 @@ jobs:
           NEXUS_SING_BOX_BIN: /tmp/sing-box
           NEXUS_XRAY_BIN: /tmp/xray-bin/xray
         run: npm run kernel:conformance -- --require-binaries
+
+# Runtime capability probe verification trigger.
