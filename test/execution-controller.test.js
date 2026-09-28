@@ -17,6 +17,7 @@ function fakeExecutionFactory(config, options) {
 }
 
 const request = {
+  decision: { id: "decision-test-001", version: 1 },
   kernel: Kernels.SING_BOX,
   config: {
     kernel: Kernels.SING_BOX,
