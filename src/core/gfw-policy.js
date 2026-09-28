@@ -58,6 +58,11 @@ function positiveInt(value, fallback) {
   return Number.isInteger(n) && n > 0 ? n : fallback;
 }
 
+function positiveNumber(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
 function normalizeObservation(observation = {}) {
   const signal = text(observation.signal);
   const count = positiveInt(observation.count, 1);
