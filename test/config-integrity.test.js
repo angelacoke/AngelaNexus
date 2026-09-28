@@ -70,7 +70,33 @@ test("subscription update accepts verified content", () => {
   assert.equal(result.action, "accept");
 });
 
-test("publisher signature verifies independently of the digest reference", () => {\n  const { publicKey, privateKey } = generateKeyPairSync("ed25519");\n  const incoming = "signed-config";\n  const digest = Buffer.from(configIntegrityDigest(incoming), "hex");\n  const signature = signData(null, digest, privateKey).toString("base64");\n  assert.equal(verifyPublisherSignature(incoming, { signature, publicKey }).code, "SIGNATURE_VALID");\n  assert.equal(verifyPublisherSignature("tampered", { signature, publicKey }).code, "SIGNATURE_INVALID");\n});\n\ntest("freshness rejects rollback and accepts newer versions", () => {\n  assert.equal(verifyUpdateFreshness(4, 5).code, "UPDATE_ROLLBACK_REJECTED");\n  assert.equal(verifyUpdateFreshness(6, 5).ok, true);\n});\n\ntest("subscription update can require publisher authenticity and freshness", () => {\n  const { publicKey, privateKey } = generateKeyPairSync("ed25519");\n  const incoming = "verified-config";\n  const digest = configIntegrityDigest(incoming);\n  const signature = signData(null, Buffer.from(digest, "hex"), privateKey).toString("base64");\n  const result = verifySubscriptionUpdate(incoming, {\n    expectedDigest: digest, signature, publicKey, requireAuthenticity: true,\n    requireFreshness: true, incomingVersion: 3, currentVersion: 2\n  });\n  assert.equal(result.ok, true);\n});\n\ntest("subscription update rejects detected secrets without exposing them", () => {
+test("publisher signature verifies independently of the digest reference", () => {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const incoming = "signed-config";
+  const digest = Buffer.from(configIntegrityDigest(incoming), "hex");
+  const signature = signData(null, digest, privateKey).toString("base64");
+  assert.equal(verifyPublisherSignature(incoming, { signature, publicKey }).code, "SIGNATURE_VALID");
+  assert.equal(verifyPublisherSignature("tampered", { signature, publicKey }).code, "SIGNATURE_INVALID");
+});
+
+test("freshness rejects rollback and accepts newer versions", () => {
+  assert.equal(verifyUpdateFreshness(4, 5).code, "UPDATE_ROLLBACK_REJECTED");
+  assert.equal(verifyUpdateFreshness(6, 5).ok, true);
+});
+
+test("subscription update can require publisher authenticity and freshness", () => {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const incoming = "verified-config";
+  const digest = configIntegrityDigest(incoming);
+  const signature = signData(null, Buffer.from(digest, "hex"), privateKey).toString("base64");
+  const result = verifySubscriptionUpdate(incoming, {
+    expectedDigest: digest, signature, publicKey, requireAuthenticity: true,
+    requireFreshness: true, incomingVersion: 3, currentVersion: 2
+  });
+  assert.equal(result.ok, true);
+});
+
+test("subscription update rejects detected secrets without exposing them", () => {
   const incoming = "token: ghp_abcdefghijklmnopqrstuvwxyz123456";
   const result = verifySubscriptionUpdate(incoming, {
     expectedDigest: configIntegrityDigest(incoming)
