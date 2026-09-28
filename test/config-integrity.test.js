@@ -40,8 +40,11 @@ test("private keys are rejected from security-sensitive input", () => {
   assert.equal(validateSecretHandling("-----BEGIN PRIVATE KEY-----").ok, false);
 });
 
-test("credential URI is treated as sensitive material", () => {
-  assert.equal(scanSecrets("vless://uuid@example.com:443").safe, false);
+test("credential URI is detected without being classified as accidental secret leakage", () => {
+  const result = scanSecrets("vless://uuid@example.com:443");
+  assert.equal(result.safe, true);
+  assert.equal(result.findings[0].type, "credential-uri");
+  assert.equal(validateSecretHandling("vless://uuid@example.com:443").credentialBearing, true);
 });
 
 test("subscription update requires integrity reference by default", () => {
