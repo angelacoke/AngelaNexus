@@ -85,7 +85,8 @@ export function analyzeKernelAdapterImpact(files = [], releaseNotes = "") {
     requiresManualAdapterReview: domains.length > 0
   });
 }
-\nexport function createKernelUpdateCandidate({
+
+export function createKernelUpdateCandidate({
   kernel,
   configuredVersion,
   upstreamVersion,
