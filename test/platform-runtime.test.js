@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createPlatformRuntime } from "../src/platform/runtime.js";
 import { PlatformCapabilities, PlatformId } from "../src/platform/contract.js";
+import { createExecutionController, ExecutionStates } from "../src/core/execution-controller.js";
+import { Kernels } from "../src/core/model.js";
 
 function mockPlatform(failRuntimeStart = false) {
   const events = [];
@@ -101,5 +103,41 @@ test("platform runtime exposes network changes as execution session invalidation
   await mock.implementation.emitNetworkChange();
   assert.equal(reason, "network-generation-changed");
   await unsubscribe();
+  await runtime.stop();
+});
+
+
+test("platform network changes fail closed a running execution session", async () => {
+  const mock = mockPlatform();
+  const runtime = createPlatformRuntime(mock.implementation, mock.runtime);
+  await runtime.start();
+  let stopped = 0;
+  const request = {
+    decision: { id: "platform-session-001", version: 1, action: "routing", choice: "proxy", requiresUserChoice: true, confirmed: false },
+    kernel: Kernels.SING_BOX,
+    config: { kernel: Kernels.SING_BOX, nodes: [] },
+    userAuthorized: true,
+    security: { preflightPassed: true, failClosed: true },
+    path: { validated: true, networkGeneration: 0 }
+  };
+  const controller = createExecutionController({
+    executionFactory: async () => ({
+      configPath: "/tmp/nexus-test/config.json",
+      async start() {},
+      async stop() { stopped += 1; },
+      async reload() {},
+      async status() { return { running: true }; },
+      async logs() {}
+    }),
+    pathRevalidator: async path => ({ ...path, networkGeneration: 0 }),
+    sessionInvalidationSource: runtime.subscribeSessionInvalidation.bind(runtime)
+  });
+  await controller.prepare(request);
+  await controller.start();
+  assert.equal(controller.state, ExecutionStates.RUNNING);
+  await mock.implementation.emitNetworkChange();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(stopped, 1);
+  assert.equal(controller.state, ExecutionStates.FAILED);
   await runtime.stop();
 });
