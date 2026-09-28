@@ -83,11 +83,12 @@ export function createExecutionEventLedger(options = {}) {
     ? options.maxEvents
     : DEFAULT_MAX_EVENTS;
   const events = [];
+  let nextEventId = 1;
 
   function record(type, context = {}) {
     if (typeof type !== "string" || !type.trim()) throw new TypeError("event type must be a non-empty string");
     const event = freezeEvent({
-      id: String(events.length + 1),
+      id: String(nextEventId++),
       type: type.trim(),
       at: typeof options.clock === "function" ? options.clock() : Date.now(),
       context: sanitizeContext(context)
