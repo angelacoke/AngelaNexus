@@ -28,6 +28,9 @@ function runtimeArgs(kernel, configPath) {
 function assertRuntimeOptions(options) {
   if (!options || typeof options !== "object") throw new TypeError("runtime options are required");
   if (!options.binary || typeof options.binary !== "string") throw new TypeError("runtime binary is required");
+  if (options.runtimeFactory !== undefined && typeof options.runtimeFactory !== "function") {
+    throw new TypeError("runtimeFactory must be a function");
+  }
 }
 
 export async function createKernelExecution(config, options = {}) {
@@ -43,13 +46,17 @@ export async function createKernelExecution(config, options = {}) {
   const content = serialize(kernel, compiled.config);
   await writeFile(configPath, content, { encoding: "utf8", mode: 0o600 });
 
-  const runtime = createKernelRuntime(kernel, {
+  const runtimeFactory = options.runtimeFactory || createKernelRuntime;
+  const runtime = runtimeFactory(kernel, {
     binary: options.binary,
     args: runtimeArgs(kernel, configPath),
     cwd: options.cwd || baseDir,
     env: options.env,
     reloadSignal: options.reloadSignal
   });
+  if (!runtime || typeof runtime.start !== "function" || typeof runtime.stop !== "function" || typeof runtime.status !== "function") {
+    throw new TypeError("runtimeFactory must return a kernel runtime");
+  }
 
   let cleaned = false;
   async function cleanup() {
@@ -73,12 +80,14 @@ export async function createKernelExecution(config, options = {}) {
       return result;
     },
     async reload() {
+      if (typeof runtime.reload !== "function") throw new Error(kernel + " runtime does not implement reload");
       return runtime.reload();
     },
     async status() {
       return runtime.status();
     },
     async logs(logOptions = {}) {
+      if (typeof runtime.logs !== "function") return [];
       return runtime.logs(logOptions);
     },
     async cleanup() {
