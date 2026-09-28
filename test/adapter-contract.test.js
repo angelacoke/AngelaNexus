@@ -53,3 +53,21 @@ test("sing-box rejects invalid Reality short_id length", async () => {
   assert.equal(result.ok, false);
   assert.match(result.errors.join(" "), /short_id/);
 });
+
+test("compiled validation rejects unknown sing-box outbound types", async () => {
+  const { validateCompiledConfig } = await import("../src/core/compiled-config-validation.js");
+  const result = validateCompiledConfig({
+    outbounds: [{ type: "not-a-real-outbound", tag: "x" }]
+  }, Kernels.SING_BOX);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join(" "), /unsupported outbound type/);
+});
+
+test("compiled validation rejects unknown Xray protocols", async () => {
+  const { validateCompiledConfig } = await import("../src/core/compiled-config-validation.js");
+  const result = validateCompiledConfig({
+    outbounds: [{ protocol: "not-a-real-protocol", tag: "x" }]
+  }, Kernels.XRAY);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join(" "), /unsupported protocol/);
+});
