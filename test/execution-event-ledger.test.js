@@ -63,6 +63,12 @@ test("execution event ledger rejects malformed event types", () => {
   assert.throws(() => ledger.record(""), /event type/);
 });
 
+test("execution event ledger bounds event type length", () => {
+  const ledger = createExecutionEventLedger();
+  const event = ledger.record("x".repeat(400), {});
+  assert.equal(event.type.length, 256);
+});
+
 test("execution event ledger bounds evidence values and rejects non-finite metrics", () => {
   const ledger = createExecutionEventLedger({ clock: () => Infinity });
   const event = ledger.record("session-invalidated", {
