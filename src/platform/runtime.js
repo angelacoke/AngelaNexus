@@ -56,7 +56,7 @@ export function createPlatformRuntime(implementation, runtime) {
 
   async function handleNetworkState(state) {
     networkGeneration += 1;
-    directTransitState = createDirectTransitSessionState({ networkGeneration });
+    directTransitState = createDirectTransitSessionState({ networkGeneration, validatedNetworkGeneration: directTransitState.validatedNetworkGeneration });
     if (!killSwitchEnabled) return;
     if (!isSafeNetworkState(state)) {
       await bridge.enableNetworkBlock("kill-switch-network-state");
