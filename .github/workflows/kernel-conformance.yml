@@ -18,11 +18,11 @@ jobs:
           curl -fsSL -o /tmp/mihomo.gz https://github.com/MetaCubeX/mihomo/releases/download/v1.19.31/mihomo-linux-amd64-v1-v1.19.31.gz
           gunzip -c /tmp/mihomo.gz > /tmp/mihomo
           chmod +x /tmp/mihomo
-      - name: Download sing-box v1.14.1
+      - name: Download sing-box v1.14.2
         run: |
-          curl -fsSL -o /tmp/sing-box.tar.gz https://github.com/SagerNet/sing-box/releases/download/v1.14.1/sing-box-1.14.1-linux-amd64.tar.gz
+          curl -fsSL -o /tmp/sing-box.tar.gz https://github.com/SagerNet/sing-box/releases/download/v1.14.2/sing-box-1.14.2-linux-amd64.tar.gz
           tar -xzf /tmp/sing-box.tar.gz -C /tmp
-          mv /tmp/sing-box-1.14.1-linux-amd64/sing-box /tmp/sing-box
+          mv /tmp/sing-box-1.14.2-linux-amd64/sing-box /tmp/sing-box
           chmod +x /tmp/sing-box
       - name: Download Xray-core v26.9.8
         run: |
