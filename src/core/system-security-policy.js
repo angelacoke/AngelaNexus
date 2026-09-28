@@ -19,6 +19,9 @@ export const SystemSecurityDefaults = Object.freeze({
   secretProtection: true,
   configIntegrityProtection: true,
   runtimeVerification: true,
+  blockWebRTC3478: true,
+  ipv6LeakBlackhole: true,
+  encryptedDns: true,
   chinaNetworkOptimization: {
     enabled: true,
     domesticAction: "direct",
@@ -33,7 +36,8 @@ const REQUIRED_TRUE = Object.freeze([
   "ipv6LeakPrevention", "udpLeakPrevention", "quicLeakPrevention",
   "tunBypassPrevention", "systemProxyBypassPrevention", "appBypassPrevention",
   "secureDnsBootstrap", "startupRaceProtection", "subscriptionUpdateProtection",
-  "secretProtection", "configIntegrityProtection", "runtimeVerification"
+  "secretProtection", "configIntegrityProtection", "runtimeVerification",
+  "blockWebRTC3478", "ipv6LeakBlackhole", "encryptedDns"
 ]);
 
 const SECURITY_KEYS = Object.freeze([
@@ -41,7 +45,8 @@ const SECURITY_KEYS = Object.freeze([
   "ipv6LeakPrevention", "udpLeakPrevention", "quicLeakPrevention",
   "tunBypassPrevention", "systemProxyBypassPrevention", "appBypassPrevention",
   "secureDnsBootstrap", "startupRaceProtection", "subscriptionUpdateProtection",
-  "secretProtection", "configIntegrityProtection", "runtimeVerification"
+  "secretProtection", "configIntegrityProtection", "runtimeVerification",
+  "blockWebRTC3478", "ipv6LeakBlackhole", "encryptedDns"
 ]);
 
 function clone(value) {
