@@ -24,6 +24,31 @@ function validateEndpoint(item, label, errors) {
   if (!finitePort(item.server_port ?? item.port)) push(errors, label + " requires a valid server port");
 }
 
+function validateMihomoProxyProvider(provider, name, errors) {
+  const label = "Mihomo proxy-provider[" + name + "]";
+  if (!nonEmptyObject(provider)) {
+    push(errors, label + " requires an object");
+    return;
+  }
+  if (!hasText(provider.type)) {
+    push(errors, label + " requires type");
+    return;
+  }
+  if (!["http", "file", "inline"].includes(provider.type)) {
+    push(errors, label + " uses unsupported provider type: " + provider.type);
+    return;
+  }
+  if (provider.type === "http" && !hasText(provider.url)) {
+    push(errors, label + " requires url for http provider");
+  }
+  if (provider.type === "file" && !hasText(provider.path)) {
+    push(errors, label + " requires path for file provider");
+  }
+  if (provider.type === "inline" && provider.payload !== undefined && typeof provider.payload !== "string") {
+    push(errors, label + " payload must be a string when provided");
+  }
+}
+
 function validateMihomoProxy(proxy, index, errors) {
   const label = "Mihomo proxy[" + index + "]";
   if (!hasText(proxy.name)) push(errors, label + " requires name");
@@ -123,6 +148,15 @@ export function validateCompiledConfig(config, kernel, expectedVersion = getKern
   if (nonEmptyObject(config)) {
     if (kernel === Kernels.MIHOMO) {
       if (Array.isArray(config.proxies)) config.proxies.forEach((proxy, index) => validateMihomoProxy(proxy, index, errors));
+      if (nonEmptyObject(config["proxy-providers"])) {
+        for (const [name, provider] of Object.entries(config["proxy-providers"])) {
+          if (!hasText(name)) {
+            push(errors, "Mihomo proxy-provider requires a non-empty name");
+            continue;
+          }
+          validateMihomoProxyProvider(provider, name, errors);
+        }
+      }
     } else if (kernel === Kernels.SING_BOX) {
       if (Array.isArray(config.outbounds)) config.outbounds.forEach((outbound, index) => validateSingBoxOutbound(outbound, index, errors));
     } else if (kernel === Kernels.XRAY) {
