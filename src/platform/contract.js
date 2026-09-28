@@ -17,6 +17,10 @@ export const PlatformCapabilities = Object.freeze({
   BACKGROUND_SERVICE: "background-service",
   NOTIFICATIONS: "notifications",
   SECURE_STORAGE: "secure-storage",
+  NATIVE_SOCKET_PATH: "native-socket-path",
+  NATIVE_ROUTE: "native-route",
+  BYPASS_TUN: "bypass-tun",
+  ROUTE_INTEGRITY: "route-integrity",
 });
 
 const CAPABILITY_METHODS = Object.freeze({
@@ -29,6 +33,10 @@ const CAPABILITY_METHODS = Object.freeze({
   [PlatformCapabilities.BACKGROUND_SERVICE]: Object.freeze(["startBackgroundService", "stopBackgroundService"]),
   [PlatformCapabilities.NOTIFICATIONS]: Object.freeze(["notify"]),
   [PlatformCapabilities.SECURE_STORAGE]: Object.freeze(["getSecureValue", "setSecureValue", "deleteSecureValue"]),
+  [PlatformCapabilities.NATIVE_SOCKET_PATH]: Object.freeze(["openNativeSocketPath"]),
+  [PlatformCapabilities.NATIVE_ROUTE]: Object.freeze(["validateNativeRoute"]),
+  [PlatformCapabilities.BYPASS_TUN]: Object.freeze(["setTunBypass"]),
+  [PlatformCapabilities.ROUTE_INTEGRITY]: Object.freeze(["validateRouteIntegrity"]),
 });
 
 function validateCapabilityMethods(implementation, capabilities) {

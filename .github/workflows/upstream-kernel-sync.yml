@@ -1,0 +1,153 @@
+name: upstream-kernel-sync
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/upstream-kernel-sync.yml'
+      - 'scripts/check-upstream.mjs'
+      - 'scripts/validate-upstream-report.mjs'
+      - 'src/core/kernel-registry.js'
+      - 'src/core/kernel-update-manager.js'
+      - 'test/**'
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      verify_pipeline:
+        description: "Exercise the full verification pipeline against the current stable baselines without changing the registry"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  discover-verify-propose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Node dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Discover upstream releases and prepare candidates
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p .nexus/gates
+          VERIFY=""
+          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ inputs.verify_pipeline }}" = "true" ]; then VERIFY="--verify-pipeline"; fi
+          node scripts/check-upstream.mjs --propose ${VERIFY} --write-report .nexus/upstream-report.json
+          printf "success\n" > .nexus/gates/release-verified.ok
+
+      - name: Upload upstream report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-kernel-report
+          path: .nexus/upstream-report.json
+          if-no-files-found: ignore
+
+      - name: Stop when no kernel update is available
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ inputs.verify_pipeline }}" = "true" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Pipeline verification mode enabled."
+          elif git diff --quiet -- src/core/kernel-registry.js; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No upstream kernel candidate update."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve candidate kernel versions
+        if: steps.changes.outputs.changed == 'true'
+        id: versions
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_OUTPUT"
+          import { UpstreamKernelRegistry } from "./src/core/kernel-registry.js";
+          console.log("mihomo=" + UpstreamKernelRegistry.mihomo.stable);
+          console.log("sing_box=" + UpstreamKernelRegistry["sing-box"].stable);
+          console.log("xray=" + UpstreamKernelRegistry.xray.stable);
+          NODE
+
+      - name: Download candidate Mihomo
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.versions.outputs.mihomo }}
+        run: |
+          curl -fsSL -o /tmp/mihomo.gz "https://github.com/MetaCubeX/mihomo/releases/download/v${VERSION}/mihomo-linux-amd64-v1-v${VERSION}.gz"
+          gunzip -c /tmp/mihomo.gz > /tmp/mihomo
+          chmod +x /tmp/mihomo
+
+      - name: Download candidate sing-box
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.versions.outputs.sing_box }}
+        run: |
+          curl -fsSL -o /tmp/sing-box.tar.gz "https://github.com/SagerNet/sing-box/releases/download/v${VERSION}/sing-box-${VERSION}-linux-amd64.tar.gz"
+          tar -xzf /tmp/sing-box.tar.gz -C /tmp
+          mv "/tmp/sing-box-${VERSION}-linux-amd64/sing-box" /tmp/sing-box
+          chmod +x /tmp/sing-box
+
+      - name: Download candidate Xray-core
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.versions.outputs.xray }}
+        run: |
+          curl -fsSL -o /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/v${VERSION}/Xray-linux-64.zip"
+          unzip -o /tmp/xray.zip xray -d /tmp/xray-bin
+          chmod +x /tmp/xray-bin/xray
+
+      - name: Unit and syntax verification
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          npm run syntax:check
+          npm test
+          printf "success\n" > .nexus/gates/unit-tests.ok
+
+      - name: Compatibility verification
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          npm run compatibility:test
+          printf "success\n" > .nexus/gates/compatibility-tests.ok
+
+      - name: Runtime kernel conformance
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          NEXUS_MIHOMO_BIN: /tmp/mihomo
+          NEXUS_SING_BOX_BIN: /tmp/sing-box
+          NEXUS_XRAY_BIN: /tmp/xray-bin/xray
+        run: |
+          npm run kernel:conformance -- --require-binaries
+          printf "success\n" > .nexus/gates/kernel-conformance.ok
+
+      - name: Verify candidate test plans
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ inputs.verify_pipeline }}" = "true" ]; then
+            node scripts/validate-upstream-report.mjs .nexus/upstream-report.json .nexus/gates --allow-manual-gates
+          else
+            node scripts/validate-upstream-report.mjs .nexus/upstream-report.json .nexus/gates
+          fi
+
+      - name: Create verified update proposal
+        if: steps.changes.outputs.changed == 'true' && github.event_name != 'pull_request' && inputs.verify_pipeline != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BRANCH="automated/kernel-upstream-${GITHUB_RUN_ID}"
+          git config user.name "AngelaNexus Upstream Bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "${BRANCH}"
+          git add src/core/kernel-registry.js
+          git commit -m "chore: propose verified kernel upstream updates"
+          git push --set-upstream origin "${BRANCH}"
+          gh pr create --base main --head "${BRANCH}" --title "chore: verified kernel upstream updates" --body "Automated candidate generated from official stable releases. Automated verification passed; manual security review and user approval remain mandatory before promotion."

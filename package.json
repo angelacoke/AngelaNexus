@@ -6,6 +6,7 @@
   "description": "Nexus — 智能化全能代理系统",
   "scripts": {
     "test": "node --test",
+    "compatibility:test": "node --test test/compatibility.test.js",
     "lint": "node --check src/core/sniffer.js && node --check src/core/chain.js && node --check src/core/security.js && node --check src/core/self-healing.js",
     "syntax:check": "node scripts/syntax-check.mjs",
     "verify": "npm run syntax:check && npm test",
@@ -13,10 +14,6 @@
     "kernel:conformance": "node scripts/kernel-conformance.mjs",
     "kernel:runtime:test": "node --test test/kernel-runtime.test.js"
   },
-  "engines": {
-    "node": ">=20"
-  },
-  "dependencies": {
-    "js-yaml": "^4.1.0"
-  }
+  "engines": { "node": ">=20" },
+  "dependencies": { "js-yaml": "^4.1.0" }
 }

@@ -20,7 +20,7 @@ export const UpstreamKernelRegistry = Object.freeze({
   xray: Object.freeze({
     name: "Xray-core",
     repository: "XTLS/Xray-core",
-    stable: "26.9.8",
+    stable: "26.3.27",
     channel: "stable",
     preview: "26.9.9",
     releases: "https://github.com/XTLS/Xray-core/releases",
@@ -31,9 +31,17 @@ export const UpstreamKernelRegistry = Object.freeze({
 export const UpstreamKernelNames = Object.freeze(Object.keys(UpstreamKernelRegistry));
 
 export const KernelUpdatePolicy = Object.freeze({
+  automaticDiscovery: true,
+  automaticCandidatePreparation: true,
   automaticUpgrade: false,
+  automaticRuntimeActivation: false,
+  automaticMerge: false,
   notifyAvailableUpdate: true,
+  requireReleaseVerification: true,
+  requireAdapterImpactReview: true,
+  requireCompatibilityTests: true,
   requireRuntimeConformance: true,
+  requireSecurityReview: true,
   requireUserApproval: true,
   preservePreviousStable: true
 });
