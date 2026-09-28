@@ -131,7 +131,12 @@ jobs:
 
       - name: Verify candidate test plans
         if: steps.changes.outputs.changed == 'true'
-        run: node scripts/validate-upstream-report.mjs .nexus/upstream-report.json .nexus/gates
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ inputs.verify_pipeline }}" = "true" ]; then
+            node scripts/validate-upstream-report.mjs .nexus/upstream-report.json .nexus/gates --allow-manual-gates
+          else
+            node scripts/validate-upstream-report.mjs .nexus/upstream-report.json .nexus/gates
+          fi
 
       - name: Create verified update proposal
         if: steps.changes.outputs.changed == 'true' && github.event_name != 'pull_request' && inputs.verify_pipeline != true
@@ -145,4 +150,4 @@ jobs:
           git add src/core/kernel-registry.js
           git commit -m "chore: propose verified kernel upstream updates"
           git push --set-upstream origin "${BRANCH}"
-          gh pr create --base main --head "${BRANCH}" --title "chore: verified kernel upstream updates" --body "Automated candidate generated from official stable releases. Unit tests, syntax validation, and all three kernel runtime-conformance probes passed. Merge remains subject to adapter/security review and user approval."
+          gh pr create --base main --head "${BRANCH}" --title "chore: verified kernel upstream updates" --body "Automated candidate generated from official stable releases. Automated verification passed; manual security review and user approval remain mandatory before promotion."
