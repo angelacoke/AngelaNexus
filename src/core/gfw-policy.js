@@ -50,7 +50,8 @@ function normalizeObservation(observation = {}) {
   const independent = observation.independent !== false;
   const transport = text(observation.transport) || null;
   const destination = text(observation.destination) || null;
-  return { signal, count, independent, transport, destination };
+  const at = Number.isFinite(Number(observation.at)) ? Number(observation.at) : null;
+  return { signal, count, independent, transport, destination, at };
 }
 
 export function createGfwPolicy(overrides = {}) {
