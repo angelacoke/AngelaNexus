@@ -38,7 +38,14 @@ export async function importSource(input, { kernel = null, maxNodes = null, fetc
 function buildUnifiedInput(input, sourceDocument, nodes) {
   const value = sourceDocument ? sourceDocument.value : input;
   if (!value || typeof value !== "object" || Array.isArray(value)) return { nodes };
-  const { proxies, outbounds, nodes: originalNodes, ...safe } = value;
+  const safe = { ...value };
+  delete safe.proxies;
+  delete safe.nodes;
+  if (Array.isArray(safe.outbounds)) {
+    safe.outbounds = safe.outbounds.filter((item) => item && typeof item === "object" && ["selector", "urltest"].includes(String(item.type || "").toLowerCase())).map((item) => ({ ...item }));
+  } else {
+    delete safe.outbounds;
+  }
   return { ...safe, nodes };
 }
 
@@ -64,20 +71,8 @@ export function importConfig(input, { kernel = null, maxNodes = null } = {}) {
   const unifiedConfig = toUnifiedConfig(unifiedInput, {
     sourceFormat: inspection.detection.kind,
     kernel: inspection.binding.kernel,
-    metadata: {
-      bindingMode: inspection.binding.mode,
-      detectionConfidence: inspection.detection.confidence,
-      runtimeCandidates: inspection.binding.candidates,
-      nativeInput: true,
-      sourceDigest: sourceVault.digest,
-      credentialBearing: sourceVault.credentialBearing
-    },
-    native: {
-      format: inspection.detection.kind,
-      protocol: inspection.detection.protocol || null,
-      runtimeCandidates: inspection.binding.candidates,
-      source: { version: sourceVault.version, digest: sourceVault.digest, credentialBearing: sourceVault.credentialBearing }
-    }
+    metadata: { bindingMode: inspection.binding.mode, detectionConfidence: inspection.detection.confidence, runtimeCandidates: inspection.binding.candidates, nativeInput: true, sourceDigest: sourceVault.digest, credentialBearing: sourceVault.credentialBearing },
+    native: { format: inspection.detection.kind, protocol: inspection.detection.protocol || null, runtimeCandidates: inspection.binding.candidates, source: { version: sourceVault.version, digest: sourceVault.digest, credentialBearing: sourceVault.credentialBearing } }
   });
 
   const result = { ...inspection, model: { nodes, nodeCount: nodes.length, nodeLimit: maxNodes, unifiedConfig } };
