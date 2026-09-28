@@ -30,8 +30,7 @@ function parseShareLink(link) {
     protocol,
     server: url.hostname,
     port: url.port ? Number(url.port) : undefined,
-    source: "share-link",
-    uri: link
+    source: "share-link"
   };
 
   if (url.username) node.username = decodeURIComponent(url.username);
@@ -55,14 +54,8 @@ function extractNodes(parsed) {
 }
 
 function parseStructured(text) {
-  try {
-    return JSON.parse(text);
-  } catch {
-    try {
-      return yaml.load(text);
-    } catch {
-      return null;
-    }
+  try { return JSON.parse(text); } catch {
+    try { return yaml.load(text); } catch { return null; }
   }
 }
 
@@ -79,55 +72,33 @@ export function classifyImportSource(input) {
     return { type: "text", content: input };
   }
   if (input && typeof input === "object" && !Array.isArray(input)) {
-    if (input.type === "url" && typeof input.url === "string") {
-      return { type: "url", url: input.url.trim() };
-    }
-    if (input.type === "file" && typeof input.content === "string") {
-      return { type: "file", name: input.name || "config", content: input.content };
-    }
-    if (input.type === "text" && typeof input.content === "string") {
-      return { type: "text", content: input.content };
-    }
-    if (typeof input.content === "string" && typeof input.name === "string") {
-      return { type: "file", name: input.name, content: input.content };
-    }
+    if (input.type === "url" && typeof input.url === "string") return { type: "url", url: input.url.trim() };
+    if (input.type === "file" && typeof input.content === "string") return { type: "file", name: input.name || "config", content: input.content };
+    if (input.type === "text" && typeof input.content === "string") return { type: "text", content: input.content };
+    if (typeof input.content === "string" && typeof input.name === "string") return { type: "file", name: input.name, content: input.content };
   }
   return { type: "structured", value: input };
 }
 
 export function parseSubscriptionDocument(input) {
-  if (typeof input !== "string" || !input.trim()) {
-    throw new TypeError("subscription input must be non-empty text");
-  }
-
+  if (typeof input !== "string" || !input.trim()) throw new TypeError("subscription input must be non-empty text");
   const text = input.trim();
   if (SHARE_LINK_RE.test(text)) {
     SHARE_LINK_RE.lastIndex = 0;
     return { kind: "share-links", value: parseShareLinks(text) };
   }
-
   let parsed = parseStructured(text);
   if (parsed !== null) return { kind: "structured", value: parsed };
-
   parsed = parseStructured(decodeBase64(text));
   if (parsed !== null) return { kind: "base64", value: parsed };
-
   throw new Error("unsupported subscription format");
 }
 
 export function validateSubscriptionUrl(value) {
   let url;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error("invalid subscription URL");
-  }
-  if (!["http:", "https:"].includes(url.protocol)) {
-    throw new Error("subscription URL must use http or https");
-  }
-  if (url.username || url.password) {
-    throw new Error("subscription URL must not contain embedded credentials");
-  }
+  try { url = new URL(value); } catch { throw new Error("invalid subscription URL"); }
+  if (!["http:", "https:"].includes(url.protocol)) throw new Error("subscription URL must use http or https");
+  if (url.username || url.password) throw new Error("subscription URL must not contain embedded credentials");
   return url.toString();
 }
 
@@ -137,19 +108,8 @@ export async function fetchSubscription(url, { fetcher = globalThis.fetch, maxBy
   const response = await fetcher(target, { redirect: "follow" });
   if (!response || !response.ok) throw new Error("subscription download failed");
   if (response.body && typeof response.body.getReader === "function") {
-    const reader = response.body.getReader();
-    const chunks = [];
-    let total = 0;
-    for (;;) {
-      const part = await reader.read();
-      if (part.done) break;
-      total += part.value.byteLength;
-      if (total > maxBytes) {
-        try { await reader.cancel(); } catch {}
-        throw new Error("subscription exceeds size limit");
-      }
-      chunks.push(part.value);
-    }
+    const reader = response.body.getReader(); const chunks = []; let total = 0;
+    for (;;) { const part = await reader.read(); if (part.done) break; total += part.value.byteLength; if (total > maxBytes) { try { await reader.cancel(); } catch {} throw new Error("subscription exceeds size limit"); } chunks.push(part.value); }
     return new TextDecoder().decode(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))));
   }
   const text = await response.text();
@@ -159,8 +119,6 @@ export async function fetchSubscription(url, { fetcher = globalThis.fetch, maxBy
 
 export function parseSubscription(input, { maxNodes = null } = {}) {
   const document = parseSubscriptionDocument(input);
-  const nodes = document.kind === "share-links"
-    ? document.value
-    : extractNodes(document.value);
+  const nodes = document.kind === "share-links" ? document.value : extractNodes(document.value);
   return normalizeNodeConfig(nodes, maxNodes);
 }
