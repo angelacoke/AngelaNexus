@@ -59,7 +59,7 @@ test("does not create an execution when unified config preflight fails", async (
       kernel: Kernels.SING_BOX,
       nodes: [{
         id: "bad",
-        protocol: "vless",
+        protocol: "nexus-unknown",
         server: "example.com",
         port: 443
       }]
