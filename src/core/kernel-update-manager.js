@@ -86,6 +86,29 @@ export function analyzeKernelAdapterImpact(files = [], releaseNotes = "") {
   });
 }
 
+const DOMAIN_CHECKS = Object.freeze({
+  security: Object.freeze(["unit-tests", "compatibility-tests", "security-review"]),
+  transport: Object.freeze(["compatibility-tests", "kernel-conformance"]),
+  routing: Object.freeze(["compatibility-tests", "kernel-conformance"]),
+  schema: Object.freeze(["unit-tests", "compatibility-tests"]),
+  runtime: Object.freeze(["unit-tests", "kernel-conformance"])
+});
+
+export function buildKernelAdapterTestPlan(adapterImpact = {}) {
+  const domains = Array.isArray(adapterImpact.domains) ? adapterImpact.domains : [];
+  const checks = new Set(["unit-tests", "kernel-conformance"]);
+  for (const domain of domains) {
+    for (const check of DOMAIN_CHECKS[domain] || []) checks.add(check);
+  }
+  const adapterAreas = Array.isArray(adapterImpact.adapterAreas) ? adapterImpact.adapterAreas : [];
+  return Object.freeze({
+    domains: [...domains],
+    adapterAreas: [...adapterAreas],
+    checks: [...checks],
+    manualReviewRequired: adapterImpact.requiresManualAdapterReview === true
+  });
+}
+
 export function createKernelUpdateCandidate({
   kernel,
   configuredVersion,
@@ -101,6 +124,7 @@ export function createKernelUpdateCandidate({
 
   const impact = assessAdapterImpact(changedFiles);
   const adapterImpact = analyzeKernelAdapterImpact(changedFiles, release.body || "");
+  const testPlan = buildKernelAdapterTestPlan(adapterImpact);
   if (state === KERNEL_UPDATE_STATES.UPDATE_AVAILABLE) state = KERNEL_UPDATE_STATES.CANDIDATE;
 
   return Object.freeze({
@@ -116,6 +140,7 @@ export function createKernelUpdateCandidate({
     },
     changedFiles: impact.paths,
     adapterImpact,
+    testPlan,
     requiredGates: REQUIRED_GATES
   });
 }
