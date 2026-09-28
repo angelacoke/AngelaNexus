@@ -31,7 +31,9 @@ export function createExecutionRequest(request) {
 
 export function createExecutionController(options = {}) {
   const executionFactory = options.executionFactory || createKernelExecution;
+  const pathRevalidator = options.pathRevalidator;
   if (typeof executionFactory !== "function") throw new TypeError("executionFactory must be a function");
+  if (typeof pathRevalidator !== "function") throw new TypeError("pathRevalidator must be a function");
   let state = ExecutionStates.IDLE;
   let execution = null;
   let request = null;
@@ -84,7 +86,16 @@ export function createExecutionController(options = {}) {
 
     async start() {
       if (!execution || state !== ExecutionStates.READY) throw new Error("execution is not ready");
-      try { await execution.start(); state = ExecutionStates.RUNNING; return snapshot(); }
+      try {
+        const currentPath = await pathRevalidator(request.path, request);
+        if (!currentPath || currentPath.validated !== true) throw new Error("execution path revalidation failed");
+        if (request.path.networkGeneration !== undefined && currentPath.networkGeneration !== request.path.networkGeneration) {
+          throw new Error("execution path changed after decision validation");
+        }
+        await execution.start();
+        state = ExecutionStates.RUNNING;
+        return snapshot();
+      }
       catch (error) {
         failure = error instanceof Error ? error.message : String(error);
         try { await execution.stop(); }
