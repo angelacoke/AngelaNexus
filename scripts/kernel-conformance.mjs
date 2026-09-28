@@ -137,7 +137,7 @@ const wireguardProbeConfigs = {
       server: "192.0.2.1",
       port: 51820,
       ip: "10.0.0.2",
-      public-key: wireguardPeerPublicKey,
+      "public-key": wireguardPeerPublicKey,
       "allowed-ips": ["0.0.0.0/0"],
       udp: true
     }]
