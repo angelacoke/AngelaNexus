@@ -126,8 +126,18 @@ function validateRootSchema(config, schema, errors) {
   for (const key of root.required || []) {
     if (!Array.isArray(config[key])) push(errors, schema.schemaId + " requires array: " + key);
   }
-  if (Array.isArray(root.requiredAnyOf) && !root.requiredAnyOf.some((key) => Array.isArray(config[key]))) {
-    push(errors, schema.schemaId + " requires one of: " + root.requiredAnyOf.join(", "));
+  if (Array.isArray(root.requiredAnyOf)) {
+    const matched = root.requiredAnyOf.some((requirement) => {
+      const key = typeof requirement === "string" ? requirement : requirement.key;
+      const type = typeof requirement === "string" ? "array" : requirement.type;
+      if (type === "object") return nonEmptyObject(config[key]);
+      if (type === "array") return Array.isArray(config[key]);
+      return config[key] !== undefined;
+    });
+    if (!matched) {
+      const names = root.requiredAnyOf.map((requirement) => typeof requirement === "string" ? requirement : requirement.key);
+      push(errors, schema.schemaId + " requires one of: " + names.join(", "));
+    }
   }
 }
 
