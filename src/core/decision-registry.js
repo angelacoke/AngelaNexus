@@ -67,3 +67,23 @@ export function assertUserChoice(action, choice) {
   }
   return choice;
 }
+
+export function createDecisionRecord({ id, action, choice, version = 1, confirmed = false, context = {} } = {}) {
+  if (typeof id !== "string" || !id.trim()) throw new TypeError("decision id must be a non-empty string");
+  if (typeof action !== "string" || !action.trim()) throw new TypeError("decision action must be a non-empty string");
+  const requiresChoice = USER_DECISIONS.includes(action) || requiresUserConfirmation(action);
+  assertUserChoice(action, choice);
+  if (requiresUserConfirmation(action) && confirmed !== true) {
+    throw new Error("explicit confirmation required for: " + action);
+  }
+  if (!Number.isInteger(version) || version < 1) throw new TypeError("decision version must be a positive integer");
+  return Object.freeze({
+    id: id.trim(),
+    version,
+    action: action.trim(),
+    choice,
+    requiresUserChoice: requiresChoice,
+    confirmed: confirmed === true,
+    context: Object.freeze({ ...context })
+  });
+}
