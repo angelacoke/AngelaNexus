@@ -49,6 +49,20 @@ jobs:
           /tmp/mihomo -v
           /tmp/sing-box version
           /tmp/xray-bin/xray version
+      - name: Generate integration Reality public key
+        id: reality
+        run: |
+          /tmp/sing-box generate reality-keypair 2>&1 | tee /tmp/reality-keypair.txt
+          PUBLIC_KEY=$(sed -n 's/^PublicKey: *//p' /tmp/reality-keypair.txt | head -n1)
+          test -n "$PUBLIC_KEY"
+          echo "public_key=$PUBLIC_KEY" >> "$GITHUB_OUTPUT"
+      - name: Run real kernel execution lifecycle integration
+        env:
+          NEXUS_MIHOMO_BIN: /tmp/mihomo
+          NEXUS_SING_BOX_BIN: /tmp/sing-box
+          NEXUS_XRAY_BIN: /tmp/xray-bin/xray
+          NEXUS_REALITY_PUBLIC_KEY: ${{ steps.reality.outputs.public_key }}
+        run: node scripts/kernel-execution-integration.mjs
       - name: Run Nexus runtime conformance
         env:
           NEXUS_MIHOMO_BIN: /tmp/mihomo
