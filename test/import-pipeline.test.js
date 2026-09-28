@@ -32,7 +32,7 @@ test("import inspection resolves VLESS share links without kernel selection", ()
 
 test("automatic detection is exposed as an observable decision", () => {
   const result = inspectImport(CLASH);
-  assert.equal(result.binding.decision.action, "kernel");
+  assert.equal(result.binding.decision.action, "detectKernelCompatibility");
   assert.equal(result.binding.decision.requiresUserChoice, false);
   assert.deepEqual(result.binding.decision.options, ["mihomo"]);
 });
@@ -85,7 +85,6 @@ test("structured sing-box import excludes non-proxy outbounds", () => {
   assert.equal(result.model.unifiedConfig.kernel, "sing-box");
   assert.equal(result.model.unifiedConfig.groups.length, 1);
 });
-
 
 test("native source is preserved on import for lossless runtime handoff", () => {
   const input = {
