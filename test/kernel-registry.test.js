@@ -11,9 +11,17 @@ test("kernel registry tracks three upstream stable baselines", () => {
 
 test("kernel updates never silently change the user's selected runtime", () => {
   const policy = getKernelUpdatePolicy();
+  assert.equal(policy.automaticDiscovery, true);
+  assert.equal(policy.automaticCandidatePreparation, true);
   assert.equal(policy.automaticUpgrade, false);
+  assert.equal(policy.automaticRuntimeActivation, false);
+  assert.equal(policy.automaticMerge, false);
   assert.equal(policy.notifyAvailableUpdate, true);
+  assert.equal(policy.requireReleaseVerification, true);
+  assert.equal(policy.requireAdapterImpactReview, true);
+  assert.equal(policy.requireCompatibilityTests, true);
   assert.equal(policy.requireRuntimeConformance, true);
+  assert.equal(policy.requireSecurityReview, true);
   assert.equal(policy.requireUserApproval, true);
   assert.equal(policy.preservePreviousStable, true);
 });
