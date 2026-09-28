@@ -4,6 +4,7 @@ import { toUnifiedConfig } from "./unified-config.js";
 import { normalizeNodeConfig } from "./config.js";
 import { Kernels } from "./model.js";
 import { createDecisionPrompt } from "./decision-registry.js";
+import { createSensitiveSourceCarrier } from "./sensitive-source.js";
 
 function validateKernel(kernel) {
   if (kernel === null || kernel === undefined) return null;
@@ -85,6 +86,7 @@ export async function importSource(input, { kernel = null, maxNodes = null, fetc
 
 export function importConfig(input, { kernel = null, maxNodes = null } = {}) {
   const inspection = inspectImport(input, { kernel });
+  const sourceVault = createSensitiveSourceCarrier(input);
 
   let nodes;
   let sourceDocument = null;
@@ -124,17 +126,23 @@ export function importConfig(input, { kernel = null, maxNodes = null } = {}) {
       bindingMode: inspection.binding.mode,
       detectionConfidence: inspection.detection.confidence,
       runtimeCandidates: inspection.binding.candidates,
-      nativeInput: true
+      nativeInput: true,
+      sourceDigest: sourceVault.digest,
+      credentialBearing: sourceVault.credentialBearing
     },
     native: {
       format: inspection.detection.kind,
       protocol: inspection.detection.protocol || null,
       runtimeCandidates: inspection.binding.candidates,
-      source: typeof input === "string" ? input : structuredClone(input)
+      source: {
+        version: sourceVault.version,
+        digest: sourceVault.digest,
+        credentialBearing: sourceVault.credentialBearing
+      }
     }
   });
 
-  return {
+  const result = {
     ...inspection,
     model: {
       nodes,
@@ -143,4 +151,11 @@ export function importConfig(input, { kernel = null, maxNodes = null } = {}) {
       unifiedConfig
     }
   };
+  Object.defineProperty(result, "sourceVault", {
+    value: sourceVault,
+    enumerable: false,
+    configurable: false,
+    writable: false
+  });
+  return Object.freeze(result);
 }
