@@ -13,20 +13,35 @@ jobs:
           node-version: 24
       - name: Install Node dependencies
         run: npm install --no-audit --no-fund
-      - name: Download Mihomo v1.19.31
+      - name: Resolve maintained kernel versions
+        id: versions
         run: |
-          curl -fsSL -o /tmp/mihomo.gz https://github.com/MetaCubeX/mihomo/releases/download/v1.19.31/mihomo-linux-amd64-v1-v1.19.31.gz
+          node --input-type=module <<'NODE' >> "$GITHUB_OUTPUT"
+          import { UpstreamKernelRegistry } from "./src/core/kernel-registry.js";
+          console.log("mihomo=" + UpstreamKernelRegistry.mihomo.stable);
+          console.log("sing_box=" + UpstreamKernelRegistry["sing-box"].stable);
+          console.log("xray=" + UpstreamKernelRegistry.xray.stable);
+          NODE
+      - name: Download Mihomo
+        env:
+          VERSION: ${{ steps.versions.outputs.mihomo }}
+        run: |
+          curl -fsSL -o /tmp/mihomo.gz "https://github.com/MetaCubeX/mihomo/releases/download/v${VERSION}/mihomo-linux-amd64-v1-v${VERSION}.gz"
           gunzip -c /tmp/mihomo.gz > /tmp/mihomo
           chmod +x /tmp/mihomo
-      - name: Download sing-box v1.14.2
+      - name: Download sing-box
+        env:
+          VERSION: ${{ steps.versions.outputs.sing_box }}
         run: |
-          curl -fsSL -o /tmp/sing-box.tar.gz https://github.com/SagerNet/sing-box/releases/download/v1.14.2/sing-box-1.14.2-linux-amd64.tar.gz
+          curl -fsSL -o /tmp/sing-box.tar.gz "https://github.com/SagerNet/sing-box/releases/download/v${VERSION}/sing-box-${VERSION}-linux-amd64.tar.gz"
           tar -xzf /tmp/sing-box.tar.gz -C /tmp
-          mv /tmp/sing-box-1.14.2-linux-amd64/sing-box /tmp/sing-box
+          mv "/tmp/sing-box-${VERSION}-linux-amd64/sing-box" /tmp/sing-box
           chmod +x /tmp/sing-box
-      - name: Download Xray-core v26.9.8
+      - name: Download Xray-core
+        env:
+          VERSION: ${{ steps.versions.outputs.xray }}
         run: |
-          curl -fsSL -o /tmp/xray.zip https://github.com/XTLS/Xray-core/releases/download/v26.9.8/Xray-linux-64.zip
+          curl -fsSL -o /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/v${VERSION}/Xray-linux-64.zip"
           unzip -o /tmp/xray.zip xray -d /tmp/xray-bin
           chmod +x /tmp/xray-bin/xray
       - name: Verify kernel versions
