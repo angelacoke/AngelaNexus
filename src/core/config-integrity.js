@@ -1,6 +1,9 @@
-import { createHash } from "node:crypto";
+import { createHash, verify as verifySignature } from "node:crypto";
 
 export const CONFIG_SECURITY_VERSION = 1;
+export const UPDATE_SECURITY_VERSION = 1;
+
+const SECRET_TYPES = new Set(["private-key", "github-token", "generic-api-key", "jwt"]);
 
 const SECRET_PATTERNS = Object.freeze([
   { type: "private-key", re: /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/i },
@@ -40,51 +43,80 @@ export function scanSecrets(input) {
   for (const pattern of SECRET_PATTERNS) {
     if (pattern.re.test(text)) findings.push(Object.freeze({ type: pattern.type }));
   }
-  return Object.freeze({ safe: findings.length === 0, findings: Object.freeze(findings) });
+  return Object.freeze({ safe: findings.every((item) => !SECRET_TYPES.has(item.type)), findings: Object.freeze(findings) });
 }
 
 export function validateSecretHandling(input) {
   const result = scanSecrets(input);
-  return Object.freeze({
-    ok: result.safe,
-    code: result.safe ? "NO_SECRET_DETECTED" : "SECRET_DETECTED",
-    findings: result.findings
-  });
+  const secretFindings = result.findings.filter((item) => SECRET_TYPES.has(item.type));
+  return Object.freeze({ ok: secretFindings.length === 0, code: secretFindings.length === 0 ? "NO_SECRET_DETECTED" : "SECRET_DETECTED", findings: Object.freeze(secretFindings), credentialBearing: result.findings.some((item) => item.type === "credential-uri") });
+}
+
+function decodeSignature(value) {
+  if (Buffer.isBuffer(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return null;
+  try { return Buffer.from(value, "base64"); } catch { return null; }
+}
+
+export function verifyPublisherSignature(config, { signature = null, publicKey = null, algorithm = "ed25519" } = {}) {
+  if (algorithm !== "ed25519") return Object.freeze({ ok: false, code: "SIGNATURE_ALGORITHM_UNSUPPORTED" });
+  if (!publicKey || !signature) return Object.freeze({ ok: false, code: "SIGNATURE_REFERENCE_MISSING" });
+  const signatureBytes = decodeSignature(signature);
+  if (!signatureBytes) return Object.freeze({ ok: false, code: "SIGNATURE_ENCODING_INVALID" });
+  try {
+    const digestBytes = Buffer.from(configIntegrityDigest(config), "hex");
+    const ok = verifySignature(null, digestBytes, publicKey, signatureBytes);
+    return Object.freeze({ ok, code: ok ? "SIGNATURE_VALID" : "SIGNATURE_INVALID" });
+  } catch {
+    return Object.freeze({ ok: false, code: "SIGNATURE_VERIFICATION_ERROR" });
+  }
+}
+
+export function verifyUpdateFreshness(incomingVersion, currentVersion, { allowEqual = true } = {}) {
+  if (!Number.isInteger(incomingVersion) || !Number.isInteger(currentVersion)) return Object.freeze({ ok: false, code: "UPDATE_VERSION_INVALID" });
+  if (incomingVersion < currentVersion) return Object.freeze({ ok: false, code: "UPDATE_ROLLBACK_REJECTED", incomingVersion, currentVersion });
+  if (!allowEqual && incomingVersion === currentVersion) return Object.freeze({ ok: false, code: "UPDATE_VERSION_NOT_NEWER", incomingVersion, currentVersion });
+  return Object.freeze({ ok: true, code: incomingVersion === currentVersion ? "UPDATE_VERSION_EQUAL" : "UPDATE_VERSION_FRESH", incomingVersion, currentVersion });
 }
 
 /**
  * Validate a subscription/config update before it replaces a known-good copy.
- * Updates are fail-closed: a digest mismatch, detected secret, or invalid
- * update metadata rejects the replacement. No secret value is returned.
+ * Integrity, authenticity and freshness are separate checks. Trusted references
+ * must come from outside the untrusted update payload.
  */
 export function verifySubscriptionUpdate(incoming, {
   expectedDigest = null,
+  signature = null,
+  publicKey = null,
   requireIntegrity = true,
-  rejectSecrets = true
+  requireAuthenticity = false,
+  rejectSecrets = true,
+  incomingVersion = null,
+  currentVersion = null,
+  requireFreshness = false
 } = {}) {
   const errors = [];
+  let integrity = null;
+  let authenticity = null;
+  let freshness = null;
   if (requireIntegrity) {
-    if (!expectedDigest) {
-      errors.push(Object.freeze({ code: "UPDATE_INTEGRITY_REFERENCE_MISSING" }));
-    } else {
-      const integrity = verifyConfigIntegrity(incoming, expectedDigest);
-      if (!integrity.ok) errors.push(Object.freeze({
-        code: integrity.code,
-        expected: integrity.expected,
-        actual: integrity.actual
-      }));
+    if (!expectedDigest) errors.push(Object.freeze({ code: "UPDATE_INTEGRITY_REFERENCE_MISSING" }));
+    else {
+      integrity = verifyConfigIntegrity(incoming, expectedDigest);
+      if (!integrity.ok) errors.push(Object.freeze({ code: integrity.code, expected: integrity.expected, actual: integrity.actual }));
     }
   }
-  if (rejectSecrets) {
-    const secrets = scanSecrets(incoming);
-    if (!secrets.safe) errors.push(Object.freeze({
-      code: "UPDATE_CONTAINS_SECRET",
-      findings: secrets.findings
-    }));
+  if (requireAuthenticity) {
+    authenticity = verifyPublisherSignature(incoming, { signature, publicKey });
+    if (!authenticity.ok) errors.push(Object.freeze({ code: authenticity.code }));
   }
-  return Object.freeze({
-    ok: errors.length === 0,
-    action: errors.length === 0 ? "accept" : "reject",
-    errors: Object.freeze(errors)
-  });
+  if (requireFreshness) {
+    freshness = verifyUpdateFreshness(incomingVersion, currentVersion);
+    if (!freshness.ok) errors.push(Object.freeze({ code: freshness.code, incomingVersion: freshness.incomingVersion, currentVersion: freshness.currentVersion }));
+  }
+  if (rejectSecrets) {
+    const secrets = validateSecretHandling(incoming);
+    if (!secrets.ok) errors.push(Object.freeze({ code: "UPDATE_CONTAINS_SECRET", findings: secrets.findings }));
+  }
+  return Object.freeze({ ok: errors.length === 0, action: errors.length === 0 ? "accept" : "reject", errors: Object.freeze(errors), integrity, authenticity, freshness });
 }
