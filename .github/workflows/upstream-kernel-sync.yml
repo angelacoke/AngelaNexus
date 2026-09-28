@@ -1,6 +1,14 @@
 name: upstream-kernel-sync
 
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/upstream-kernel-sync.yml'
+      - 'scripts/check-upstream.mjs'
+      - 'scripts/validate-upstream-report.mjs'
+      - 'src/core/kernel-registry.js'
+      - 'src/core/kernel-update-manager.js'
+      - 'test/**'
   schedule:
     - cron: "17 3 * * 1"
   workflow_dispatch:
@@ -33,7 +41,9 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           mkdir -p .nexus/gates
-          node scripts/check-upstream.mjs --propose ${{ inputs.verify_pipeline == true && '--verify-pipeline' || '' }} --write-report .nexus/upstream-report.json
+          VERIFY=""
+          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ inputs.verify_pipeline }}" = "true" ]; then VERIFY="--verify-pipeline"; fi
+          node scripts/check-upstream.mjs --propose ${VERIFY} --write-report .nexus/upstream-report.json
           printf "success\n" > .nexus/gates/release-verified.ok
 
       - name: Upload upstream report
@@ -47,7 +57,7 @@ jobs:
       - name: Stop when no kernel update is available
         id: changes
         run: |
-          if [ "${{ inputs.verify_pipeline }}" = "true" ]; then
+          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ inputs.verify_pipeline }}" = "true" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
             echo "Pipeline verification mode enabled."
           elif git diff --quiet -- src/core/kernel-registry.js; then
@@ -124,7 +134,7 @@ jobs:
         run: node scripts/validate-upstream-report.mjs .nexus/upstream-report.json .nexus/gates
 
       - name: Create verified update proposal
-        if: steps.changes.outputs.changed == 'true' && inputs.verify_pipeline != true
+        if: steps.changes.outputs.changed == 'true' && github.event_name != 'pull_request' && inputs.verify_pipeline != true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -135,4 +145,4 @@ jobs:
           git add src/core/kernel-registry.js
           git commit -m "chore: propose verified kernel upstream updates"
           git push --set-upstream origin "${BRANCH}"
-          gh pr create             --base main             --head "${BRANCH}"             --title "chore: verified kernel upstream updates"             --body "Automated candidate generated from official stable releases. Unit tests, syntax validation, and all three kernel runtime-conformance probes passed. Merge remains subject to adapter/security review and user approval."
+          gh pr create --base main --head "${BRANCH}" --title "chore: verified kernel upstream updates" --body "Automated candidate generated from official stable releases. Unit tests, syntax validation, and all three kernel runtime-conformance probes passed. Merge remains subject to adapter/security review and user approval."
