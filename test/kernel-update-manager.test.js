@@ -6,7 +6,8 @@ import {
   compareKernelVersions,
   assessAdapterImpact,
   createKernelUpdateCandidate,
-  validateKernelUpdateGates
+  validateKernelUpdateGates,
+  analyzeKernelAdapterImpact
 } from "../src/core/kernel-update-manager.js";
 
 test("compares kernel versions without assuming SemVer prerelease syntax", () => {
@@ -19,6 +20,17 @@ test("classifies adapter impact from upstream changed files", () => {
   assert.equal(assessAdapterImpact(["README.md"]).risk, KERNEL_UPDATE_RISK.LOW);
   assert.equal(assessAdapterImpact(["docs/config.md", "route/schema.json"]).risk, KERNEL_UPDATE_RISK.MEDIUM);
   assert.equal(assessAdapterImpact(["core/transport/tls.go"]).risk, KERNEL_UPDATE_RISK.HIGH);
+});
+
+test("maps upstream changes to adapter impact domains", () => {
+  const impact = analyzeKernelAdapterImpact(
+    ["core/transport/quic.go", "config/schema.json"],
+    "changed TLS and routing behavior"
+  );
+  assert.ok(impact.domains.includes("transport"));
+  assert.ok(impact.domains.includes("schema"));
+  assert.ok(impact.adapterAreas.includes("execution.adapters"));
+  assert.equal(impact.requiresManualAdapterReview, true);
 });
 
 test("creates a candidate only when upstream is newer", () => {
