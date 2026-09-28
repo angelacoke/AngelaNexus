@@ -16,6 +16,13 @@ function assertDecision(decision) {
   if (!Number.isInteger(decision.version) || decision.version < 1) {
     throw new Error("execution decision version is required");
   }
+  if (!text(decision.action)) throw new Error("execution decision action is required");
+  if (decision.requiresUserChoice === true && (decision.choice === undefined || decision.choice === null || decision.choice === "")) {
+    throw new Error("execution decision choice is required");
+  }
+  if (decision.confirmed !== true && decision.requiresConfirmation === true) {
+    throw new Error("execution decision confirmation is required");
+  }
 }
 
 function assertExecutionGates(input) {
@@ -65,7 +72,12 @@ export function createExecutionContract(input = {}) {
     version: EXECUTION_CONTRACT_VERSION,
     decision: {
       id: text(input.decision.id),
-      version: input.decision.version
+      version: input.decision.version,
+      action: text(input.decision.action),
+      choice: clone(input.decision.choice),
+      requiresUserChoice: input.decision.requiresUserChoice === true,
+      confirmed: input.decision.confirmed === true,
+      context: clone(input.decision.context || {})
     },
     kernel: input.kernel,
     config: clone(input.config),
