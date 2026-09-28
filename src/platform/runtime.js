@@ -81,7 +81,7 @@ export function createPlatformRuntime(implementation, runtime) {
       route: { native: nativeRoute === true || nativeRoute?.native === true, consistent: routeIntegrity === true || routeIntegrity?.consistent === true },
       dnsPath: { consistent: options.dnsPathConsistent === true },
       networkGeneration,
-      validatedNetworkGeneration: directTransitState.validatedNetworkGeneration,
+      validatedNetworkGeneration: networkGeneration,
     });
     if (result.action === DirectTransitActions.NATIVE && (nativeSocket === false || bypass === false)) {
       return Object.freeze({ action: DirectTransitActions.FAIL_CLOSED, reasons: Object.freeze(["native-path-establishment-failed"]) });
