@@ -96,7 +96,7 @@ test("weaker user security settings do not silently disable the system floor", (
   });
   assert.equal(result.policy.failClosed, true);
   assert.equal(result.policy.killSwitch, true);
-  assert.equal(result.conflicts.length, 2);
+  assert.equal(result.conflicts.length, 3);
   assert.equal(result.conflicts[0].resolution, "system-floor");
   assert.equal(result.conflicts[1].resolution, "system-floor");
   assert.equal(result.policy.encryptedDns, true);
