@@ -45,10 +45,18 @@ async function compareRelease(entry, configured, upstream) {
 }
 
 function replaceStable(source, kernel, version) {
-  const escaped = kernel.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&");
-  const block = new RegExp("(\\\\"" + escaped + "\\\\"\\\\s*:\\s*Object\\\\.freeze\\\\(\\\\{[\\s\\S]*?\\\\bstable:\\s*\\\\\")([^\\\\\"]+)(\\\\\")");
-  if (!block.test(source)) throw new Error("cannot locate registry entry for " + kernel);
-  return source.replace(block, "$1" + version + "$3");
+  const marker = kernel === "sing-box"
+    ? '"sing-box": Object.freeze({'
+    : kernel + ': Object.freeze({';
+  const start = source.indexOf(marker);
+  if (start < 0) throw new Error("cannot locate registry entry for " + kernel);
+  const end = source.indexOf("\n  })", start);
+  if (end < 0) throw new Error("cannot locate end of registry entry for " + kernel);
+  const block = source.slice(start, end);
+  const stable = /stable:\s*"[^"]+"/;
+  if (!stable.test(block)) throw new Error("cannot locate stable version for " + kernel);
+  const nextBlock = block.replace(stable, 'stable: "' + version + '"');
+  return source.slice(0, start) + nextBlock + source.slice(end);
 }
 
 const report = {
