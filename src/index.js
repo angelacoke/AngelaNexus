@@ -23,3 +23,4 @@ export * from "./core/gfw-policy.js";
 export * from "./core/system-security-policy.js";
 export * from "./core/native-network-compatibility.js";
 export * from "./core/direct-transit.js";
+export * from "./core/kernel-update-manager.js";
