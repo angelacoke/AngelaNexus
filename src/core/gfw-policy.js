@@ -341,14 +341,14 @@ export function createGfwRuntime(overrides = {}) {
       corroborated
     ) {
       state = GfwStates.CONFIRMED;
-    } else if (evidenceCount > 0) {
-      state = GfwStates.SUSPECTED;
     } else if (
       lastEvidenceAt !== null &&
       current - lastEvidenceAt >= policy.recoveryQuietPeriodMs &&
       score < policy.confirmationScore * 0.25
     ) {
       state = GfwStates.NORMAL;
+    } else if (evidenceCount > 0) {
+      state = GfwStates.SUSPECTED;
     } else if (
       lastState === GfwStates.CONFIRMED &&
       lastEvidenceAt !== null &&
