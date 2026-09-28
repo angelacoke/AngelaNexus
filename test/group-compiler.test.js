@@ -20,18 +20,12 @@ test("compiles unified groups to Mihomo and rewrites route targets", () => {
   assert.equal(result.groups[0].target, "US Auto");
 });
 
-test("compiles unified groups to sing-box without leaking canonical fields", () => {
-  const result = compileUnifiedConfig({
+test("rejects unsupported sing-box load-balance instead of emitting a non-native outbound", () => {
+  assert.throws(() => compileUnifiedConfig({
     kernel: Kernels.SING_BOX,
     nodes: [{ id: "a", protocol: "socks", server: "a.example", port: 1080 }, { id: "b", protocol: "socks", server: "b.example", port: 1080 }],
     groups: [{ id: "auto", name: "Auto", type: "load_balance", members: ["a", "b"], options: { strategy: "random" } }]
-  });
-  const group = result.config.outbounds.find((outbound) => outbound.tag === "auto");
-  assert.equal(group.type, "loadbalance");
-  assert.deepEqual(group.outbounds, ["a", "b"]);
-  assert.equal(group.strategy, "random");
-  assert.equal(group.id, undefined);
-  assert.equal(group.members, undefined);
+  }), /unsupported sing-box group type without semantic downgrade: load_balance/);
 });
 
 test("rejects Xray groups instead of silently downgrading their semantics", () => {
