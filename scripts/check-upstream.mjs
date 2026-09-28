@@ -107,8 +107,11 @@ for (const [kernel, entry] of Object.entries(UpstreamKernelRegistry)) {
     },
     changedFiles
   });
+  const reportCandidate = verifyPipeline && candidate.state === "current"
+    ? { ...candidate, state: "candidate" }
+    : candidate;
   const item = {
-    ...candidate,
+    ...reportCandidate,
     releaseUrl: release.htmlUrl,
     releaseNotes: release.body.slice(0, 4000)
   };
