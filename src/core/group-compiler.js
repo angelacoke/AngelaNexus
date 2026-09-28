@@ -2,7 +2,7 @@ import { Kernels } from "./model.js";
 import { isNodeUsable } from "./node-state.js";
 
 const MIHOMO_TYPES = new Set(["select", "url_test", "fallback", "load_balance", "region"]);
-const SING_BOX_TYPES = new Set(["select", "url_test", "load_balance"]);
+const SING_BOX_TYPES = new Set(["select", "url_test"]);
 
 function clone(value) { return value === undefined ? undefined : structuredClone(value); }
 function clean(value) { return typeof value === "string" ? value.trim() : ""; }
@@ -117,7 +117,7 @@ export function compileGroups(groups, kernel, nodes = [], states) {
     }
     if (kernel === Kernels.SING_BOX) {
       if (!SING_BOX_TYPES.has(type)) throw new Error("unsupported sing-box group type without semantic downgrade: " + type);
-      const compiled = { type: type === "url_test" ? "urltest" : type === "load_balance" ? "loadbalance" : "selector", tag: id, outbounds: members };
+      const compiled = { type: type === "url_test" ? "urltest" : "selector", tag: id, outbounds: members };
       copyOptions(compiled, group.options || {}, ["url", "interval", "idle_timeout", "tolerance", "interrupt_exist_connections", "filter", "exclude", "strategy", "detour"]);
       output.push(compiled); targetMap.set(id, id); continue;
     }
