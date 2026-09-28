@@ -1,4 +1,7 @@
 const DEFAULT_MAX_EVENTS = 256;
+const MAX_STRING_LENGTH = 256;
+const MAX_EVIDENCE_ITEMS = 32;
+const MAX_SCORE = 1000000;
 
 const SAFE_CONTEXT_KEYS = new Set([
   "reason",
@@ -19,21 +22,41 @@ const SAFE_EVIDENCE_KEYS = new Set([
 
 function cloneSafeValue(value, depth = 0) {
   if (depth > 3) return undefined;
-  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-    return value;
+  if (typeof value === "string") {
+    return value.length <= MAX_STRING_LENGTH ? value : value.slice(0, MAX_STRING_LENGTH);
   }
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
   if (Array.isArray(value)) {
-    return value.map(item => cloneSafeValue(item, depth + 1)).filter(item => item !== undefined);
+    return value.slice(0, MAX_EVIDENCE_ITEMS)
+      .map(item => cloneSafeValue(item, depth + 1))
+      .filter(item => item !== undefined);
   }
   if (typeof value === "object") {
     const output = {};
-    for (const [key, item] of Object.entries(value)) {
+    for (const [key, item] of Object.entries(value).slice(0, MAX_EVIDENCE_ITEMS)) {
+      if (key.length > MAX_STRING_LENGTH) continue;
       const cloned = cloneSafeValue(item, depth + 1);
       if (cloned !== undefined) output[key] = cloned;
     }
     return output;
   }
   return undefined;
+}
+
+function sanitizeBoundedString(value) {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  return value.trim().slice(0, MAX_STRING_LENGTH);
+}
+
+function sanitizeEvidenceList(value) {
+  if (!Array.isArray(value)) return undefined;
+  const output = [];
+  for (const item of value.slice(0, MAX_EVIDENCE_ITEMS)) {
+    const normalized = sanitizeBoundedString(item);
+    if (normalized !== undefined) output.push(normalized);
+  }
+  return output;
 }
 
 function sanitizeContext(context) {
@@ -49,10 +72,36 @@ function sanitizeContext(context) {
       const evidence = {};
       for (const evidenceKey of SAFE_EVIDENCE_KEYS) {
         if (!(evidenceKey in context.evidence)) continue;
-        const cloned = cloneSafeValue(context.evidence[evidenceKey]);
-        if (cloned !== undefined) evidence[evidenceKey] = cloned;
+        if (evidenceKey === "state") {
+          const state = sanitizeBoundedString(context.evidence.state);
+          if (state !== undefined) evidence.state = state;
+          continue;
+        }
+        if (evidenceKey === "signals" || evidenceKey === "actions") {
+          const list = sanitizeEvidenceList(context.evidence[evidenceKey]);
+          if (list !== undefined) evidence[evidenceKey] = list;
+          continue;
+        }
+        if (evidenceKey === "score") {
+          const score = context.evidence.score;
+          if (typeof score === "number" && Number.isFinite(score) && Math.abs(score) <= MAX_SCORE) evidence.score = score;
+          continue;
+        }
+        if (evidenceKey === "confidence") {
+          const confidence = context.evidence.confidence;
+          if (typeof confidence === "number" && Number.isFinite(confidence) && confidence >= 0 && confidence <= 1) evidence.confidence = confidence;
+        }
       }
       output.evidence = evidence;
+      continue;
+    }
+    if (key === "reason" || key === "kernel" || key === "decisionId" || key === "state") {
+      const normalized = sanitizeBoundedString(context[key]);
+      if (normalized !== undefined) output[key] = normalized;
+      continue;
+    }
+    if (key === "decisionVersion") {
+      if (Number.isInteger(context[key]) && context[key] >= 0) output[key] = context[key];
       continue;
     }
     const cloned = cloneSafeValue(context[key]);
@@ -90,7 +139,10 @@ export function createExecutionEventLedger(options = {}) {
     const event = freezeEvent({
       id: String(nextEventId++),
       type: type.trim(),
-      at: typeof options.clock === "function" ? options.clock() : Date.now(),
+      at: (() => {
+        const value = typeof options.clock === "function" ? options.clock() : Date.now();
+        return Number.isFinite(value) ? value : Date.now();
+      })(),
       context: sanitizeContext(context)
     });
     events.push(event);
