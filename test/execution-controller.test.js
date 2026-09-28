@@ -101,6 +101,8 @@ test("execution controller cleans up a failed start before allowing recovery", a
   const controller = createExecutionController({ executionFactory: factory, pathRevalidator: async path => path });
   await controller.prepare(request); await assert.rejects(controller.start(), /kernel start failed/);
   assert.equal(starts, 1); assert.equal(stopped, 1); assert.equal(controller.state, ExecutionStates.FAILED);
+  assert.equal(controller.events()[0].type, "execution-failed");
+  assert.equal(controller.events()[0].context.reason, "start-failed");
   await controller.prepare(request); assert.equal(controller.state, ExecutionStates.READY);
 });
 
@@ -109,7 +111,10 @@ test("execution controller can explicitly recover a failed stop state", async ()
   const factory = async () => ({ configPath: "/tmp/nexus-test/config.json", async start() {}, async stop() { stopCalls += 1; if (stopCalls === 1) throw new Error("stop failed"); }, async status() { return { running: true }; }, async reload() {}, async logs() { return []; } });
   const controller = createExecutionController({ executionFactory: factory, pathRevalidator: async path => path });
   await controller.prepare(request); await controller.start(); await assert.rejects(controller.stop(), /stop failed/);
-  assert.equal(controller.state, ExecutionStates.FAILED); await controller.stop(); assert.equal(controller.state, ExecutionStates.IDLE);
+  assert.equal(controller.state, ExecutionStates.FAILED);
+  assert.equal(controller.events()[0].type, "execution-failed");
+  assert.equal(controller.events()[0].context.reason, "stop-failed");
+  await controller.stop(); assert.equal(controller.state, ExecutionStates.IDLE);
 });
 
 
@@ -225,6 +230,8 @@ test("execution controller fails closed after reload failure and stops the kerne
   assert.equal(stops, 1);
   assert.equal(controller.state, ExecutionStates.FAILED);
   assert.equal((await controller.status()).execution, null);
+  assert.equal(controller.events()[0].type, "execution-failed");
+  assert.equal(controller.events()[0].context.reason, "reload-failed");
 });
 
 
