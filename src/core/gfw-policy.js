@@ -14,7 +14,12 @@ export const GfwSignals = Object.freeze({
   QUIC_INITIAL_FAILURE: "quic-initial-failure",
   ACTIVE_PROBE_SUSPECTED: "active-probe-suspected",
   RESIDUAL_BLOCKING: "residual-blocking",
-  REGIONAL_VARIANCE: "regional-variance"
+  REGIONAL_VARIANCE: "regional-variance",
+  POISONED_DNS_DESTINATION: "poisoned-dns-destination",
+  CERTIFICATE_ANOMALY: "certificate-anomaly",
+  BOOTSTRAP_INTEGRITY_FAILURE: "bootstrap-integrity-failure",
+  CLOCK_ANOMALY: "clock-anomaly",
+  UNEXPECTED_ROUTE_CHANGE: "unexpected-route-change"
 });
 
 const SIGNAL_WEIGHTS = Object.freeze({
@@ -24,7 +29,12 @@ const SIGNAL_WEIGHTS = Object.freeze({
   [GfwSignals.QUIC_INITIAL_FAILURE]: 2,
   [GfwSignals.ACTIVE_PROBE_SUSPECTED]: 4,
   [GfwSignals.RESIDUAL_BLOCKING]: 2,
-  [GfwSignals.REGIONAL_VARIANCE]: 1
+  [GfwSignals.REGIONAL_VARIANCE]: 1,
+  [GfwSignals.POISONED_DNS_DESTINATION]: 4,
+  [GfwSignals.CERTIFICATE_ANOMALY]: 4,
+  [GfwSignals.BOOTSTRAP_INTEGRITY_FAILURE]: 5,
+  [GfwSignals.CLOCK_ANOMALY]: 2,
+  [GfwSignals.UNEXPECTED_ROUTE_CHANGE]: 3
 });
 
 const ACTIONS = Object.freeze([
@@ -32,7 +42,11 @@ const ACTIONS = Object.freeze([
   "secure-dns",
   "avoid-affected-transport",
   "revalidate-path",
-  "require-user-choice"
+  "require-user-choice",
+  "block-untrusted-bootstrap",
+  "invalidate-suspicious-destination",
+  "require-path-revalidation",
+  "disable-unsafe-route"
 ]);
 
 function text(value) {
@@ -124,6 +138,16 @@ export function classifyGfwEvidence(observations = [], options = {}) {
   else if (evidenceCount > 0) state = GfwStates.SUSPECTED;
 
   const actions = new Set(["observe"]);
+  if (signals.includes(GfwSignals.POISONED_DNS_DESTINATION) || signals.includes(GfwSignals.CERTIFICATE_ANOMALY)) {
+    actions.add("invalidate-suspicious-destination");
+    actions.add("require-path-revalidation");
+  }
+  if (signals.includes(GfwSignals.BOOTSTRAP_INTEGRITY_FAILURE)) {
+    actions.add("block-untrusted-bootstrap");
+    actions.add("require-path-revalidation");
+  }
+  if (signals.includes(GfwSignals.CLOCK_ANOMALY)) actions.add("require-path-revalidation");
+  if (signals.includes(GfwSignals.UNEXPECTED_ROUTE_CHANGE)) actions.add("disable-unsafe-route");
   if (signals.includes(GfwSignals.DNS_INJECTION) && policy.requireSecureDnsOnInjection) actions.add("secure-dns");
   if (state === GfwStates.CONFIRMED && signals.includes(GfwSignals.QUIC_INITIAL_FAILURE) && policy.avoidQuicOnConfirmed) {
     actions.add("avoid-affected-transport");
@@ -131,7 +155,10 @@ export function classifyGfwEvidence(observations = [], options = {}) {
   if (signals.includes(GfwSignals.TCP_RESET) || signals.includes(GfwSignals.TLS_SNI_FAILURE) || signals.includes(GfwSignals.RESIDUAL_BLOCKING)) {
     actions.add("revalidate-path");
   }
-  if (signals.includes(GfwSignals.ACTIVE_PROBE_SUSPECTED)) actions.add("require-user-choice");
+  if (signals.includes(GfwSignals.ACTIVE_PROBE_SUSPECTED)) {
+    actions.add("require-user-choice");
+    actions.add("require-path-revalidation");
+  }
 
   return Object.freeze({
     version: GFW_POLICY_VERSION,
@@ -152,6 +179,24 @@ export function recommendGfwResilience(evidence, context = {}) {
 
   if (result.state === GfwStates.DISABLED || result.state === GfwStates.NORMAL) {
     return Object.freeze({ state: result.state || GfwStates.NORMAL, recommendations: Object.freeze([]), requiresUserChoice: false });
+  }
+
+  if (signals.has(GfwSignals.POISONED_DNS_DESTINATION) || signals.has(GfwSignals.CERTIFICATE_ANOMALY)) {
+    recommendations.push({
+      type: "destination-integrity",
+      action: "invalidate-suspicious-destination",
+      reason: "destination integrity evidence is inconsistent with the trusted connection state",
+      requiresUserChoice: false
+    });
+  }
+
+  if (signals.has(GfwSignals.BOOTSTRAP_INTEGRITY_FAILURE)) {
+    recommendations.push({
+      type: "bootstrap",
+      action: "block-untrusted-bootstrap",
+      reason: "bootstrap integrity cannot be established",
+      requiresUserChoice: false
+    });
   }
 
   if (signals.has(GfwSignals.DNS_INJECTION)) {
@@ -182,7 +227,7 @@ export function recommendGfwResilience(evidence, context = {}) {
     });
   }
 
-  if (signals.has(GfwSignals.TCP_RESET) || signals.has(GfwSignals.TLS_SNI_FAILURE) || signals.has(GfwSignals.RESIDUAL_BLOCKING)) {
+  if (signals.has(GfwSignals.TCP_RESET) || signals.has(GfwSignals.TLS_SNI_FAILURE) || signals.has(GfwSignals.RESIDUAL_BLOCKING) || signals.has(GfwSignals.UNEXPECTED_ROUTE_CHANGE) || signals.has(GfwSignals.CLOCK_ANOMALY)) {
     recommendations.push({
       type: "path",
       action: "revalidate-path",
