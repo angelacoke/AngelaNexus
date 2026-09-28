@@ -80,7 +80,7 @@ export function createGfwPolicy(overrides = {}) {
     mode: ["monitor", "adaptive", "strict"].includes(text(source.mode)) ? text(source.mode) : "adaptive",
     failClosed: source.failClosed !== false,
     minEvidence: positiveInt(source.minEvidence, 2),
-    confirmationScore: positiveInt(source.confirmationScore, 4),
+    confirmationScore: positiveNumber(source.confirmationScore, 4),
     maxObservationAgeMs: positiveInt(source.maxObservationAgeMs, 10 * 60 * 1000),
     avoidQuicOnConfirmed: source.avoidQuicOnConfirmed !== false,
     requireSecureDnsOnInjection: source.requireSecureDnsOnInjection !== false
