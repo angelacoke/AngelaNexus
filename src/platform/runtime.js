@@ -105,6 +105,8 @@ export function createPlatformRuntime(implementation, runtime) {
           const state = bridge.getNetworkState();
           await handleNetworkState(state);
           unsubscribe = await bridge.subscribeNetworkState(handleNetworkState);
+        } else if (directTransitRequirements(bridge.capabilities).length === 0) {
+          unsubscribe = await bridge.subscribeNetworkState(handleNetworkState);
         }
         started = true;
         return stateOrNetwork(bridge);
