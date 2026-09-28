@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createExecutionController, ExecutionStates } from "../src/core/execution-controller.js";
 import { Kernels } from "../src/core/model.js";
 
-function fakeExecutionFactory(config, options) {
+function fakeExecutionFactory(config) {
   let running = false;
   return {
     kernel: config.kernel,
@@ -17,16 +17,13 @@ function fakeExecutionFactory(config, options) {
 }
 
 const request = {
-  decision: { id: "decision-test-001", version: 1 },
+  decision: { id: "decision-test-001", version: 1, action: "routing", choice: "proxy", requiresUserChoice: true, confirmed: false },
   kernel: Kernels.SING_BOX,
-  config: {
-    kernel: Kernels.SING_BOX,
-    nodes: [{ id: "exit", protocol: "socks", server: "192.0.2.1", port: 1080 }]
-  },
+  config: { kernel: Kernels.SING_BOX, nodes: [{ id: "exit", protocol: "socks", server: "192.0.2.1", port: 1080 }] },
   binary: "/usr/bin/sing-box",
   userAuthorized: true,
   security: { preflightPassed: true, failClosed: true },
-  path: { validated: true },
+  path: { validated: true }
 };
 
 test("execution controller enforces system execution gates before kernel dispatch", async () => {
@@ -42,37 +39,18 @@ test("execution controller enforces system execution gates before kernel dispatc
 
 test("execution controller fails closed when authorization, security, or path validation is missing", async () => {
   const controller = createExecutionController({ executionFactory: fakeExecutionFactory });
-  await assert.rejects(
-    controller.prepare({ ...request, userAuthorized: false }),
-    /explicit user authorization/
-  );
+  await assert.rejects(controller.prepare({ ...request, userAuthorized: false }), /explicit user authorization/);
   assert.equal(controller.state, ExecutionStates.FAILED);
-
   const second = createExecutionController({ executionFactory: fakeExecutionFactory });
-  await assert.rejects(
-    second.prepare({ ...request, security: { preflightPassed: true, failClosed: false } }),
-    /fail-closed security mode/
-  );
-
+  await assert.rejects(controller.prepare({ ...request, security: { preflightPassed: true, failClosed: false } }), /fail-closed security mode/);
   const third = createExecutionController({ executionFactory: fakeExecutionFactory });
-  await assert.rejects(
-    third.prepare({ ...request, path: { validated: false } }),
-    /validated network path/
-  );
+  await assert.rejects(third.prepare({ ...request, path: { validated: false } }), /validated network path/);
 });
-
 
 test("execution controller cleans up a failed start before allowing recovery", async () => {
   let stopped = 0;
   let starts = 0;
-  const factory = async () => ({
-    configPath: "/tmp/nexus-test/config.json",
-    async start() { starts += 1; throw new Error("kernel start failed"); },
-    async stop() { stopped += 1; },
-    async status() { return { running: false }; },
-    async reload() {},
-    async logs() { return []; }
-  });
+  const factory = async () => ({ configPath: "/tmp/nexus-test/config.json", async start() { starts += 1; throw new Error("kernel start failed"); }, async stop() { stopped += 1; }, async status() { return { running: false }; }, async reload() {}, async logs() { return []; } });
   const controller = createExecutionController({ executionFactory: factory });
   await controller.prepare(request);
   await assert.rejects(controller.start(), /kernel start failed/);
@@ -85,14 +63,7 @@ test("execution controller cleans up a failed start before allowing recovery", a
 
 test("execution controller can explicitly recover a failed stop state", async () => {
   let stopCalls = 0;
-  const factory = async () => ({
-    configPath: "/tmp/nexus-test/config.json",
-    async start() {},
-    async stop() { stopCalls += 1; if (stopCalls === 1) throw new Error("stop failed"); },
-    async status() { return { running: true }; },
-    async reload() {},
-    async logs() { return []; }
-  });
+  const factory = async () => ({ configPath: "/tmp/nexus-test/config.json", async start() {}, async stop() { stopCalls += 1; if (stopCalls === 1) throw new Error("stop failed"); }, async status() { return { running: true }; }, async reload() {}, async logs() { return []; } });
   const controller = createExecutionController({ executionFactory: factory });
   await controller.prepare(request);
   await controller.start();
