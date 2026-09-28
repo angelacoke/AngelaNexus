@@ -1,4 +1,5 @@
 import { validateSecurityPolicy } from "./security.js";
+import { createGfwPolicy, validateGfwPolicy } from "./gfw-policy.js";
 
 export const SECURITY_POLICY_VERSION = 1;
 
@@ -22,6 +23,7 @@ export const SystemSecurityDefaults = Object.freeze({
   blockWebRTC3478: true,
   ipv6LeakBlackhole: true,
   encryptedDns: true,
+  gfwResilience: createGfwPolicy(),
   chinaNetworkOptimization: {
     enabled: true,
     domesticAction: "direct",
@@ -37,7 +39,7 @@ const REQUIRED_TRUE = Object.freeze([
   "tunBypassPrevention", "systemProxyBypassPrevention", "appBypassPrevention",
   "secureDnsBootstrap", "startupRaceProtection", "subscriptionUpdateProtection",
   "secretProtection", "configIntegrityProtection", "runtimeVerification",
-  "blockWebRTC3478", "ipv6LeakBlackhole", "encryptedDns"
+  "blockWebRTC3478", "ipv6LeakBlackhole", "encryptedDns", "gfwResilience"
 ]);
 
 const SECURITY_KEYS = Object.freeze([
@@ -46,7 +48,7 @@ const SECURITY_KEYS = Object.freeze([
   "tunBypassPrevention", "systemProxyBypassPrevention", "appBypassPrevention",
   "secureDnsBootstrap", "startupRaceProtection", "subscriptionUpdateProtection",
   "secretProtection", "configIntegrityProtection", "runtimeVerification",
-  "blockWebRTC3478", "ipv6LeakBlackhole", "encryptedDns"
+  "blockWebRTC3478", "ipv6LeakBlackhole", "encryptedDns", "gfwResilience"
 ]);
 
 function clone(value) {
@@ -60,6 +62,7 @@ function mergePolicy(overrides = {}) {
   return {
     ...clone(SystemSecurityDefaults),
     ...source,
+    gfwResilience: createGfwPolicy(source.gfwResilience),
     chinaNetworkOptimization: {
       ...clone(SystemSecurityDefaults.chinaNetworkOptimization),
       ...china
@@ -104,6 +107,24 @@ export function composeSecurityPolicy(systemOverrides = {}, userConfig = {}) {
     } else {
       effective[key] = value;
       preserved.push(key);
+    }
+  }
+
+  const systemGfw = system.gfwResilience;
+  const userGfw = userSecurity.gfwResilience;
+  if (userGfw && typeof userGfw === "object") {
+    const requested = createGfwPolicy(userGfw);
+    effective.gfwResilience = { ...clone(systemGfw), ...clone(requested) };
+    if (userGfw.enabled === false) {
+      conflicts.push(Object.freeze({ key: "gfwResilience.enabled", code: "USER_SECURITY_WEAKER_THAN_SYSTEM_FLOOR", requested: false, effective: true, resolution: "system-floor" }));
+      effective.gfwResilience.enabled = true;
+    }
+    if (userGfw.failClosed === false) {
+      conflicts.push(Object.freeze({ key: "gfwResilience.failClosed", code: "USER_SECURITY_WEAKER_THAN_SYSTEM_FLOOR", requested: false, effective: true, resolution: "system-floor" }));
+      effective.gfwResilience.failClosed = true;
+    }
+    for (const key of ["mode", "minEvidence", "confirmationScore", "maxObservationAgeMs", "avoidQuicOnConfirmed", "requireSecureDnsOnInjection"]) {
+      if (Object.prototype.hasOwnProperty.call(userGfw, key)) preserved.push("gfwResilience." + key);
     }
   }
 
@@ -152,6 +173,16 @@ export function createSystemSecurityPolicy(overrides = {}) {
         policy[key]
       ));
     }
+  }
+
+  const gfw = policy.gfwResilience;
+  if (!gfw || typeof gfw !== "object") {
+    errors.push(error("GFW_POLICY_INVALID", "gfwResilience", "GFW resilience policy must be an object", gfw));
+  } else {
+    const gfwValidation = validateGfwPolicy(gfw);
+    errors.push(...gfwValidation.errors.map((item) => error(item.code, item.key, item.message, gfw[item.key?.split(".").pop()])));
+    if (gfw.enabled !== true) errors.push(error("GFW_RESILIENCE_REQUIRED", "gfwResilience.enabled", "GFW resilience policy must remain enabled", gfw.enabled));
+    if (gfw.failClosed !== true) errors.push(error("GFW_FAIL_CLOSED_REQUIRED", "gfwResilience.failClosed", "GFW resilience policy must remain fail-closed", gfw.failClosed));
   }
 
   const china = policy.chinaNetworkOptimization;
