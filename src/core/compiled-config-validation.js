@@ -41,7 +41,10 @@ function validateSingBoxOutbound(outbound, index, errors) {
   const label = "sing-box outbound[" + index + "]";
   if (!hasText(outbound.tag)) push(errors, label + " requires tag");
   if (!hasText(outbound.type)) push(errors, label + " requires type");
-  if (!SING_BOX_TYPES.has(outbound.type)) return;
+  if (!SING_BOX_TYPES.has(outbound.type)) {
+    push(errors, label + " uses unsupported outbound type: " + outbound.type);
+    return;
+  }
   if (outbound.type === "block") return;
   validateEndpoint(outbound, label, errors);
   if (["vmess","vless","tuic"].includes(outbound.type) && !hasText(outbound.uuid)) push(errors, label + " requires uuid");
@@ -60,7 +63,10 @@ function validateXrayOutbound(outbound, index, errors) {
   const label = "Xray outbound[" + index + "]";
   if (!hasText(outbound.tag)) push(errors, label + " requires tag");
   if (!hasText(outbound.protocol)) push(errors, label + " requires protocol");
-  if (!XRAY_TYPES.has(outbound.protocol)) return;
+  if (!XRAY_TYPES.has(outbound.protocol)) {
+    push(errors, label + " uses unsupported protocol: " + outbound.protocol);
+    return;
+  }
   const settings = nonEmptyObject(outbound.settings) ? outbound.settings : {};
   if (["vless","vmess","trojan","shadowsocks","hysteria","socks","http"].includes(outbound.protocol)) {
     if (!hasText(settings.address)) push(errors, label + " requires settings.address");
