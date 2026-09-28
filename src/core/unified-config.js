@@ -8,7 +8,8 @@ export const ConfigSections = Object.freeze({
   DNS: "dns",
   SECURITY: "security",
   CHAINS: "chains",
-  PLATFORM: "platform"
+  PLATFORM: "platform",
+  NATIVE: "native"
 });
 
 function clone(value) {
@@ -78,6 +79,7 @@ export function createUnifiedConfig({
   security = {},
   chains = [],
   platform = {},
+  native = {},
   metadata = {}
 } = {}) {
   return {
@@ -92,6 +94,7 @@ export function createUnifiedConfig({
     security: clone(security) || {},
     chains: arrayOf(chains).map(clone),
     platform: clone(platform) || {},
+    native: clone(native) || {},
     metadata: clone(metadata) || {}
   };
 }
@@ -99,6 +102,7 @@ export function createUnifiedConfig({
 export function toUnifiedConfig(input, {
   sourceFormat = "unknown",
   kernel = null,
+  native = {},
   metadata = {}
 } = {}) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
@@ -112,6 +116,7 @@ export function toUnifiedConfig(input, {
     groups: extractGroups(input),
     routing: extractRouting(input),
     dns: extractDns(input),
+    native,
     metadata
   });
 
@@ -135,7 +140,9 @@ export function isUnifiedConfig(value) {
     value.routing &&
     typeof value.routing === "object" &&
     value.dns &&
-    typeof value.dns === "object"
+    typeof value.dns === "object" &&
+    value.native &&
+    typeof value.native === "object"
   );
 }
 
