@@ -22,26 +22,26 @@ test("import inspection automatically binds Clash YAML to Mihomo", () => {
   assert.equal(result.detection.kind, "clash-yaml");
 });
 
-test("import inspection keeps VLESS share links kernel-ambiguous", () => {
+test("import inspection resolves VLESS share links without kernel selection", () => {
   const result = inspectImport("vless://user@example.com:443?security=tls#US");
-  assert.equal(result.binding.kernel, null);
-  assert.equal(result.binding.mode, "pending");
-  assert.equal(result.binding.requiresConfirmation, true);
-  assert.deepEqual(result.binding.candidates, ["sing-box", "xray"]);
+  assert.equal(result.binding.mode, "automatic");
+  assert.equal(result.binding.requiresConfirmation, false);
+  assert.equal(result.detection.protocol, "vless");
+  assert.deepEqual(result.binding.candidates, ["mihomo", "sing-box", "xray"]);
 });
 
 test("automatic detection is exposed as an observable decision", () => {
   const result = inspectImport(CLASH);
-  assert.equal(result.binding.decision.action, "kernel");
+  assert.equal(result.binding.decision.action, "detectKernelCompatibility");
   assert.equal(result.binding.decision.requiresUserChoice, false);
   assert.deepEqual(result.binding.decision.options, ["mihomo"]);
 });
 
-test("ambiguous detection explicitly exposes user choices", () => {
+test("multi-runtime detection remains automatic", () => {
   const result = inspectImport("vless://user@example.com:443?security=tls#US");
-  assert.equal(result.binding.decision.action, "kernel");
-  assert.equal(result.binding.decision.requiresUserChoice, true);
-  assert.deepEqual(result.binding.decision.options, ["sing-box", "xray"]);
+  assert.equal(result.binding.decision.action, "detectKernelCompatibility");
+  assert.equal(result.binding.decision.requiresUserChoice, false);
+  assert.deepEqual(result.binding.decision.options, ["mihomo", "sing-box", "xray"]);
 });
 
 test("explicit kernel binding is preserved and incompatible binding is rejected", () => {
@@ -84,4 +84,24 @@ test("structured sing-box import excludes non-proxy outbounds", () => {
   assert.equal(result.model.nodes[0].id, "us");
   assert.equal(result.model.unifiedConfig.kernel, "sing-box");
   assert.equal(result.model.unifiedConfig.groups.length, 1);
+});
+
+test("native source is preserved on import for lossless runtime handoff", () => {
+  const input = {
+    inbounds: [],
+    outbounds: [{
+      type: "vless",
+      tag: "us",
+      server: "us.example",
+      server_port: 443,
+      uuid: "u1",
+      custom_native_field: { enabled: true }
+    }],
+    route: { rules: [] }
+  };
+  const result = importConfig(input);
+  assert.equal(result.binding.kernel, "sing-box");
+  assert.equal(result.model.unifiedConfig.native.format, "structured");
+  assert.equal(result.model.unifiedConfig.native.runtimeCandidates[0], "sing-box");
+  assert.equal(result.model.unifiedConfig.native.source.outbounds[0].custom_native_field.enabled, true);
 });

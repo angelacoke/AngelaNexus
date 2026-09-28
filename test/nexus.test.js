@@ -34,10 +34,11 @@ test("canonical model keeps explicit user node count policy separate from normal
   assert.equal(nodes.length, 3);
 });
 
-test("sniff share link remains kernel-ambiguous when protocol is supported by multiple kernels", () => {
+test("sniff share link resolves all verified native runtimes for the protocol", () => {
   const result = sniff("vless://example");
   assert.equal(result.kernel, null);
-  assert.deepEqual(result.candidates, ["sing-box", "xray"]);
+  assert.deepEqual(result.candidates, ["mihomo", "sing-box", "xray"]);
+  assert.equal(result.confidence, "protocol-multi-runtime");
 });
 
 test("binds Clash YAML to Mihomo", () => {

@@ -2,6 +2,7 @@ import { getUserChoicePolicy, requiresUserConfirmation } from "./user-choice-pol
 
 const AUTO_ACTIONS = Object.freeze([
   "detectFormat",
+  "detectProtocol",
   "detectKernelCompatibility",
   "validateConfig",
   "diagnoseNode",

@@ -33,9 +33,11 @@ function promptFor(detected, selected, explicit) {
   }
 
   return {
-    required: true,
-    title: "Kernel selection required",
-    message: "The input format cannot be bound to one kernel with sufficient confidence.",
+    required: false,
+    title: "Native runtime resolution",
+    message: detected.candidates.length
+      ? "Nexus recognized the input and will resolve a compatible native runtime automatically."
+      : "Nexus could not establish a native runtime yet; the original input will be preserved for later resolution.",
     reason: detected.confidence,
     options: detected.candidates.slice()
   };
@@ -51,13 +53,13 @@ export function inspectImport(input, { kernel = null } = {}) {
   }
 
   const prompt = promptFor(detected, selected, explicit);
-  const decision = createDecisionPrompt("kernel", detected.candidates.slice());
+  const decision = createDecisionPrompt("detectKernelCompatibility", detected.candidates.slice());
 
   return {
     detection: detected,
     binding: {
       kernel: selected,
-      mode: explicit ? "explicit" : (selected ? "automatic" : "pending"),
+      mode: explicit ? "explicit" : "automatic",
       candidates: detected.candidates.slice(),
       requiresConfirmation: prompt.required,
       prompt,
@@ -71,9 +73,6 @@ export function inspectImport(input, { kernel = null } = {}) {
 
 export function importConfig(input, { kernel = null, maxNodes = null } = {}) {
   const inspection = inspectImport(input, { kernel });
-  if (!inspection.binding.kernel) {
-    throw new Error("kernel selection is required before import");
-  }
 
   let nodes;
   let sourceDocument = null;
@@ -105,12 +104,21 @@ export function importConfig(input, { kernel = null, maxNodes = null } = {}) {
   const unifiedInput = sourceDocument
     ? (sourceDocument.kind === "share-links" ? { nodes } : sourceDocument.value)
     : { ...input, nodes };
+
   const unifiedConfig = toUnifiedConfig(unifiedInput, {
     sourceFormat: inspection.detection.kind,
     kernel: inspection.binding.kernel,
     metadata: {
       bindingMode: inspection.binding.mode,
-      detectionConfidence: inspection.detection.confidence
+      detectionConfidence: inspection.detection.confidence,
+      runtimeCandidates: inspection.binding.candidates,
+      nativeInput: true
+    },
+    native: {
+      format: inspection.detection.kind,
+      protocol: inspection.detection.protocol || null,
+      runtimeCandidates: inspection.binding.candidates,
+      source: typeof input === "string" ? input : structuredClone(input)
     }
   });
 

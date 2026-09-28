@@ -5,6 +5,7 @@ import { assertUserChoice, canDecideAutomatically, createDecisionPrompt, getDeci
 test("decision registry separates intelligence from user decisions", () => {
   const registry = getDecisionRegistry();
   assert.ok(registry.autoActions.includes("detectFormat"));
+  assert.ok(registry.autoActions.includes("detectProtocol"));
   assert.ok(registry.autoActions.includes("validateConfig"));
   assert.ok(registry.userDecisions.includes("nodeLimit"));
   assert.ok(registry.userDecisions.includes("routing"));
