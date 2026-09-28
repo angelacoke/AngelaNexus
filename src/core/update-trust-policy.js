@@ -17,7 +17,9 @@ function normalizePublisher(publisher) {
   if (!publisher || typeof publisher !== "object") return null;
   const id = typeof publisher.id === "string" ? publisher.id.trim() : "";
   const algorithm = typeof publisher.algorithm === "string" ? publisher.algorithm.toLowerCase() : "ed25519";
-  const publicKey = typeof publisher.publicKey === "string" || Buffer.isBuffer(publisher.publicKey)
+  const publicKey = typeof publisher.publicKey === "string" ||
+    Buffer.isBuffer(publisher.publicKey) ||
+    (publisher.publicKey && typeof publisher.publicKey === "object")
     ? publisher.publicKey
     : null;
   if (!id || !publicKey || algorithm !== "ed25519") return null;
