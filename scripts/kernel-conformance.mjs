@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import yaml from "js-yaml";
 import { compileUnifiedConfig } from "../src/core/config-compiler.js";
 import { Kernels } from "../src/core/model.js";
+import { classifyRuntimeProbeResult } from "../src/core/runtime-probe.js";
 
 const fixtures = {
   [Kernels.MIHOMO]: {
@@ -173,44 +174,55 @@ const wireguardProbeConfigs = {
 };
 const wireguardDir = await mkdtemp(join(tmpdir(), "nexus-wireguard-probe-"));
 const wireguardReport = [];
-for (const kernel of Object.values(Kernels)) {
-  const bin = binaries[kernel];
-  if (!bin) {
-    wireguardReport.push({ kernel, status: "not-run", reason: "binary not configured" });
-    continue;
+
+try {
+  for (const kernel of Object.values(Kernels)) {
+    const bin = binaries[kernel];
+    if (!bin) {
+      wireguardReport.push({ kernel, status: "not-run", reason: "binary not configured" });
+      continue;
+    }
+
+    const path = join(wireguardDir, kernel === Kernels.MIHOMO ? "wireguard.yaml" : kernel + "-wireguard.json");
+    const config = wireguardProbeConfigs[kernel];
+    await writeFile(path, kernel === Kernels.MIHOMO ? yaml.dump(config) : JSON.stringify(config, null, 2));
+
+    const args = kernel === Kernels.MIHOMO
+      ? ["-t", "-f", path]
+      : kernel === Kernels.SING_BOX
+        ? ["check", "-c", path]
+        : ["run", "-test", "-c", path];
+
+    const result = await command(bin, args);
+    const classification = classifyRuntimeProbeResult(result);
+    wireguardReport.push({
+      kernel,
+      status: classification.status,
+      reason: classification.reason,
+      exitCode: result.code,
+      stdout: result.stdout.trim(),
+      stderr: result.stderr.trim()
+    });
   }
-  const path = join(wireguardDir, kernel === Kernels.MIHOMO ? "wireguard.yaml" : kernel + "-wireguard.json");
-  const config = wireguardProbeConfigs[kernel];
-  await writeFile(path, kernel === Kernels.MIHOMO ? yaml.dump(config) : JSON.stringify(config, null, 2));
-  const args = kernel === Kernels.MIHOMO
-    ? ["-t", "-f", path]
-    : kernel === Kernels.SING_BOX
-      ? ["check", "-c", path]
-      : ["run", "-test", "-c", path];
-  const result = await command(bin, args);
-  wireguardReport.push({
-    kernel,
-    status: result.code === 0 ? "supported" : "rejected",
-    exitCode: result.code,
-    stdout: result.stdout.trim(),
-    stderr: result.stderr.trim()
-  });
-}
-const expectedWireguard = {
-  [Kernels.MIHOMO]: "supported",
-  [Kernels.SING_BOX]: "rejected",
-  [Kernels.XRAY]: "supported"
-};
-for (const item of wireguardReport) {
-  if (item.status === "not-run") continue;
-  if (item.status !== expectedWireguard[item.kernel]) {
-    console.error(JSON.stringify({ expected: expectedWireguard[item.kernel], actual: item }, null, 2));
-    throw new Error(item.kernel + " WireGuard capability probe disagrees with maintained manifest");
+
+  const expectedWireguard = {
+    [Kernels.MIHOMO]: "supported",
+    [Kernels.SING_BOX]: "rejected",
+    [Kernels.XRAY]: "supported"
+  };
+
+  for (const item of wireguardReport) {
+    if (item.status === "not-run") continue;
+    if (item.status !== expectedWireguard[item.kernel]) {
+      console.error(JSON.stringify({ expected: expectedWireguard[item.kernel], actual: item }, null, 2));
+      throw new Error(item.kernel + " WireGuard capability probe disagrees with maintained manifest");
+    }
   }
-}
-console.log(JSON.stringify({ runtime: report, wireguard: wireguardReport }, null, 2));
-if (requireBinaries && wireguardReport.some(item => item.status === "not-run")) {
+
+  console.log(JSON.stringify({ runtime: report, wireguard: wireguardReport }, null, 2));
+  if (requireBinaries && wireguardReport.some(item => item.status === "not-run")) {
+    throw new Error("WireGuard capability probe requires all three kernel binaries");
+  }
+} finally {
   await rm(wireguardDir, { recursive: true, force: true });
-  throw new Error("WireGuard capability probe requires all three kernel binaries");
 }
-await rm(wireguardDir, { recursive: true, force: true });
