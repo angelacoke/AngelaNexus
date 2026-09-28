@@ -54,6 +54,19 @@ export function createExecutionController(options = {}) {
     });
   }
 
+  async function discardExecution() {
+    if (!execution) {
+      request = null;
+      return;
+    }
+    try {
+      await execution.stop();
+    } finally {
+      execution = null;
+      request = null;
+    }
+  }
+
   return Object.freeze({
     get state() { return state; },
 
@@ -64,6 +77,7 @@ export function createExecutionController(options = {}) {
       state = ExecutionStates.PREPARING;
       failure = null;
       try {
+        if (execution) await discardExecution();
         request = createExecutionRequest(input);
         execution = await executionFactory(request.config, {
           binary: request.binary,
@@ -77,7 +91,8 @@ export function createExecutionController(options = {}) {
         return snapshot();
       } catch (error) {
         execution = null;
-        failure = error.message;
+        request = null;
+        failure = error instanceof Error ? error.message : String(error);
         state = ExecutionStates.FAILED;
         throw error;
       }
@@ -90,15 +105,30 @@ export function createExecutionController(options = {}) {
         state = ExecutionStates.RUNNING;
         return snapshot();
       } catch (error) {
-        failure = error.message;
+        failure = error instanceof Error ? error.message : String(error);
+        try {
+          await execution.stop();
+        } catch (cleanupError) {
+          failure += "; cleanup: " + (cleanupError instanceof Error ? cleanupError.message : String(cleanupError));
+        } finally {
+          execution = null;
+          request = null;
+        }
         state = ExecutionStates.FAILED;
         throw error;
       }
     },
 
     async stop() {
-      if (!execution) return snapshot();
-      if (state !== ExecutionStates.RUNNING && state !== ExecutionStates.READY) {
+      if (!execution) {
+        if (state === ExecutionStates.FAILED) {
+          state = ExecutionStates.IDLE;
+          request = null;
+          failure = null;
+        }
+        return snapshot();
+      }
+      if (state !== ExecutionStates.RUNNING && state !== ExecutionStates.READY && state !== ExecutionStates.FAILED) {
         throw new Error("execution is not stoppable");
       }
       state = ExecutionStates.STOPPING;
@@ -107,9 +137,10 @@ export function createExecutionController(options = {}) {
         execution = null;
         request = null;
         state = ExecutionStates.IDLE;
+        failure = null;
         return snapshot();
       } catch (error) {
-        failure = error.message;
+        failure = error instanceof Error ? error.message : String(error);
         state = ExecutionStates.FAILED;
         throw error;
       }
@@ -117,7 +148,13 @@ export function createExecutionController(options = {}) {
 
     async reload() {
       if (!execution || state !== ExecutionStates.RUNNING) throw new Error("execution is not running");
-      return execution.reload();
+      try {
+        return await execution.reload();
+      } catch (error) {
+        failure = error instanceof Error ? error.message : String(error);
+        state = ExecutionStates.FAILED;
+        throw error;
+      }
     },
 
     async status() {
