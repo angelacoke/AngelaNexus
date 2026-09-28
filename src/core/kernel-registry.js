@@ -20,7 +20,7 @@ export const UpstreamKernelRegistry = Object.freeze({
   xray: Object.freeze({
     name: "Xray-core",
     repository: "XTLS/Xray-core",
-    stable: "26.9.8",
+    stable: "26.3.27",
     channel: "stable",
     preview: "26.9.9",
     releases: "https://github.com/XTLS/Xray-core/releases",
