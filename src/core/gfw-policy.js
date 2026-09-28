@@ -417,7 +417,8 @@ export function createGfwRuntime(overrides = {}) {
   }
 
   function notifyInvalidation(result) {
-    if (!result || !Array.isArray(result.actions) || !result.actions.includes("require-path-revalidation")) return;
+    if (!result || !Array.isArray(result.actions) ||
+      (!result.actions.includes("require-path-revalidation") && !result.actions.includes("revalidate-path"))) return;
     const event = Object.freeze({
       reason: "gfw-path-revalidation-required",
       state: result.state,
