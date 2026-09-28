@@ -10,6 +10,8 @@ test("execution event ledger records bounded immutable security evidence", () =>
   ledger.record("session-invalidated", { reason: "second" });
   assert.equal(ledger.snapshot().length, 2);
   assert.equal(ledger.snapshot()[0].context.reason, "gfw-path-revalidation-required");
+  assert.deepEqual(ledger.snapshot().map(event => event.id), ["2", "3"]);
+  assert.equal(first.id, "1");
   assert.equal(first.context.reason, "network-generation-changed");
   assert.equal(Object.isFrozen(first), true);
   assert.equal(Object.isFrozen(first.context), true);
