@@ -146,6 +146,8 @@ test("execution controller deduplicates concurrent session invalidation", async 
   await controller.start();
   const first = listener("network-generation-changed");
   const second = listener("path-trust-invalidated");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(typeof resolveStop, "function");
   resolveStop();
   await Promise.all([first, second]);
   assert.equal(stops, 1);
@@ -178,6 +180,7 @@ test("execution controller fails closed after reload failure and stops the kerne
 test("execution controller records security evidence when a session is invalidated", async () => {
   const events = [];
   let stopped = 0;
+  let invalidate = null;
   const controller = createExecutionController({
     executionFactory: async () => ({
       configPath: "/tmp/nexus-test/audit.json",
@@ -189,9 +192,8 @@ test("execution controller records security evidence when a session is invalidat
     }),
     pathRevalidator: async path => path,
     sessionInvalidationSource: async listener => {
-      const unsubscribe = async () => {};
-      globalThis.__nexusTestInvalidate = listener;
-      return unsubscribe;
+      invalidate = listener;
+      return async () => { invalidate = null; };
     },
     eventSink: async (type, context) => { events.push({ type, context }); }
   });
@@ -204,7 +206,7 @@ test("execution controller records security evidence when a session is invalidat
     path: { validated: true, networkGeneration: 0 }
   });
   await controller.start();
-  await globalThis.__nexusTestInvalidate("gfw-path-revalidation-required");
+  await invalidate("gfw-path-revalidation-required");
   assert.equal(stopped, 1);
   assert.equal(events.length, 1);
   assert.equal(events[0].type, "session-invalidated");
@@ -215,5 +217,5 @@ test("execution controller records security evidence when a session is invalidat
     decisionVersion: 2,
     state: ExecutionStates.STOPPING
   });
-  delete globalThis.__nexusTestInvalidate;
+  assert.equal(invalidate, null);
 });
