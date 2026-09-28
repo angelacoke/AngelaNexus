@@ -121,3 +121,27 @@ test("real-time runtime stays bounded and ignores non-independent observations",
   runtime.observe({ signal: GfwSignals.QUIC_INITIAL_FAILURE }, 100003);
   assert.equal(runtime.size(), 2);
 });
+
+
+test("GFW runtime emits path invalidation when evidence requires revalidation", () => {
+  const runtime = createGfwRuntime();
+  const events = [];
+  const unsubscribe = runtime.subscribeInvalidation(event => events.push(event));
+  const result = runtime.observe({ signal: GfwSignals.TCP_RESET }, 100000);
+  assert.ok(result.actions.includes("revalidate-path"));
+  assert.equal(events.length, 1);
+  assert.equal(events[0].reason, "gfw-path-revalidation-required");
+  assert.ok(events[0].signals.includes(GfwSignals.TCP_RESET));
+  unsubscribe();
+  runtime.observe({ signal: GfwSignals.TLS_SNI_FAILURE }, 100001);
+  assert.equal(events.length, 1);
+});
+
+test("GFW runtime route-change evidence also requires path revalidation", () => {
+  const runtime = createGfwRuntime();
+  let reason = null;
+  const unsubscribe = runtime.subscribeInvalidation(event => { reason = event.reason; });
+  runtime.observe({ signal: GfwSignals.UNEXPECTED_ROUTE_CHANGE }, 100000);
+  assert.equal(reason, "gfw-path-revalidation-required");
+  unsubscribe();
+});
