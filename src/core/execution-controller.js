@@ -32,12 +32,16 @@ export function createExecutionRequest(request) {
 export function createExecutionController(options = {}) {
   const executionFactory = options.executionFactory || createKernelExecution;
   const pathRevalidator = options.pathRevalidator;
+  const sessionInvalidationSource = options.sessionInvalidationSource;
   if (typeof executionFactory !== "function") throw new TypeError("executionFactory must be a function");
   if (typeof pathRevalidator !== "function") throw new TypeError("pathRevalidator must be a function");
+  if (sessionInvalidationSource !== undefined && typeof sessionInvalidationSource !== "function") throw new TypeError("sessionInvalidationSource must be a function");
   let state = ExecutionStates.IDLE;
   let execution = null;
   let request = null;
   let failure = null;
+  let unsubscribeInvalidation = null;
+  let invalidationInFlight = null;
 
   function snapshot() {
     return Object.freeze({
@@ -48,6 +52,28 @@ export function createExecutionController(options = {}) {
       configPath: execution ? execution.configPath : null,
       failure
     });
+  }
+
+  async function clearInvalidationSubscription() {
+    if (unsubscribeInvalidation) { await unsubscribeInvalidation(); unsubscribeInvalidation = null; }
+  }
+
+  async function invalidateRunningExecution(reason = "network-session-invalidated") {
+    if (state !== ExecutionStates.RUNNING || !execution) return;
+    if (invalidationInFlight) return invalidationInFlight;
+    invalidationInFlight = (async () => {
+      state = ExecutionStates.STOPPING;
+      failure = String(reason);
+      try {
+        await execution.stop();
+      } finally {
+        execution = null;
+        request = null;
+        await clearInvalidationSubscription();
+        state = ExecutionStates.FAILED;
+      }
+    })();
+    try { await invalidationInFlight; } finally { invalidationInFlight = null; }
   }
 
   async function discardExecution() {
@@ -69,10 +95,14 @@ export function createExecutionController(options = {}) {
           binary: request.binary, workdir: request.workdir, cwd: request.cwd, env: request.env,
           reloadSignal: request.reloadSignal, runtimeFactory: request.runtimeFactory
         });
+        if (sessionInvalidationSource) {
+          unsubscribeInvalidation = await sessionInvalidationSource((reason) => invalidateRunningExecution(reason));
+        }
         state = ExecutionStates.READY;
         return snapshot();
       } catch (error) {
         execution = null; request = null;
+        await clearInvalidationSubscription();
         failure = error instanceof Error ? error.message : String(error);
         state = ExecutionStates.FAILED;
         throw error;
@@ -100,7 +130,7 @@ export function createExecutionController(options = {}) {
         failure = error instanceof Error ? error.message : String(error);
         try { await execution.stop(); }
         catch (cleanupError) { failure += "; cleanup: " + (cleanupError instanceof Error ? cleanupError.message : String(cleanupError)); }
-        finally { execution = null; request = null; }
+        finally { execution = null; request = null; await clearInvalidationSubscription(); }
         state = ExecutionStates.FAILED;
         throw error;
       }
@@ -113,7 +143,7 @@ export function createExecutionController(options = {}) {
       }
       if (state !== ExecutionStates.RUNNING && state !== ExecutionStates.READY && state !== ExecutionStates.FAILED) throw new Error("execution is not stoppable");
       state = ExecutionStates.STOPPING;
-      try { await execution.stop(); execution = null; request = null; state = ExecutionStates.IDLE; failure = null; return snapshot(); }
+      try { await execution.stop(); execution = null; request = null; await clearInvalidationSubscription(); state = ExecutionStates.IDLE; failure = null; return snapshot(); }
       catch (error) { failure = error instanceof Error ? error.message : String(error); state = ExecutionStates.FAILED; throw error; }
     },
 
