@@ -126,7 +126,88 @@ try {
   await rm(dir, { recursive: true, force: true });
 }
 
-console.log(JSON.stringify(report, null, 2));
-if (requireBinaries && report.some(item => item.status === "not-run")) {
-  throw new Error("runtime conformance requires all three kernel binaries");
+const wireguardPrivateKey = "UMjI9WbobURkCDh2RT8SRM5osFI7siiR/sPOuuTIDns=";
+const wireguardPeerPublicKey = "AIm+QeCoC23zInKASmhu6z/3iaT0R2IKraB7WwYB5ms=";
+const wireguardProbeConfigs = {
+  [Kernels.MIHOMO]: {
+    proxies: [{
+      name: "wireguard-probe",
+      type: "wireguard",
+      private-key: wireguardPrivateKey,
+      server: "192.0.2.1",
+      port: 51820,
+      ip: "10.0.0.2",
+      public-key: wireguardPeerPublicKey,
+      allowed-ips: ["0.0.0.0/0"],
+      udp: true
+    }]
+  },
+  [Kernels.SING_BOX]: {
+    outbounds: [{
+      type: "wireguard",
+      tag: "wireguard-probe",
+      server: "192.0.2.1",
+      server_port: 51820,
+      local_address: ["10.0.0.2/32"],
+      private_key: wireguardPrivateKey,
+      peer_public_key: wireguardPeerPublicKey,
+      network: "udp"
+    }]
+  },
+  [Kernels.XRAY]: {
+    outbounds: [{
+      protocol: "wireguard",
+      tag: "wireguard-probe",
+      settings: {
+        secretKey: wireguardPrivateKey,
+        address: ["10.0.0.2"],
+        peers: [{
+          endpoint: "192.0.2.1:51820",
+          publicKey: wireguardPeerPublicKey,
+          allowedIPs: ["0.0.0.0/0"]
+        }],
+        noKernelTun: true
+      }
+    }]
+  }
+};
+const wireguardReport = [];
+for (const kernel of Object.values(Kernels)) {
+  const bin = binaries[kernel];
+  if (!bin) {
+    wireguardReport.push({ kernel, status: "not-run", reason: "binary not configured" });
+    continue;
+  }
+  const path = join(dir, kernel === Kernels.MIHOMO ? "wireguard.yaml" : kernel + "-wireguard.json");
+  const config = wireguardProbeConfigs[kernel];
+  await writeFile(path, kernel === Kernels.MIHOMO ? yaml.dump(config) : JSON.stringify(config, null, 2));
+  const args = kernel === Kernels.MIHOMO
+    ? ["-t", "-f", path]
+    : kernel === Kernels.SING_BOX
+      ? ["check", "-c", path]
+      : ["run", "-test", "-c", path];
+  const result = await command(bin, args);
+  wireguardReport.push({
+    kernel,
+    status: result.code === 0 ? "supported" : "rejected",
+    exitCode: result.code,
+    stdout: result.stdout.trim(),
+    stderr: result.stderr.trim()
+  });
+}
+const expectedWireguard = {
+  [Kernels.MIHOMO]: "supported",
+  [Kernels.SING_BOX]: "rejected",
+  [Kernels.XRAY]: "supported"
+};
+for (const item of wireguardReport) {
+  if (item.status === "not-run") continue;
+  if (item.status !== expectedWireguard[item.kernel]) {
+    console.error(JSON.stringify({ expected: expectedWireguard[item.kernel], actual: item }, null, 2));
+    throw new Error(item.kernel + " WireGuard capability probe disagrees with maintained manifest");
+  }
+}
+console.log(JSON.stringify({ runtime: report, wireguard: wireguardReport }, null, 2));
+if (requireBinaries && wireguardReport.some(item => item.status === "not-run")) {
+  throw new Error("WireGuard capability probe requires all three kernel binaries");
 }
