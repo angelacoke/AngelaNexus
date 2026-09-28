@@ -78,7 +78,7 @@ test("confirmed QUIC evidence only recommends avoiding the affected transport", 
 
 
 test("real-time runtime confirms only when independent signals corroborate", () => {
-  const runtime = createGfwRuntime({ confirmationDiversity: 2 });
+  const runtime = createGfwRuntime({ confirmationDiversity: 2, confirmationScore: 3.5 });
   let result = runtime.observe({ signal: GfwSignals.TCP_RESET, transport: "tcp" }, 100000);
   assert.equal(result.state, GfwStates.SUSPECTED);
   result = runtime.observe({ signal: GfwSignals.TLS_SNI_FAILURE, transport: "tls" }, 100100);
@@ -90,6 +90,7 @@ test("real-time runtime confirms only when independent signals corroborate", () 
 test("real-time runtime decays evidence and recovers after a quiet period", () => {
   const runtime = createGfwRuntime({
     confirmationDiversity: 2,
+    confirmationScore: 3.5,
     decayHalfLifeMs: 1000,
     recoveryQuietPeriodMs: 2000,
     maxObservationAgeMs: 10000
