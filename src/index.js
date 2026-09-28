@@ -18,3 +18,6 @@ export * from "./core/chain-resolution.js";
 export * from "./core/node-state.js";
 export * from "./core/compile-preflight.js";
 export * from "./core/update-trust-policy.js";
+
+export * from "./core/gfw-policy.js";
+export * from "./core/system-security-policy.js";

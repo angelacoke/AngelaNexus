@@ -138,3 +138,42 @@ test("security evidence is explicit and verifiable", () => {
   assert.equal(evidence.claim, "engineering-target");
   assert.ok(evidence.checks.every((item) => item.status === "enabled"));
 });
+
+
+test("GFW resilience is part of the immutable system security floor", () => {
+  const result = createSystemSecurityPolicy();
+  assert.equal(result.ok, true);
+  assert.equal(result.policy.gfwResilience.enabled, true);
+  assert.equal(result.policy.gfwResilience.failClosed, true);
+});
+
+test("user cannot disable GFW resilience or fail-closed handling", () => {
+  const result = composeSecurityPolicy({}, {
+    security: {
+      gfwResilience: {
+        enabled: false,
+        failClosed: false,
+        mode: "monitor"
+      }
+    }
+  });
+  assert.equal(result.policy.gfwResilience.enabled, true);
+  assert.equal(result.policy.gfwResilience.failClosed, true);
+  assert.ok(result.conflicts.some((item) => item.key === "gfwResilience.enabled"));
+  assert.ok(result.conflicts.some((item) => item.key === "gfwResilience.failClosed"));
+});
+
+test("GFW mode remains user-selectable when compatible with the system floor", () => {
+  const result = composeSecurityPolicy({}, {
+    security: {
+      gfwResilience: {
+        mode: "strict",
+        minEvidence: 3
+      }
+    }
+  });
+  assert.equal(result.policy.gfwResilience.mode, "strict");
+  assert.equal(result.policy.gfwResilience.minEvidence, 3);
+  assert.equal(result.policy.gfwResilience.enabled, true);
+  assert.equal(result.policy.gfwResilience.failClosed, true);
+});
