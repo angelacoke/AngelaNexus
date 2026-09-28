@@ -1,5 +1,6 @@
 import { createKernelExecution } from "./kernel-execution.js";
 import { Kernels } from "./model.js";
+import { createExecutionContract } from "./execution-contract.js";
 
 export const ExecutionStates = Object.freeze({
   IDLE: "idle",
@@ -12,6 +13,7 @@ export const ExecutionStates = Object.freeze({
 
 function assertRequest(request) {
   if (!request || typeof request !== "object") throw new TypeError("execution request is required");
+  if (!request.decision) throw new Error("execution request requires a system decision");
   if (!Object.values(Kernels).includes(request.kernel)) throw new Error("execution request has unsupported kernel");
   if (!request.config || typeof request.config !== "object") throw new TypeError("execution request config is required");
   if (request.config.kernel !== request.kernel) throw new Error("execution request kernel does not match config kernel");
@@ -29,11 +31,7 @@ function assertRequest(request) {
 
 export function createExecutionRequest(request) {
   assertRequest(request);
-  return Object.freeze({
-    ...request,
-    security: Object.freeze({ ...request.security }),
-    path: Object.freeze({ ...request.path })
-  });
+  return createExecutionContract(request);
 }
 
 export function createExecutionController(options = {}) {
@@ -49,6 +47,8 @@ export function createExecutionController(options = {}) {
     return Object.freeze({
       state,
       kernel: request ? request.kernel : null,
+      decisionId: request ? request.decision.id : null,
+      decisionVersion: request ? request.decision.version : null,
       configPath: execution ? execution.configPath : null,
       failure
     });
