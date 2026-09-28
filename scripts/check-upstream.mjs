@@ -116,7 +116,7 @@ if (propose && report.registryChanged) {
 
 if (reportPath) {
   await mkdir(dirname(reportPath), { recursive: true });
-  await writeFile(reportPath, JSON.stringify(report, null, 2) + "\\n");
+  await writeFile(reportPath, JSON.stringify(report, null, 2) + "\n");
 }
 
 if (report.updateAvailable && !propose) process.exitCode = 2;
