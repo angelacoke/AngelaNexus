@@ -43,3 +43,4 @@ jobs:
 
 # Runtime capability probe verification trigger.
 # PR-triggered observability check.
+# Runtime verification re-trigger.
