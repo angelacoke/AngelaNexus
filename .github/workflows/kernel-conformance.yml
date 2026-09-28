@@ -42,3 +42,4 @@ jobs:
         run: npm run kernel:conformance -- --require-binaries
 
 # Runtime capability probe verification trigger.
+# PR-triggered observability check.
