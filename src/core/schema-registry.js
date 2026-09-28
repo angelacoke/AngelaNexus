@@ -5,7 +5,7 @@ const schemas = Object.freeze({
   [Kernels.MIHOMO]: Object.freeze({
     version: getKernelUpstream(Kernels.MIHOMO).stable,
     schemaId: "mihomo.config.v1",
-    root: Object.freeze({ requiredAnyOf: ["proxies", "proxy-providers"] }),
+    root: Object.freeze({ requiredAnyOf: Object.freeze([{ key: "proxies", type: "array" }, { key: "proxy-providers", type: "object" }]) }),
     nodeCollection: "proxies"
   }),
   [Kernels.SING_BOX]: Object.freeze({
