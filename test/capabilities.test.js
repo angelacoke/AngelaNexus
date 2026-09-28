@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Kernels } from "../src/core/model.js";
+import { Kernels, NodeProtocols } from "../src/core/model.js";
 import { NodeCapabilities, evaluateNodeCapabilities } from "../src/core/capabilities.js";
 
 test("capability evaluation is kernel-aware", () => {
@@ -28,4 +28,11 @@ test("unsupported protocol is explicit", () => {
 test("unknown kernel is rejected", () => {
   const result = evaluateNodeCapabilities({ protocol: "vless" }, "unknown");
   assert.equal(result.ok, false);
+});
+
+
+test("sing-box WireGuard capability is explicitly unsupported", () => {
+  const result = evaluateNodeCapabilities({ protocol: NodeProtocols.WIREGUARD }, Kernels.SING_BOX);
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.data.unsupported, ["protocol:wireguard"]);
 });
