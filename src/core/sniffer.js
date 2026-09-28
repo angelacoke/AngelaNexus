@@ -1,13 +1,13 @@
 import { KernelCapabilityManifest } from "./kernel-capability-manifest.js";
 
-const SHARE_PROTOCOLS = /^(vmess|vless|trojan|ss|hysteria2|hy2|tuic|anytls):\\/\\//i;
+const SHARE_PROTOCOLS = /^(vmess|vless|trojan|ss|hysteria2|hy2|tuic|anytls):\/\//i;
 
 function textOf(input) {
   return typeof input === "string" ? input.trim() : "";
 }
 
 function looksLikeYaml(text, key) {
-  return new RegExp("(^|\\\\n)\\\\s*" + key + "\\\\s*:", "i").test(text);
+  return new RegExp("(^|\\n)\\s*" + key + "\\s*:", "i").test(text);
 }
 
 function parseJson(text) {
