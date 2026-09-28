@@ -16,6 +16,17 @@ test("explicit unknown outbound is rejected", () => {
   );
 });
 
+test("sing-box legacy WireGuard schema rejection is not treated as fixture corruption", () => {
+  assert.deepEqual(
+    classifyRuntimeProbeResult({
+      code: 1,
+      stdout: "",
+      stderr: 'decode config: outbounds[0].server: json: unknown field "server"'
+    }),
+    { status: "rejected", reason: "runtime explicitly rejected the capability" }
+  );
+});
+
 test("invalid fixture is not reported as unsupported", () => {
   assert.deepEqual(
     classifyRuntimeProbeResult({ code: 1, stdout: "", stderr: "invalid private key" }),
