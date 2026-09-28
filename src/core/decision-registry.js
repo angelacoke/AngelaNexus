@@ -11,6 +11,7 @@ const AUTO_ACTIONS = Object.freeze([
 ]);
 
 const USER_DECISIONS = Object.freeze([
+  "kernel",
   "kernelUpgrade",
   "nodeLimit",
   "nodeSelection",
