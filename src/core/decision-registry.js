@@ -2,6 +2,7 @@ import { getUserChoicePolicy, requiresUserConfirmation } from "./user-choice-pol
 
 const AUTO_ACTIONS = Object.freeze([
   "detectFormat",
+  "detectProtocol",
   "detectKernelCompatibility",
   "validateConfig",
   "diagnoseNode",
@@ -10,7 +11,6 @@ const AUTO_ACTIONS = Object.freeze([
 ]);
 
 const USER_DECISIONS = Object.freeze([
-  "kernel",
   "kernelUpgrade",
   "nodeLimit",
   "nodeSelection",
