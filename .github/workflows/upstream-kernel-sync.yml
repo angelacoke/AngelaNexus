@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "17 3 * * 1"
   workflow_dispatch:
+    inputs:
+      verify_pipeline:
+        description: "Exercise the full verification pipeline against the current stable baselines without changing the registry"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -27,7 +33,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           mkdir -p .nexus/gates
-          node scripts/check-upstream.mjs --propose --write-report .nexus/upstream-report.json
+          node scripts/check-upstream.mjs --propose ${{ inputs.verify_pipeline == true && '--verify-pipeline' || '' }} --write-report .nexus/upstream-report.json
           printf "success\n" > .nexus/gates/release-verified.ok
 
       - name: Upload upstream report
@@ -41,7 +47,10 @@ jobs:
       - name: Stop when no kernel update is available
         id: changes
         run: |
-          if git diff --quiet -- src/core/kernel-registry.js; then
+          if [ "${{ inputs.verify_pipeline }}" = "true" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Pipeline verification mode enabled."
+          elif git diff --quiet -- src/core/kernel-registry.js; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "No upstream kernel candidate update."
           else
@@ -115,7 +124,7 @@ jobs:
         run: node scripts/validate-upstream-report.mjs .nexus/upstream-report.json .nexus/gates
 
       - name: Create verified update proposal
-        if: steps.changes.outputs.changed == 'true'
+        if: steps.changes.outputs.changed == 'true' && inputs.verify_pipeline != true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
