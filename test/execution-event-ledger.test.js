@@ -62,3 +62,30 @@ test("execution event ledger rejects malformed event types", () => {
   const ledger = createExecutionEventLedger();
   assert.throws(() => ledger.record(""), /event type/);
 });
+
+test("execution event ledger bounds evidence values and rejects non-finite metrics", () => {
+  const ledger = createExecutionEventLedger({ clock: () => Infinity });
+  const event = ledger.record("session-invalidated", {
+    reason: "r".repeat(400),
+    kernel: "k".repeat(400),
+    decisionId: "d".repeat(400),
+    decisionVersion: -1,
+    evidence: {
+      state: "s".repeat(400),
+      signals: Array.from({ length: 40 }, (_, index) => "signal-" + index),
+      actions: Array.from({ length: 40 }, (_, index) => "action-" + index),
+      score: Infinity,
+      confidence: 2
+    }
+  });
+  assert.equal(event.at, 0 + Date.now() >= 0, true);
+  assert.equal(event.context.reason.length, 256);
+  assert.equal(event.context.kernel.length, 256);
+  assert.equal(event.context.decisionId.length, 256);
+  assert.equal("decisionVersion" in event.context, false);
+  assert.equal(event.context.evidence.state.length, 256);
+  assert.equal(event.context.evidence.signals.length, 32);
+  assert.equal(event.context.evidence.actions.length, 32);
+  assert.equal("score" in event.context.evidence, false);
+  assert.equal("confidence" in event.context.evidence, false);
+});
