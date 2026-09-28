@@ -1,6 +1,7 @@
 import { createKernelExecution } from "./kernel-execution.js";
 import { Kernels } from "./model.js";
 import { createExecutionContract } from "./execution-contract.js";
+import { createPlannedExecutionContract } from "./decision-planner.js";
 
 export const ExecutionStates = Object.freeze({
   IDLE: "idle",
@@ -18,15 +19,9 @@ function assertRequest(request) {
   if (!request.config || typeof request.config !== "object") throw new TypeError("execution request config is required");
   if (request.config.kernel !== request.kernel) throw new Error("execution request kernel does not match config kernel");
   if (request.userAuthorized !== true) throw new Error("execution requires explicit user authorization");
-  if (!request.security || request.security.preflightPassed !== true) {
-    throw new Error("execution requires a passed security preflight");
-  }
-  if (request.security.failClosed !== true) {
-    throw new Error("execution requires fail-closed security mode");
-  }
-  if (!request.path || request.path.validated !== true) {
-    throw new Error("execution requires a validated network path");
-  }
+  if (!request.security || request.security.preflightPassed !== true) throw new Error("execution requires a passed security preflight");
+  if (request.security.failClosed !== true) throw new Error("execution requires fail-closed security mode");
+  if (!request.path || request.path.validated !== true) throw new Error("execution requires a validated network path");
 }
 
 export function createExecutionRequest(request) {
@@ -37,7 +32,6 @@ export function createExecutionRequest(request) {
 export function createExecutionController(options = {}) {
   const executionFactory = options.executionFactory || createKernelExecution;
   if (typeof executionFactory !== "function") throw new TypeError("executionFactory must be a function");
-
   let state = ExecutionStates.IDLE;
   let execution = null;
   let request = null;
@@ -55,65 +49,47 @@ export function createExecutionController(options = {}) {
   }
 
   async function discardExecution() {
-    if (!execution) {
-      request = null;
-      return;
-    }
-    try {
-      await execution.stop();
-    } finally {
-      execution = null;
-      request = null;
-    }
+    if (!execution) { request = null; return; }
+    try { await execution.stop(); } finally { execution = null; request = null; }
   }
 
   return Object.freeze({
     get state() { return state; },
 
     async prepare(input) {
-      if (state !== ExecutionStates.IDLE && state !== ExecutionStates.FAILED) {
-        throw new Error("execution controller is not idle");
-      }
+      if (state !== ExecutionStates.IDLE && state !== ExecutionStates.FAILED) throw new Error("execution controller is not idle");
       state = ExecutionStates.PREPARING;
       failure = null;
       try {
         if (execution) await discardExecution();
         request = createExecutionRequest(input);
         execution = await executionFactory(request.config, {
-          binary: request.binary,
-          workdir: request.workdir,
-          cwd: request.cwd,
-          env: request.env,
-          reloadSignal: request.reloadSignal,
-          runtimeFactory: request.runtimeFactory
+          binary: request.binary, workdir: request.workdir, cwd: request.cwd, env: request.env,
+          reloadSignal: request.reloadSignal, runtimeFactory: request.runtimeFactory
         });
         state = ExecutionStates.READY;
         return snapshot();
       } catch (error) {
-        execution = null;
-        request = null;
+        execution = null; request = null;
         failure = error instanceof Error ? error.message : String(error);
         state = ExecutionStates.FAILED;
         throw error;
       }
     },
 
+    async preparePlanned(input) {
+      const contract = createPlannedExecutionContract(input);
+      return this.prepare(contract);
+    },
+
     async start() {
       if (!execution || state !== ExecutionStates.READY) throw new Error("execution is not ready");
-      try {
-        await execution.start();
-        state = ExecutionStates.RUNNING;
-        return snapshot();
-      } catch (error) {
+      try { await execution.start(); state = ExecutionStates.RUNNING; return snapshot(); }
+      catch (error) {
         failure = error instanceof Error ? error.message : String(error);
-        try {
-          await execution.stop();
-        } catch (cleanupError) {
-          failure += "; cleanup: " + (cleanupError instanceof Error ? cleanupError.message : String(cleanupError));
-        } finally {
-          execution = null;
-          request = null;
-        }
+        try { await execution.stop(); }
+        catch (cleanupError) { failure += "; cleanup: " + (cleanupError instanceof Error ? cleanupError.message : String(cleanupError)); }
+        finally { execution = null; request = null; }
         state = ExecutionStates.FAILED;
         throw error;
       }
@@ -121,40 +97,19 @@ export function createExecutionController(options = {}) {
 
     async stop() {
       if (!execution) {
-        if (state === ExecutionStates.FAILED) {
-          state = ExecutionStates.IDLE;
-          request = null;
-          failure = null;
-        }
+        if (state === ExecutionStates.FAILED) { state = ExecutionStates.IDLE; request = null; failure = null; }
         return snapshot();
       }
-      if (state !== ExecutionStates.RUNNING && state !== ExecutionStates.READY && state !== ExecutionStates.FAILED) {
-        throw new Error("execution is not stoppable");
-      }
+      if (state !== ExecutionStates.RUNNING && state !== ExecutionStates.READY && state !== ExecutionStates.FAILED) throw new Error("execution is not stoppable");
       state = ExecutionStates.STOPPING;
-      try {
-        await execution.stop();
-        execution = null;
-        request = null;
-        state = ExecutionStates.IDLE;
-        failure = null;
-        return snapshot();
-      } catch (error) {
-        failure = error instanceof Error ? error.message : String(error);
-        state = ExecutionStates.FAILED;
-        throw error;
-      }
+      try { await execution.stop(); execution = null; request = null; state = ExecutionStates.IDLE; failure = null; return snapshot(); }
+      catch (error) { failure = error instanceof Error ? error.message : String(error); state = ExecutionStates.FAILED; throw error; }
     },
 
     async reload() {
       if (!execution || state !== ExecutionStates.RUNNING) throw new Error("execution is not running");
-      try {
-        return await execution.reload();
-      } catch (error) {
-        failure = error instanceof Error ? error.message : String(error);
-        state = ExecutionStates.FAILED;
-        throw error;
-      }
+      try { return await execution.reload(); }
+      catch (error) { failure = error instanceof Error ? error.message : String(error); state = ExecutionStates.FAILED; throw error; }
     },
 
     async status() {
@@ -162,11 +117,7 @@ export function createExecutionController(options = {}) {
       return Object.freeze({ controller: snapshot(), execution: await execution.status() });
     },
 
-    async logs(options = {}) {
-      if (!execution) return [];
-      return execution.logs(options);
-    },
-
+    async logs(options = {}) { if (!execution) return []; return execution.logs(options); },
     snapshot
   });
 }
