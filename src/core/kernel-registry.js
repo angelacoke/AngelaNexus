@@ -31,9 +31,17 @@ export const UpstreamKernelRegistry = Object.freeze({
 export const UpstreamKernelNames = Object.freeze(Object.keys(UpstreamKernelRegistry));
 
 export const KernelUpdatePolicy = Object.freeze({
+  automaticDiscovery: true,
+  automaticCandidatePreparation: true,
   automaticUpgrade: false,
+  automaticRuntimeActivation: false,
+  automaticMerge: false,
   notifyAvailableUpdate: true,
+  requireReleaseVerification: true,
+  requireAdapterImpactReview: true,
+  requireCompatibilityTests: true,
   requireRuntimeConformance: true,
+  requireSecurityReview: true,
   requireUserApproval: true,
   preservePreviousStable: true
 });
