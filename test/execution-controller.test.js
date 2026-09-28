@@ -206,7 +206,14 @@ test("execution controller records security evidence when a session is invalidat
     path: { validated: true, networkGeneration: 0 }
   });
   await controller.start();
-  await invalidate("gfw-path-revalidation-required");
+  await invalidate({
+    reason: "gfw-path-revalidation-required",
+    state: "suspected",
+    signals: ["tcp-reset", "tls-sni-failure"],
+    actions: ["revalidate-path"],
+    score: 3.5,
+    confidence: 0.72
+  });
   assert.equal(stopped, 1);
   assert.equal(events.length, 1);
   assert.equal(events[0].type, "session-invalidated");
@@ -215,7 +222,14 @@ test("execution controller records security evidence when a session is invalidat
     kernel: Kernels.SING_BOX,
     decisionId: "audit-session-001",
     decisionVersion: 2,
-    state: ExecutionStates.STOPPING
+    state: ExecutionStates.STOPPING,
+    evidence: {
+      state: "suspected",
+      signals: ["tcp-reset", "tls-sni-failure"],
+      actions: ["revalidate-path"],
+      score: 3.5,
+      confidence: 0.72
+    }
   });
   assert.equal(invalidate, null);
 });
