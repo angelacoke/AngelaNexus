@@ -16,6 +16,57 @@ const request = {
   security: { preflightPassed: true, failClosed: true }, path: { validated: true }
 };
 
+test("execution controller records invalidation evidence in its bounded ledger", async () => {
+  let stopCount = 0;
+  let notify;
+  const controller = createExecutionController({
+    executionFactory: async () => ({
+      configPath: "/tmp/test-config",
+      async start() {},
+      async stop() { stopCount += 1; },
+      async reload() {},
+      async status() { return { running: true }; },
+      async logs() { return []; }
+    }),
+    pathRevalidator: async path => path,
+    sessionInvalidationSource: async listener => {
+      notify = listener;
+      return async () => { notify = null; };
+    }
+  });
+
+  await controller.prepare({
+    decision: { id: "decision-1", version: 1, action: "route", choice: "node-a" },
+    kernel: Kernels.SING_BOX,
+    config: { kernel: Kernels.SING_BOX, content: "{}" },
+    userAuthorized: true,
+    security: { preflightPassed: true, failClosed: true },
+    path: { validated: true, networkGeneration: 1 }
+  });
+  await controller.start();
+  await notify({
+    reason: "gfw-path-revalidation-required",
+    state: "confirmed",
+    signals: ["tcp-reset"],
+    actions: ["revalidate-path"],
+    score: 4,
+    confidence: 0.9,
+    payload: "must-not-retain"
+  });
+
+  assert.equal(stopCount, 1);
+  assert.equal(controller.state, ExecutionStates.FAILED);
+  assert.equal(controller.events().length, 1);
+  assert.deepEqual(controller.events()[0].context.evidence, {
+    state: "confirmed",
+    signals: ["tcp-reset"],
+    actions: ["revalidate-path"],
+    score: 4,
+    confidence: 0.9
+  });
+  assert.equal("payload" in controller.events()[0].context, false);
+});
+
 test("execution controller enforces system execution gates before kernel dispatch", async () => {
   const controller = createExecutionController({ executionFactory: fakeExecutionFactory, pathRevalidator: async path => path });
   await controller.prepare(request); assert.equal(controller.state, ExecutionStates.READY);
