@@ -1,0 +1,113 @@
+name: upstream-kernel-sync
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  discover-verify-propose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Node dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Discover upstream releases and prepare candidates
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/check-upstream.mjs --propose --write-report .nexus/upstream-report.json
+
+      - name: Upload upstream report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-kernel-report
+          path: .nexus/upstream-report.json
+          if-no-files-found: ignore
+
+      - name: Stop when no kernel update is available
+        id: changes
+        run: |
+          if git diff --quiet -- src/core/kernel-registry.js; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No upstream kernel candidate update."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve candidate kernel versions
+        if: steps.changes.outputs.changed == 'true'
+        id: versions
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_OUTPUT"
+          import { UpstreamKernelRegistry } from "./src/core/kernel-registry.js";
+          console.log("mihomo=" + UpstreamKernelRegistry.mihomo.stable);
+          console.log("sing_box=" + UpstreamKernelRegistry["sing-box"].stable);
+          console.log("xray=" + UpstreamKernelRegistry.xray.stable);
+          NODE
+
+      - name: Download candidate Mihomo
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.versions.outputs.mihomo }}
+        run: |
+          curl -fsSL -o /tmp/mihomo.gz "https://github.com/MetaCubeX/mihomo/releases/download/v${VERSION}/mihomo-linux-amd64-v1-v${VERSION}.gz"
+          gunzip -c /tmp/mihomo.gz > /tmp/mihomo
+          chmod +x /tmp/mihomo
+
+      - name: Download candidate sing-box
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.versions.outputs.sing_box }}
+        run: |
+          curl -fsSL -o /tmp/sing-box.tar.gz "https://github.com/SagerNet/sing-box/releases/download/v${VERSION}/sing-box-${VERSION}-linux-amd64.tar.gz"
+          tar -xzf /tmp/sing-box.tar.gz -C /tmp
+          mv "/tmp/sing-box-${VERSION}-linux-amd64/sing-box" /tmp/sing-box
+          chmod +x /tmp/sing-box
+
+      - name: Download candidate Xray-core
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.versions.outputs.xray }}
+        run: |
+          curl -fsSL -o /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/v${VERSION}/Xray-linux-64.zip"
+          unzip -o /tmp/xray.zip xray -d /tmp/xray-bin
+          chmod +x /tmp/xray-bin/xray
+
+      - name: Unit and syntax verification
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          npm run syntax:check
+          npm test
+
+      - name: Runtime kernel conformance
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          NEXUS_MIHOMO_BIN: /tmp/mihomo
+          NEXUS_SING_BOX_BIN: /tmp/sing-box
+          NEXUS_XRAY_BIN: /tmp/xray-bin/xray
+        run: npm run kernel:conformance -- --require-binaries
+
+      - name: Create verified update proposal
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BRANCH="automated/kernel-upstream-${GITHUB_RUN_ID}"
+          git config user.name "AngelaNexus Upstream Bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "${BRANCH}"
+          git add src/core/kernel-registry.js
+          git commit -m "chore: propose verified kernel upstream updates"
+          git push --set-upstream origin "${BRANCH}"
+          gh pr create             --base main             --head "${BRANCH}"             --title "chore: verified kernel upstream updates"             --body "Automated candidate generated from official stable releases. Unit tests, syntax validation, and all three kernel runtime-conformance probes passed. Merge remains subject to adapter/security review and user approval."
