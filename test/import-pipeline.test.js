@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { inspectImport, importConfig } from "../src/core/import-pipeline.js";
+import { inspectImport, importConfig, importSource } from "../src/core/import-pipeline.js";
+import { classifyImportSource, validateSubscriptionUrl } from "../src/core/subscription.js";
 
 const CLASH = [
   "proxies:",
@@ -104,4 +105,45 @@ test("native source is preserved on import for lossless runtime handoff", () => 
   assert.equal(result.model.unifiedConfig.native.format, "structured");
   assert.equal(result.model.unifiedConfig.native.runtimeCandidates[0], "sing-box");
   assert.equal(result.model.unifiedConfig.native.source.outbounds[0].custom_native_field.enabled, true);
+});
+
+
+test("classifies subscription URLs, local files, and text independently", () => {
+  assert.deepEqual(classifyImportSource("https://example.com/sub"), { type: "url", url: "https://example.com/sub" });
+  assert.deepEqual(classifyImportSource({ type: "file", name: "nodes.yaml", content: CLASH }), { type: "file", name: "nodes.yaml", content: CLASH });
+  assert.deepEqual(classifyImportSource("vless://a@example.com:443"), { type: "text", content: "vless://a@example.com:443" });
+});
+
+test("imports multiple mixed-protocol single nodes line-by-line without kernel selection", () => {
+  const input = [
+    "vless://u@example.com:443#VLESS",
+    "trojan://p@example.com:443#Trojan",
+    "ss://YWVzLTEyOC1nY206cGFzcw==@example.com:443#SS",
+    "hysteria2://password@example.com:443#HY2"
+  ].join("\\n");
+  const result = importConfig(input);
+  assert.equal(result.model.nodeCount, 4);
+  assert.deepEqual(result.model.nodes.map((node) => node.protocol), ["vless", "trojan", "ss", "hysteria2"]);
+  assert.equal(result.binding.mode, "automatic");
+});
+
+test("imports local configuration file content without requiring kernel selection", () => {
+  const result = importSource({ type: "file", name: "config.yaml", content: CLASH });
+  return result.then((value) => {
+    assert.equal(value.model.nodeCount, 2);
+    assert.equal(value.detection.kind, "clash-yaml");
+  });
+});
+
+test("imports a subscription URL through an injected fetcher", async () => {
+  const result = await importSource("https://example.com/sub", {
+    fetcher: async () => ({ ok: true, text: async () => "vless://u@example.com:443#US" })
+  });
+  assert.equal(result.model.nodeCount, 1);
+  assert.equal(result.model.nodes[0].protocol, "vless");
+});
+
+test("rejects subscription URLs with embedded credentials or unsupported schemes", () => {
+  assert.throws(() => validateSubscriptionUrl("ftp://example.com/sub"), /http or https/);
+  assert.throws(() => validateSubscriptionUrl("https://user:pass@example.com/sub"), /embedded credentials/);
 });
