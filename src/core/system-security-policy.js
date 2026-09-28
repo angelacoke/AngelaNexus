@@ -114,7 +114,7 @@ export function composeSecurityPolicy(systemOverrides = {}, userConfig = {}) {
       ...clone(systemChina),
       ...clone(userChina)
     };
-    if (userChina.failClosed !== true) {
+    if (Object.prototype.hasOwnProperty.call(userChina, "failClosed") && userChina.failClosed !== true) {
       conflicts.push(Object.freeze({
         key: "chinaNetworkOptimization.failClosed",
         code: "USER_SECURITY_WEAKER_THAN_SYSTEM_FLOOR",
