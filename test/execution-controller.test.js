@@ -59,3 +59,44 @@ test("execution controller fails closed when authorization, security, or path va
     /validated network path/
   );
 });
+
+
+test("execution controller cleans up a failed start before allowing recovery", async () => {
+  let stopped = 0;
+  let starts = 0;
+  const factory = async () => ({
+    configPath: "/tmp/nexus-test/config.json",
+    async start() { starts += 1; throw new Error("kernel start failed"); },
+    async stop() { stopped += 1; },
+    async status() { return { running: false }; },
+    async reload() {},
+    async logs() { return []; }
+  });
+  const controller = createExecutionController({ executionFactory: factory });
+  await controller.prepare(request);
+  await assert.rejects(controller.start(), /kernel start failed/);
+  assert.equal(starts, 1);
+  assert.equal(stopped, 1);
+  assert.equal(controller.state, ExecutionStates.FAILED);
+  await controller.prepare(request);
+  assert.equal(controller.state, ExecutionStates.READY);
+});
+
+test("execution controller can explicitly recover a failed stop state", async () => {
+  let stopCalls = 0;
+  const factory = async () => ({
+    configPath: "/tmp/nexus-test/config.json",
+    async start() {},
+    async stop() { stopCalls += 1; if (stopCalls === 1) throw new Error("stop failed"); },
+    async status() { return { running: true }; },
+    async reload() {},
+    async logs() { return []; }
+  });
+  const controller = createExecutionController({ executionFactory: factory });
+  await controller.prepare(request);
+  await controller.start();
+  await assert.rejects(controller.stop(), /stop failed/);
+  assert.equal(controller.state, ExecutionStates.FAILED);
+  await controller.stop();
+  assert.equal(controller.state, ExecutionStates.IDLE);
+});
