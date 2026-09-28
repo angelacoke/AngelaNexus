@@ -60,10 +60,13 @@ export function createExecutionController(options = {}) {
 
   async function invalidateRunningExecution(reason = "network-session-invalidated") {
     if (state !== ExecutionStates.RUNNING || !execution) return;
+    const normalizedReason = typeof reason === "string"
+      ? reason
+      : (reason && typeof reason.reason === "string" ? reason.reason : "network-session-invalidated");
     if (invalidationInFlight) return invalidationInFlight;
     invalidationInFlight = (async () => {
       state = ExecutionStates.STOPPING;
-      failure = String(reason);
+      failure = normalizedReason;
       try {
         await execution.stop();
       } finally {
