@@ -16,7 +16,7 @@ export const NodeCapabilities = Object.freeze({
 
 const protocolSupport = Object.freeze({
   [Kernels.MIHOMO]: new Set(Object.values(NodeProtocols)),
-  [Kernels.SING_BOX]: new Set(Object.values(NodeProtocols)),
+  [Kernels.SING_BOX]: new Set(Object.values(NodeProtocols).filter((protocol) => protocol !== NodeProtocols.WIREGUARD)),
   [Kernels.XRAY]: new Set([
     "http",
     "socks",
