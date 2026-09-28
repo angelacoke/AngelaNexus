@@ -36,9 +36,9 @@ test("execution controller accepts a planner-produced contract without rebuildin
 });
 
 test("execution controller fails closed when authorization, security, or path validation is missing", async () => {
-  const controller = createExecutionController({ executionFactory: fakeExecutionFactory });
+  const controller = createExecutionController({ executionFactory: fakeExecutionFactory, pathRevalidator: async path => path });
   await assert.rejects(controller.prepare({ ...request, userAuthorized: false }), /explicit user authorization/); assert.equal(controller.state, ExecutionStates.FAILED);
-  const second = createExecutionController({ executionFactory: fakeExecutionFactory });
+  const second = createExecutionController({ executionFactory: fakeExecutionFactory, pathRevalidator: async path => path });
   await assert.rejects(second.prepare({ ...request, security: { preflightPassed: true, failClosed: false } }), /fail-closed security mode/);
   const third = createExecutionController({ executionFactory: fakeExecutionFactory });
   await assert.rejects(third.prepare({ ...request, path: { validated: false } }), /validated network path/);
