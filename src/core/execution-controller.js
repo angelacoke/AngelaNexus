@@ -2,6 +2,7 @@ import { createKernelExecution } from "./kernel-execution.js";
 import { Kernels } from "./model.js";
 import { createExecutionContract } from "./execution-contract.js";
 import { createPlannedExecutionContract } from "./decision-planner.js";
+import { createExecutionEventLedger } from "./execution-event-ledger.js";
 
 export const ExecutionStates = Object.freeze({
   IDLE: "idle",
@@ -34,10 +35,12 @@ export function createExecutionController(options = {}) {
   const pathRevalidator = options.pathRevalidator;
   const sessionInvalidationSource = options.sessionInvalidationSource;
   const eventSink = options.eventSink;
+  const eventLedger = options.eventLedger || createExecutionEventLedger();
   if (typeof executionFactory !== "function") throw new TypeError("executionFactory must be a function");
   if (typeof pathRevalidator !== "function") throw new TypeError("pathRevalidator must be a function");
   if (sessionInvalidationSource !== undefined && typeof sessionInvalidationSource !== "function") throw new TypeError("sessionInvalidationSource must be a function");
   if (eventSink !== undefined && typeof eventSink !== "function") throw new TypeError("eventSink must be a function");
+  if (!eventLedger || typeof eventLedger.record !== "function" || typeof eventLedger.snapshot !== "function") throw new TypeError("eventLedger must expose record and snapshot");
   let state = ExecutionStates.IDLE;
   let execution = null;
   let request = null;
@@ -61,6 +64,7 @@ export function createExecutionController(options = {}) {
   }
 
   async function emitEvent(type, context = {}) {
+    try { eventLedger.record(type, context); } catch {}
     if (!eventSink) return;
     try { await eventSink(type, context); } catch {}
   }
@@ -117,6 +121,7 @@ export function createExecutionController(options = {}) {
 
   return Object.freeze({
     get state() { return state; },
+    events() { return eventLedger.snapshot(); },
 
     async prepare(input) {
       if (state !== ExecutionStates.IDLE && state !== ExecutionStates.FAILED) throw new Error("execution controller is not idle");
