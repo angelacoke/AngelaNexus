@@ -92,6 +92,13 @@ jobs:
         run: |
           npm run syntax:check
           npm test
+          printf "success\n" > .nexus/gates/unit-tests.ok
+
+      - name: Compatibility verification
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          npm run compatibility:test
+          printf "success\n" > .nexus/gates/compatibility-tests.ok
 
       - name: Runtime kernel conformance
         if: steps.changes.outputs.changed == 'true'
