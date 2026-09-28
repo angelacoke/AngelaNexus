@@ -167,12 +167,13 @@ export function createExecutionController(options = {}) {
         return snapshot();
       }
       catch (error) {
+        const failedKernel = request ? request.kernel : null;
         failure = error instanceof Error ? error.message : String(error);
         try { await execution.stop(); }
         catch (cleanupError) { failure += "; cleanup: " + (cleanupError instanceof Error ? cleanupError.message : String(cleanupError)); }
         finally { execution = null; request = null; await clearInvalidationSubscription(); }
         state = ExecutionStates.FAILED;
-        await emitEvent("execution-failed", { reason: "start-failed", kernel: request ? request.kernel : null, state });
+        await emitEvent("execution-failed", { reason: "start-failed", kernel: failedKernel, state });
         throw error;
       }
     },
