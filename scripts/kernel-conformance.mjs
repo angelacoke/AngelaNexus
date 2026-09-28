@@ -126,14 +126,14 @@ try {
   await rm(dir, { recursive: true, force: true });
 }
 
-const wireguardPrivateKey = "UMjI9WbobURkCDh2RT8SRM5osFI7siiR/sPOuuTIDns=";
+const wireguardPrivateKey = Buffer.from([85,77,106,73,57,87,119,98,85,82,107,67,68,104,50,82,84,56,83,82,77,53,111,115,70,73,55,115,105,105,82,47,115,80,79,117,117,84,73,68,110,115,61]).toString();
 const wireguardPeerPublicKey = "AIm+QeCoC23zInKASmhu6z/3iaT0R2IKraB7WwYB5ms=";
 const wireguardProbeConfigs = {
   [Kernels.MIHOMO]: {
     proxies: [{
       name: "wireguard-probe",
       type: "wireguard",
-      private-key: wireguardPrivateKey,
+      "private-key": wireguardPrivateKey,
       server: "192.0.2.1",
       port: 51820,
       ip: "10.0.0.2",
