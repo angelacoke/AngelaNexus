@@ -75,7 +75,7 @@ function parseShareLinks(text) {
 export function classifyImportSource(input) {
   if (typeof input === "string") {
     const text = input.trim();
-    if (/^https?:\\/\\//i.test(text)) return { type: "url", url: text };
+    if (/^https?:\/\//i.test(text)) return { type: "url", url: text };
     return { type: "text", content: input };
   }
   if (input && typeof input === "object" && !Array.isArray(input)) {
