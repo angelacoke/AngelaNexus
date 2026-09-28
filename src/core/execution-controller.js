@@ -144,6 +144,7 @@ export function createExecutionController(options = {}) {
         await clearInvalidationSubscription();
         failure = error instanceof Error ? error.message : String(error);
         state = ExecutionStates.FAILED;
+        await emitEvent("execution-failed", { reason: "prepare-failed", kernel: input && input.kernel, state });
         throw error;
       }
     },
@@ -171,6 +172,7 @@ export function createExecutionController(options = {}) {
         catch (cleanupError) { failure += "; cleanup: " + (cleanupError instanceof Error ? cleanupError.message : String(cleanupError)); }
         finally { execution = null; request = null; await clearInvalidationSubscription(); }
         state = ExecutionStates.FAILED;
+        await emitEvent("execution-failed", { reason: "start-failed", kernel: request ? request.kernel : null, state });
         throw error;
       }
     },
@@ -183,7 +185,7 @@ export function createExecutionController(options = {}) {
       if (state !== ExecutionStates.RUNNING && state !== ExecutionStates.READY && state !== ExecutionStates.FAILED) throw new Error("execution is not stoppable");
       state = ExecutionStates.STOPPING;
       try { await execution.stop(); execution = null; request = null; await clearInvalidationSubscription(); state = ExecutionStates.IDLE; failure = null; return snapshot(); }
-      catch (error) { failure = error instanceof Error ? error.message : String(error); state = ExecutionStates.FAILED; throw error; }
+      catch (error) { failure = error instanceof Error ? error.message : String(error); state = ExecutionStates.FAILED; await emitEvent("execution-failed", { reason: "stop-failed", kernel: request ? request.kernel : null, state }); throw error; }
     },
 
     async reload() {
@@ -202,6 +204,7 @@ export function createExecutionController(options = {}) {
           await clearInvalidationSubscription();
           state = ExecutionStates.FAILED;
         }
+        await emitEvent("execution-failed", { reason: "reload-failed", kernel: request ? request.kernel : null, state });
         throw error;
       }
     },
