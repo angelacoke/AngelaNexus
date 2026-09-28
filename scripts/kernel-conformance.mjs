@@ -138,7 +138,7 @@ const wireguardProbeConfigs = {
       port: 51820,
       ip: "10.0.0.2",
       public-key: wireguardPeerPublicKey,
-      allowed-ips: ["0.0.0.0/0"],
+      "allowed-ips": ["0.0.0.0/0"],
       udp: true
     }]
   },
@@ -171,6 +171,7 @@ const wireguardProbeConfigs = {
     }]
   }
 };
+const wireguardDir = await mkdtemp(join(tmpdir(), "nexus-wireguard-probe-"));
 const wireguardReport = [];
 for (const kernel of Object.values(Kernels)) {
   const bin = binaries[kernel];
@@ -178,7 +179,7 @@ for (const kernel of Object.values(Kernels)) {
     wireguardReport.push({ kernel, status: "not-run", reason: "binary not configured" });
     continue;
   }
-  const path = join(dir, kernel === Kernels.MIHOMO ? "wireguard.yaml" : kernel + "-wireguard.json");
+  const path = join(wireguardDir, kernel === Kernels.MIHOMO ? "wireguard.yaml" : kernel + "-wireguard.json");
   const config = wireguardProbeConfigs[kernel];
   await writeFile(path, kernel === Kernels.MIHOMO ? yaml.dump(config) : JSON.stringify(config, null, 2));
   const args = kernel === Kernels.MIHOMO
@@ -209,5 +210,7 @@ for (const item of wireguardReport) {
 }
 console.log(JSON.stringify({ runtime: report, wireguard: wireguardReport }, null, 2));
 if (requireBinaries && wireguardReport.some(item => item.status === "not-run")) {
+  await rm(wireguardDir, { recursive: true, force: true });
   throw new Error("WireGuard capability probe requires all three kernel binaries");
 }
+await rm(wireguardDir, { recursive: true, force: true });
