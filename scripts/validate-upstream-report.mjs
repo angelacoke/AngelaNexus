@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 export function validateUpstreamReport(report, executed = new Set()) {
@@ -28,22 +28,34 @@ export function validateUpstreamReport(report, executed = new Set()) {
   });
 }
 
+async function readExecutedEvidence(directory) {
+  const names = await readdir(directory, { withFileTypes: true });
+  const executed = new Set();
+  for (const entry of names) {
+    if (!entry.isFile() || !entry.name.endsWith(".ok")) continue;
+    const gate = entry.name.slice(0, -3);
+    if (!gate) continue;
+    const content = (await readFile(directory + "/" + entry.name, "utf8")).trim();
+    if (content !== "success") {
+      throw new Error("invalid gate evidence: " + entry.name);
+    }
+    executed.add(gate);
+  }
+  return executed;
+}
+
 async function runCli() {
   const reportPath = process.argv[2] || ".nexus/upstream-report.json";
-  const executed = new Set(process.argv.slice(3).filter(Boolean));
-
-  if (executed.size === 0) {
-    throw new Error("no executed gates supplied");
-  }
-
+  const evidenceDirectory = process.argv[3] || ".nexus/gates";
   const report = JSON.parse(await readFile(reportPath, "utf8"));
+  const executed = await readExecutedEvidence(evidenceDirectory);
   const result = validateUpstreamReport(report, executed);
 
   if (!result.ok) {
     for (const failure of result.failures) console.error(failure);
     process.exitCode = 1;
   } else {
-    console.log("Upstream candidate test plans are fully covered by executed automated gates.");
+    console.log("Upstream candidate test plans are fully covered by recorded successful gate evidence.");
   }
 }
 
