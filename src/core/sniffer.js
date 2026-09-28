@@ -1,11 +1,13 @@
-const SHARE_LINK_RE = /^(vmess|vless|trojan|ss|hysteria2|hy2|tuic|anytls):\/\//i;
+import { KernelCapabilityManifest } from "./kernel-capability-manifest.js";
+
+const SHARE_PROTOCOLS = /^(vmess|vless|trojan|ss|hysteria2|hy2|tuic|anytls):\\/\\//i;
 
 function textOf(input) {
   return typeof input === "string" ? input.trim() : "";
 }
 
 function looksLikeYaml(text, key) {
-  return new RegExp("(^|\\n)\\s*" + key + "\\s*:", "i").test(text);
+  return new RegExp("(^|\\\\n)\\\\s*" + key + "\\\\s*:", "i").test(text);
 }
 
 function parseJson(text) {
@@ -20,6 +22,14 @@ function parseJson(text) {
 
 function evidence(kernel, path, reason, weight) {
   return { kernel, path, reason, weight };
+}
+
+function protocolCandidates(protocol) {
+  const normalized = protocol === "ss" ? "shadowsocks" : protocol === "hy2" ? "hysteria2" : protocol;
+  return Object.keys(KernelCapabilityManifest).filter((kernel) => {
+    const manifest = KernelCapabilityManifest[kernel];
+    return manifest.protocols.includes(normalized) && !manifest.unsupported.includes(normalized);
+  });
 }
 
 function schemaEvidence(input) {
@@ -80,18 +90,21 @@ function fromEvidence(items, kind) {
 export function sniff(input) {
   const text = textOf(input);
 
-  if (SHARE_LINK_RE.test(text)) {
+  if (SHARE_PROTOCOLS.test(text)) {
+    const protocol = text.match(SHARE_PROTOCOLS)[1].toLowerCase();
+    const candidates = protocolCandidates(protocol);
     return {
       kind: "share-link",
-      kernel: null,
-      candidates: ["sing-box", "xray"],
-      confidence: "protocol-link-ambiguous",
-      score: 0,
+      kernel: candidates.length === 1 ? candidates[0] : null,
+      candidates,
+      confidence: candidates.length === 1 ? "protocol-native" : "protocol-multi-runtime",
+      score: candidates.length === 1 ? 100 : 50,
+      protocol: protocol === "ss" ? "shadowsocks" : protocol === "hy2" ? "hysteria2" : protocol,
       evidence: [{
         kernel: null,
         path: "scheme",
-        reason: "share link identifies a protocol URI but does not by itself identify a unique runtime kernel",
-        weight: 0
+        reason: "share link identifies the protocol; runtime selection is deferred to native compatibility resolution",
+        weight: candidates.length === 1 ? 100 : 50
       }]
     };
   }
