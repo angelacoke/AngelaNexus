@@ -35,13 +35,17 @@ async function compareRelease(entry, configured, upstream) {
   const result = await github(
     `https://api.github.com/repos/${entry.repository}/compare/v${encodeURIComponent(configured)}...v${encodeURIComponent(upstream)}`
   );
-  return Array.isArray(result.files) ? result.files.map(file => ({
-    filename: file.filename,
-    status: file.status,
-    additions: file.additions,
-    deletions: file.deletions,
-    changes: file.changes
-  })) : [];
+  if (!Array.isArray(result.files)) return { files: [], truncated: false };
+  return {
+    files: result.files.map(file => ({
+      filename: file.filename,
+      status: file.status,
+      additions: file.additions,
+      deletions: file.deletions,
+      changes: file.changes
+    })),
+    truncated: result.files.length >= 300
+  };
 }
 
 function replaceStable(source, kernel, version) {
@@ -72,7 +76,11 @@ if (propose) registrySource = await readFile(new URL("../src/core/kernel-registr
 
 for (const [kernel, entry] of Object.entries(UpstreamKernelRegistry)) {
   const release = await getLatest(entry);
-  const changedFiles = await compareRelease(entry, entry.stable, release.tag);
+  const comparison = await compareRelease(entry, entry.stable, release.tag);
+  if (comparison.truncated) {
+    throw new Error(kernel + ": upstream comparison returned the maximum file set; refusing incomplete impact analysis");
+  }
+  const changedFiles = comparison.files;
   const candidate = createKernelUpdateCandidate({
     kernel,
     configuredVersion: entry.stable,
@@ -80,7 +88,8 @@ for (const [kernel, entry] of Object.entries(UpstreamKernelRegistry)) {
     release: {
       tag: release.tag,
       publishedAt: release.publishedAt,
-      prerelease: release.prerelease
+      prerelease: release.prerelease,
+      body: release.body
     },
     changedFiles
   });
