@@ -109,3 +109,67 @@ test("execution controller fails closed when a running session is invalidated", 
   assert.equal(controller.state, ExecutionStates.FAILED);
   assert.match(controller.snapshot().failure, /network-generation-changed/);
 });
+
+
+test("execution controller ignores invalidation before the session is running", async () => {
+  let listener = null;
+  let stops = 0;
+  const controller = createExecutionController({
+    executionFactory: async () => ({ configPath: "/tmp/nexus-test/config.json", async start() {}, async stop() { stops += 1; }, async reload() {}, async status() { return { running: false }; }, async logs() {} }),
+    pathRevalidator: async path => path,
+    sessionInvalidationSource: async callback => { listener = callback; return async () => { listener = null; }; }
+  });
+  await controller.prepare(request);
+  await listener("network-generation-changed");
+  assert.equal(controller.state, ExecutionStates.READY);
+  assert.equal(stops, 0);
+  await controller.stop();
+});
+
+test("execution controller deduplicates concurrent session invalidation", async () => {
+  let listener = null;
+  let resolveStop;
+  let stops = 0;
+  const controller = createExecutionController({
+    executionFactory: async () => ({
+      configPath: "/tmp/nexus-test/config.json",
+      async start() {},
+      async stop() { stops += 1; await new Promise(resolve => { resolveStop = resolve; }); },
+      async reload() {},
+      async status() { return { running: true }; },
+      async logs() {}
+    }),
+    pathRevalidator: async path => path,
+    sessionInvalidationSource: async callback => { listener = callback; return async () => { listener = null; }; }
+  });
+  await controller.prepare(request);
+  await controller.start();
+  const first = listener("network-generation-changed");
+  const second = listener("path-trust-invalidated");
+  resolveStop();
+  await Promise.all([first, second]);
+  assert.equal(stops, 1);
+  assert.equal(controller.state, ExecutionStates.FAILED);
+  assert.match(controller.snapshot().failure, /network-generation-changed/);
+});
+
+test("execution controller fails closed after reload failure and stops the kernel", async () => {
+  let stops = 0;
+  const controller = createExecutionController({
+    executionFactory: async () => ({
+      configPath: "/tmp/nexus-test/config.json",
+      async start() {},
+      async stop() { stops += 1; },
+      async reload() { throw new Error("reload failed"); },
+      async status() { return { running: true }; },
+      async logs() {}
+    }),
+    pathRevalidator: async path => path
+  });
+  await controller.prepare(request);
+  await controller.start();
+  await assert.rejects(controller.reload(), /reload failed/);
+  assert.equal(stops, 1);
+  assert.equal(controller.state, ExecutionStates.FAILED);
+  assert.equal((await controller.status()).execution, null);
+});
