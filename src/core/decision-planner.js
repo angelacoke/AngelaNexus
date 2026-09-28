@@ -1,4 +1,5 @@
 import { createDecisionRecord } from "./decision-registry.js";
+import { createExecutionContract } from "./execution-contract.js";
 
 export const DecisionPlanVersion = 1;
 
@@ -56,6 +57,19 @@ export function createExecutionDecision(input = {}) {
   });
 }
 
+export function createPlannedExecutionContract(input = {}) {
+  const decision = createExecutionDecision(input);
+  if (!input.kernel) throw new Error("execution planning requires a kernel");
+  if (!input.config || input.config.kernel !== input.kernel) {
+    throw new Error("execution planning requires a config matching the selected kernel");
+  }
+  return createExecutionContract({
+    ...input,
+    decision,
+    userAuthorized: input.userAuthorized === true
+  });
+}
+
 export function validateDecisionPlan(input = {}) {
   try {
     return Object.freeze({ ok: true, decision: createExecutionDecision(input), errors: Object.freeze([]) });
@@ -63,6 +77,18 @@ export function validateDecisionPlan(input = {}) {
     return Object.freeze({
       ok: false,
       decision: null,
+      errors: Object.freeze([error instanceof Error ? error.message : String(error)])
+    });
+  }
+}
+
+export function validatePlannedExecutionContract(input = {}) {
+  try {
+    return Object.freeze({ ok: true, contract: createPlannedExecutionContract(input), errors: Object.freeze([]) });
+  } catch (error) {
+    return Object.freeze({
+      ok: false,
+      contract: null,
       errors: Object.freeze([error instanceof Error ? error.message : String(error)])
     });
   }
