@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 
 export function validateUpstreamReport(report, executed = new Set()) {
   if (!report || !Array.isArray(report.kernels)) {
@@ -27,19 +28,25 @@ export function validateUpstreamReport(report, executed = new Set()) {
   });
 }
 
-const reportPath = process.argv[2] || ".nexus/upstream-report.json";
-const executed = new Set(process.argv.slice(3).filter(Boolean));
+async function runCli() {
+  const reportPath = process.argv[2] || ".nexus/upstream-report.json";
+  const executed = new Set(process.argv.slice(3).filter(Boolean));
 
-if (executed.size === 0) {
-  throw new Error("no executed gates supplied");
+  if (executed.size === 0) {
+    throw new Error("no executed gates supplied");
+  }
+
+  const report = JSON.parse(await readFile(reportPath, "utf8"));
+  const result = validateUpstreamReport(report, executed);
+
+  if (!result.ok) {
+    for (const failure of result.failures) console.error(failure);
+    process.exitCode = 1;
+  } else {
+    console.log("Upstream candidate test plans are fully covered by executed automated gates.");
+  }
 }
 
-const report = JSON.parse(await readFile(reportPath, "utf8"));
-const result = validateUpstreamReport(report, executed);
-
-if (!result.ok) {
-  for (const failure of result.failures) console.error(failure);
-  process.exitCode = 1;
-} else {
-  console.log("Upstream candidate test plans are fully covered by executed automated gates.");
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await runCli();
 }
