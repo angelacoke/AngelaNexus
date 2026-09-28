@@ -5,6 +5,7 @@ import { createKernelUpdateCandidate } from "../src/core/kernel-update-manager.j
 
 const args = process.argv.slice(2);
 const propose = args.includes("--propose");
+const verifyPipeline = args.includes("--verify-pipeline");
 const reportIndex = args.indexOf("--write-report");
 const reportPath = reportIndex >= 0 ? args[reportIndex + 1] : null;
 const apiHeaders = {
@@ -78,7 +79,7 @@ function replaceStable(source, kernel, version) {
 
 const report = {
   generatedAt: new Date().toISOString(),
-  mode: propose ? "propose" : "check",
+  mode: verifyPipeline ? "verify-pipeline" : (propose ? "propose" : "check"),
   kernels: [],
   updateAvailable: false,
   registryChanged: false
