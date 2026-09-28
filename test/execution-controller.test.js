@@ -17,7 +17,7 @@ const request = {
 };
 
 test("execution controller enforces system execution gates before kernel dispatch", async () => {
-  const controller = createExecutionController({ executionFactory: fakeExecutionFactory });
+  const controller = createExecutionController({ executionFactory: fakeExecutionFactory, pathRevalidator: async path => path });
   await controller.prepare(request); assert.equal(controller.state, ExecutionStates.READY);
   await controller.start(); assert.equal(controller.state, ExecutionStates.RUNNING);
   assert.equal((await controller.status()).execution.running, true);
@@ -25,7 +25,7 @@ test("execution controller enforces system execution gates before kernel dispatc
 });
 
 test("execution controller accepts a planner-produced contract without rebuilding the decision", async () => {
-  const controller = createExecutionController({ executionFactory: fakeExecutionFactory });
+  const controller = createExecutionController({ executionFactory: fakeExecutionFactory, pathRevalidator: async path => path });
   const planned = { id: "planned-001", route: { mode: "proxy", target: "international" }, path: { validated: true }, security: { preflightPassed: true, failClosed: true }, kernel: Kernels.SING_BOX, config: { kernel: Kernels.SING_BOX, nodes: [] }, userAuthorized: true };
   await controller.preparePlanned(planned);
   const snapshot = controller.snapshot();
@@ -47,7 +47,7 @@ test("execution controller fails closed when authorization, security, or path va
 test("execution controller cleans up a failed start before allowing recovery", async () => {
   let stopped = 0; let starts = 0;
   const factory = async () => ({ configPath: "/tmp/nexus-test/config.json", async start() { starts += 1; throw new Error("kernel start failed"); }, async stop() { stopped += 1; }, async status() { return { running: false }; }, async reload() {}, async logs() { return []; } });
-  const controller = createExecutionController({ executionFactory: factory });
+  const controller = createExecutionController({ executionFactory: factory, pathRevalidator: async path => path });
   await controller.prepare(request); await assert.rejects(controller.start(), /kernel start failed/);
   assert.equal(starts, 1); assert.equal(stopped, 1); assert.equal(controller.state, ExecutionStates.FAILED);
   await controller.prepare(request); assert.equal(controller.state, ExecutionStates.READY);
@@ -56,7 +56,28 @@ test("execution controller cleans up a failed start before allowing recovery", a
 test("execution controller can explicitly recover a failed stop state", async () => {
   let stopCalls = 0;
   const factory = async () => ({ configPath: "/tmp/nexus-test/config.json", async start() {}, async stop() { stopCalls += 1; if (stopCalls === 1) throw new Error("stop failed"); }, async status() { return { running: true }; }, async reload() {}, async logs() { return []; } });
-  const controller = createExecutionController({ executionFactory: factory });
+  const controller = createExecutionController({ executionFactory: factory, pathRevalidator: async path => path });
   await controller.prepare(request); await controller.start(); await assert.rejects(controller.stop(), /stop failed/);
   assert.equal(controller.state, ExecutionStates.FAILED); await controller.stop(); assert.equal(controller.state, ExecutionStates.IDLE);
+});
+
+
+test("execution controller rejects a path that changed after decision validation", async () => {
+  const controller = createExecutionController({
+    executionFactory: fakeExecutionFactory,
+    pathRevalidator: async () => ({ validated: true, networkGeneration: 8 })
+  });
+  await controller.prepare({ ...request, path: { validated: true, networkGeneration: 7 } });
+  await assert.rejects(controller.start(), /path changed after decision validation/);
+  assert.equal(controller.state, ExecutionStates.FAILED);
+});
+
+test("execution controller fails closed when path revalidation fails", async () => {
+  const controller = createExecutionController({
+    executionFactory: fakeExecutionFactory,
+    pathRevalidator: async () => ({ validated: false })
+  });
+  await controller.prepare(request);
+  await assert.rejects(controller.start(), /path revalidation failed/);
+  assert.equal(controller.state, ExecutionStates.FAILED);
 });
