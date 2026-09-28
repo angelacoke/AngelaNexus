@@ -7,7 +7,7 @@ test("capability evidence is available for every kernel", () => {
   const evidence = getAllKernelCapabilityEvidence();
   assert.equal(evidence.length, Object.values(Kernels).length);
   for (const item of evidence) {
-    assert.match(item.version, /^\\d+\\.\\d+\\.\\d+/);
+    assert.match(item.version, /^\d+\.\d+\.\d+/);
     assert.match(item.protocols.source, /^https:\/\//);
     assert.match(item.features.source, /^https:\/\//);
     assert.ok(item.protocols.scope);
