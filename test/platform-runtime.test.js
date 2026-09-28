@@ -90,3 +90,16 @@ test("network change invalidates native direct transit validation", async () => 
   assert.equal(runtime.getDirectTransitState().revalidationRequired, true);
   await runtime.stop();
 });
+
+
+test("platform runtime exposes network changes as execution session invalidation", async () => {
+  const mock = mockPlatform();
+  const runtime = createPlatformRuntime(mock.implementation, mock.runtime);
+  await runtime.start();
+  let reason = null;
+  const unsubscribe = await runtime.subscribeSessionInvalidation(async value => { reason = value; });
+  await mock.implementation.emitNetworkChange();
+  assert.equal(reason, "network-generation-changed");
+  await unsubscribe();
+  await runtime.stop();
+});
