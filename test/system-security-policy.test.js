@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import {
   createSystemSecurityPolicy,
   validateSystemSecurityPolicy,
-  securityEvidence
+  securityEvidence,
+  composeSecurityPolicy
 } from "../src/core/system-security-policy.js";
 
 test("system security policy defaults to fail-closed protection", () => {
@@ -66,6 +67,68 @@ test("security validation composes with existing kernel-independent security che
   });
   assert.equal(result.ok, false);
   assert.ok(result.errors.some((item) => item.code === "DNS_PLAINTEXT_SERVER"));
+});
+
+test("user security preferences are preserved when compatible", () => {
+  const result = composeSecurityPolicy({}, {
+    security: {
+      blockWebRTC3478: true,
+      chinaNetworkOptimization: {
+        foreignAction: "chain",
+        dnsMode: "native"
+      }
+    }
+  });
+  assert.equal(result.policy.blockWebRTC3478, true);
+  assert.equal(result.policy.chinaNetworkOptimization.foreignAction, "chain");
+  assert.equal(result.policy.chinaNetworkOptimization.dnsMode, "native");
+  assert.deepEqual(result.conflicts, []);
+  assert.ok(result.preserved.includes("chinaNetworkOptimization.foreignAction"));
+});
+
+test("weaker user security settings do not silently disable the system floor", () => {
+  const result = composeSecurityPolicy({}, {
+    security: {
+      failClosed: false,
+      killSwitch: false,
+      encryptedDns: false
+    }
+  });
+  assert.equal(result.policy.failClosed, true);
+  assert.equal(result.policy.killSwitch, true);
+  assert.equal(result.conflicts.length, 3);
+  assert.equal(result.conflicts[0].resolution, "system-floor");
+  assert.equal(result.conflicts[1].resolution, "system-floor");
+  assert.equal(result.policy.encryptedDns, true);
+});
+
+test("user routing policy is not overwritten by the system optimization default", () => {
+  const result = composeSecurityPolicy({}, {
+    security: {
+      chinaNetworkOptimization: {
+        domesticAction: "proxy",
+        foreignAction: "reject"
+      }
+    }
+  });
+  assert.equal(result.policy.chinaNetworkOptimization.domesticAction, "proxy");
+  assert.equal(result.policy.chinaNetworkOptimization.foreignAction, "reject");
+});
+
+test("user policy remains separate from the original native configuration", () => {
+  const nativeConfig = {
+    security: { failClosed: true, encryptedDns: true },
+    routing: { defaultAction: { type: "route", target: "secure" } }
+  };
+  const result = composeSecurityPolicy({}, nativeConfig);
+  assert.equal(nativeConfig.routing.defaultAction.type, "route");
+  assert.equal(result.policy.failClosed, true);
+});
+
+test("security evidence remains machine-readable after composition", () => {
+  const result = composeSecurityPolicy({}, { security: { failClosed: false } });
+  assert.equal(result.policy.failClosed, true);
+  assert.equal(result.conflicts[0].code, "USER_SECURITY_WEAKER_THAN_SYSTEM_FLOOR");
 });
 
 test("security evidence is explicit and verifiable", () => {
