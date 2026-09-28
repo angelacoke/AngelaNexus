@@ -67,9 +67,12 @@ export function createExecutionController(options = {}) {
 
   async function invalidateRunningExecution(reason = "network-session-invalidated") {
     if (state !== ExecutionStates.RUNNING || !execution) return;
+    const invalidationContext = reason && typeof reason === "object" ? reason : null;
     const normalizedReason = typeof reason === "string"
       ? reason
-      : (reason && typeof reason.reason === "string" ? reason.reason : "network-session-invalidated");
+      : (invalidationContext && typeof invalidationContext.reason === "string"
+        ? invalidationContext.reason
+        : "network-session-invalidated");
     if (invalidationInFlight) return invalidationInFlight;
     invalidationInFlight = (async () => {
       state = ExecutionStates.STOPPING;
@@ -79,7 +82,16 @@ export function createExecutionController(options = {}) {
         kernel: request ? request.kernel : null,
         decisionId: request ? request.decision.id : null,
         decisionVersion: request ? request.decision.version : null,
-        state: ExecutionStates.STOPPING
+        state: ExecutionStates.STOPPING,
+        ...(invalidationContext ? {
+          evidence: {
+            state: invalidationContext.state,
+            signals: Array.isArray(invalidationContext.signals) ? [...invalidationContext.signals] : undefined,
+            actions: Array.isArray(invalidationContext.actions) ? [...invalidationContext.actions] : undefined,
+            score: invalidationContext.score,
+            confidence: invalidationContext.confidence
+          }
+        } : {})
       });
       try {
         await execution.stop();
