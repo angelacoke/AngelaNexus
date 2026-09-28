@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { createPlatformRuntime } from "../src/platform/runtime.js";
 import { PlatformCapabilities, PlatformId } from "../src/platform/contract.js";
 import { createExecutionController, ExecutionStates } from "../src/core/execution-controller.js";
+import { createSessionInvalidationSource } from "../src/core/session-invalidation.js";
+import { createGfwRuntime, GfwSignals } from "../src/core/gfw-policy.js";
 import { Kernels } from "../src/core/model.js";
 
 function mockPlatform(failRuntimeStart = false) {
@@ -45,6 +47,28 @@ function mockPlatform(failRuntimeStart = false) {
       async stop() { events.push("runtime.stop"); },
     },
     events,
+  };
+}
+
+function executionRequest(id, networkGeneration = 0) {
+  return {
+    decision: { id, version: 1, action: "routing", choice: "proxy", requiresUserChoice: true, confirmed: false },
+    kernel: Kernels.SING_BOX,
+    config: { kernel: Kernels.SING_BOX, nodes: [] },
+    userAuthorized: true,
+    security: { preflightPassed: true, failClosed: true },
+    path: { validated: true, networkGeneration }
+  };
+}
+
+function mockExecution(stoppedRef) {
+  return {
+    configPath: "/tmp/nexus-test/config.json",
+    async start() {},
+    async stop() { stoppedRef.count += 1; },
+    async reload() {},
+    async status() { return { running: true }; },
+    async logs() {}
   };
 }
 
@@ -93,7 +117,6 @@ test("network change invalidates native direct transit validation", async () => 
   await runtime.stop();
 });
 
-
 test("platform runtime exposes network changes as execution session invalidation", async () => {
   const mock = mockPlatform();
   const runtime = createPlatformRuntime(mock.implementation, mock.runtime);
@@ -106,38 +129,76 @@ test("platform runtime exposes network changes as execution session invalidation
   await runtime.stop();
 });
 
-
 test("platform network changes fail closed a running execution session", async () => {
   const mock = mockPlatform();
   const runtime = createPlatformRuntime(mock.implementation, mock.runtime);
   await runtime.start();
-  let stopped = 0;
-  const request = {
-    decision: { id: "platform-session-001", version: 1, action: "routing", choice: "proxy", requiresUserChoice: true, confirmed: false },
-    kernel: Kernels.SING_BOX,
-    config: { kernel: Kernels.SING_BOX, nodes: [] },
-    userAuthorized: true,
-    security: { preflightPassed: true, failClosed: true },
-    path: { validated: true, networkGeneration: 0 }
-  };
+  const stopped = { count: 0 };
   const controller = createExecutionController({
-    executionFactory: async () => ({
-      configPath: "/tmp/nexus-test/config.json",
-      async start() {},
-      async stop() { stopped += 1; },
-      async reload() {},
-      async status() { return { running: true }; },
-      async logs() {}
-    }),
+    executionFactory: async () => mockExecution(stopped),
     pathRevalidator: async path => ({ ...path, networkGeneration: 0 }),
     sessionInvalidationSource: runtime.subscribeSessionInvalidation.bind(runtime)
   });
-  await controller.prepare(request);
+  await controller.prepare(executionRequest("platform-session-001"));
   await controller.start();
   assert.equal(controller.state, ExecutionStates.RUNNING);
   await mock.implementation.emitNetworkChange();
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(stopped, 1);
+  assert.equal(stopped.count, 1);
   assert.equal(controller.state, ExecutionStates.FAILED);
   await runtime.stop();
+});
+
+test("platform and GFW invalidation sources compose into one fail-closed execution session", async () => {
+  const mock = mockPlatform();
+  const platform = createPlatformRuntime(mock.implementation, mock.runtime);
+  const gfw = createGfwRuntime();
+  await platform.start();
+  const stopped = { count: 0 };
+  const invalidationSource = createSessionInvalidationSource(
+    platform.subscribeSessionInvalidation.bind(platform),
+    gfw.subscribeInvalidation
+  );
+  const controller = createExecutionController({
+    executionFactory: async () => mockExecution(stopped),
+    pathRevalidator: async path => ({ ...path, networkGeneration: 0 }),
+    sessionInvalidationSource: invalidationSource
+  });
+
+  await controller.prepare(executionRequest("composite-session-001"));
+  await controller.start();
+  assert.equal(controller.state, ExecutionStates.RUNNING);
+
+  gfw.observe({ signal: GfwSignals.TCP_RESET }, 100000);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(stopped.count, 1);
+  assert.equal(controller.state, ExecutionStates.FAILED);
+  assert.match(controller.snapshot().failure, /gfw-path-revalidation-required/);
+
+  await controller.stop();
+  await platform.stop();
+});
+
+test("composed invalidation source is fully unsubscribed when execution stops", async () => {
+  const subscriptions = [];
+  const source = createSessionInvalidationSource(
+    async listener => {
+      subscriptions.push({ name: "first", listener, active: true });
+      return async () => { subscriptions[0].active = false; };
+    },
+    async listener => {
+      subscriptions.push({ name: "second", listener, active: true });
+      return async () => { subscriptions[1].active = false; };
+    }
+  );
+  const stopped = { count: 0 };
+  const controller = createExecutionController({
+    executionFactory: async () => mockExecution(stopped),
+    pathRevalidator: async path => path,
+    sessionInvalidationSource: source
+  });
+  await controller.prepare(executionRequest("composite-unsubscribe-001"));
+  await controller.start();
+  await controller.stop();
+  assert.deepEqual(subscriptions.map(item => item.active), [false, false]);
 });
