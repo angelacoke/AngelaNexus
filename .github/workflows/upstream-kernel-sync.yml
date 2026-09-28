@@ -28,8 +28,7 @@ jobs:
         run: |
           mkdir -p .nexus/gates
           node scripts/check-upstream.mjs --propose --write-report .nexus/upstream-report.json
-          printf "success\
-" > .nexus/gates/release-verified.ok
+          printf "success\n" > .nexus/gates/release-verified.ok
 
       - name: Upload upstream report
         if: always()
@@ -102,8 +101,7 @@ jobs:
           NEXUS_XRAY_BIN: /tmp/xray-bin/xray
         run: |
           npm run kernel:conformance -- --require-binaries
-          printf "success\
-" > .nexus/gates/kernel-conformance.ok
+          printf "success\n" > .nexus/gates/kernel-conformance.ok
 
       - name: Verify candidate test plans
         if: steps.changes.outputs.changed == 'true'
