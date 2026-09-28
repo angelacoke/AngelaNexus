@@ -36,6 +36,14 @@ const REQUIRED_TRUE = Object.freeze([
   "secretProtection", "configIntegrityProtection", "runtimeVerification"
 ]);
 
+const SECURITY_KEYS = Object.freeze([
+  "failClosed", "killSwitch", "dnsLeakPrevention", "ipv4LeakPrevention",
+  "ipv6LeakPrevention", "udpLeakPrevention, "quicLeakPrevention",
+  "tunBypassPrevention", "systemProxyBypassPrevention", "appBypassPrevention",
+  "secureDnsBootstrap", "startupRaceProtection", "subscriptionUpdateProtection",
+  "secretProtection", "configIntegrityProtection", "runtimeVerification"
+]);
+
 function clone(value) {
   return value === undefined ? undefined : structuredClone(value);
 }
@@ -58,6 +66,74 @@ function error(code, key, message, value) {
   return Object.freeze({ code, severity: "error", key, message, value });
 }
 
+/**
+ * Compose the immutable system security floor with user-provided security
+ * preferences. User settings are preserved when compatible; a user request
+ * that weakens a mandatory security invariant is rejected at the effective
+ * layer and recorded as an explicit conflict instead of being silently lost.
+ *
+ * Routing and optimization preferences are not overwritten here. They remain
+ * user-owned unless a separate security invariant proves the requested path
+ * unsafe.
+ */
+export function composeSecurityPolicy(systemOverrides = {}, userConfig = {}) {
+  const system = mergePolicy(systemOverrides);
+  const user = userConfig && typeof userConfig === "object" ? userConfig : {};
+  const userSecurity = user.security && typeof user.security === "object" ? user.security : {};
+  const effective = { ...system };
+  const conflicts = [];
+  const preserved = [];
+
+  for (const key of SECURITY_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(userSecurity, key)) continue;
+    const value = userSecurity[key];
+    if (REQUIRED_TRUE.includes(key) && value !== true) {
+      conflicts.push(Object.freeze({
+        key,
+        code: "USER_SECURITY_WEAKER_THAN_SYSTEM_FLOOR",
+        requested: value,
+        effective: true,
+        resolution: "system-floor"
+      }));
+      effective[key] = true;
+    } else {
+      effective[key] = value;
+      preserved.push(key);
+    }
+  }
+
+  const systemChina = system.chinaNetworkOptimization;
+  const userChina = userSecurity.chinaNetworkOptimization;
+  if (userChina && typeof userChina === "object") {
+    effective.chinaNetworkOptimization = {
+      ...clone(systemChina),
+      ...clone(userChina)
+    };
+    if (userChina.failClosed !== true) {
+      conflicts.push(Object.freeze({
+        key: "chinaNetworkOptimization.failClosed",
+        code: "USER_SECURITY_WEAKER_THAN_SYSTEM_FLOOR",
+        requested: userChina.failClosed,
+        effective: true,
+        resolution: "system-floor"
+      }));
+      effective.chinaNetworkOptimization.failClosed = true;
+    }
+    for (const key of ["enabled", "domesticAction", "foreignAction", "dnsMode"]) {
+      if (Object.prototype.hasOwnProperty.call(userChina, key)) {
+        preserved.push("chinaNetworkOptimization." + key);
+      }
+    }
+  }
+
+  return Object.freeze({
+    version: SECURITY_POLICY_VERSION,
+    policy: Object.freeze(clone(effective)),
+    conflicts: Object.freeze(conflicts),
+    preserved: Object.freeze(preserved)
+  });
+}
+
 export function createSystemSecurityPolicy(overrides = {}) {
   const policy = mergePolicy(overrides);
   const errors = [];
@@ -77,6 +153,9 @@ export function createSystemSecurityPolicy(overrides = {}) {
   if (!china || typeof china !== "object") {
     errors.push(error("CHINA_POLICY_INVALID", "chinaNetworkOptimization", "China network optimization policy must be an object", china));
   } else {
+    if (![true, false].includes(china.enabled)) {
+      errors.push(error("CHINA_ENABLED_INVALID", "chinaNetworkOptimization.enabled", "China network optimization enabled must be boolean", china.enabled));
+    }
     if (!["direct", "proxy", "reject"].includes(china.domesticAction)) {
       errors.push(error("CHINA_DOMESTIC_ACTION_INVALID", "chinaNetworkOptimization.domesticAction", "domestic action must be direct, proxy, or reject", china.domesticAction));
     }
@@ -121,26 +200,9 @@ export function validateSystemSecurityPolicy(config = {}) {
 export function securityEvidence(config = {}) {
   const result = validateSystemSecurityPolicy(config);
   const policy = result.policy;
-  const checks = [
-    ["failClosed", policy.failClosed],
-    ["killSwitch", policy.killSwitch],
-    ["dnsLeakPrevention", policy.dnsLeakPrevention],
-    ["ipv4LeakPrevention", policy.ipv4LeakPrevention],
-    ["ipv6LeakPrevention", policy.ipv6LeakPrevention],
-    ["udpLeakPrevention", policy.udpLeakPrevention],
-    ["quicLeakPrevention", policy.quicLeakPrevention],
-    ["tunBypassPrevention", policy.tunBypassPrevention],
-    ["systemProxyBypassPrevention", policy.systemProxyBypassPrevention],
-    ["appBypassPrevention", policy.appBypassPrevention],
-    ["secureDnsBootstrap", policy.secureDnsBootstrap],
-    ["startupRaceProtection", policy.startupRaceProtection],
-    ["subscriptionUpdateProtection", policy.subscriptionUpdateProtection],
-    ["secretProtection", policy.secretProtection],
-    ["configIntegrityProtection", policy.configIntegrityProtection],
-    ["runtimeVerification", policy.runtimeVerification]
-  ].map(([key, enabled]) => Object.freeze({
+  const checks = SECURITY_KEYS.map((key) => Object.freeze({
     key,
-    status: enabled === true ? "enabled" : "failed"
+    status: policy[key] === true ? "enabled" : "failed"
   }));
 
   return Object.freeze({
