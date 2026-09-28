@@ -7,7 +7,8 @@ import {
   assessAdapterImpact,
   createKernelUpdateCandidate,
   validateKernelUpdateGates,
-  analyzeKernelAdapterImpact
+  analyzeKernelAdapterImpact,
+  buildKernelAdapterTestPlan
 } from "../src/core/kernel-update-manager.js";
 
 test("compares kernel versions without assuming SemVer prerelease syntax", () => {
@@ -31,6 +32,20 @@ test("maps upstream changes to adapter impact domains", () => {
   assert.ok(impact.domains.includes("schema"));
   assert.ok(impact.adapterAreas.includes("execution.adapters"));
   assert.equal(impact.requiresManualAdapterReview, true);
+});
+
+test("builds an actionable adapter test plan from impact domains", () => {
+  const plan = buildKernelAdapterTestPlan({
+    domains: ["security", "routing"],
+    adapterAreas: ["execution.adapters", "system.policy"],
+    requiresManualAdapterReview: true
+  });
+  assert.deepEqual(plan.domains, ["security", "routing"]);
+  assert.ok(plan.checks.includes("unit-tests"));
+  assert.ok(plan.checks.includes("compatibility-tests"));
+  assert.ok(plan.checks.includes("kernel-conformance"));
+  assert.ok(plan.checks.includes("security-review"));
+  assert.equal(plan.manualReviewRequired, true);
 });
 
 test("creates a candidate only when upstream is newer", () => {
