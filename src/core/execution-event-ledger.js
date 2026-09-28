@@ -2,6 +2,7 @@ const DEFAULT_MAX_EVENTS = 256;
 const MAX_STRING_LENGTH = 256;
 const MAX_EVIDENCE_ITEMS = 32;
 const MAX_SCORE = 1000000;
+const MAX_EVENT_TYPE_LENGTH = MAX_STRING_LENGTH;
 
 const SAFE_CONTEXT_KEYS = new Set([
   "reason",
@@ -136,7 +137,7 @@ export function createExecutionEventLedger(options = {}) {
 
   function record(type, context = {}) {
     if (typeof type !== "string" || !type.trim()) throw new TypeError("event type must be a non-empty string");
-    const normalizedType = type.trim().slice(0, MAX_STRING_LENGTH);
+    const normalizedType = type.trim().slice(0, MAX_EVENT_TYPE_LENGTH);
     const event = freezeEvent({
       id: String(nextEventId++),
       type: normalizedType,
