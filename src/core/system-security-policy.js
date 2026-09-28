@@ -38,7 +38,7 @@ const REQUIRED_TRUE = Object.freeze([
 
 const SECURITY_KEYS = Object.freeze([
   "failClosed", "killSwitch", "dnsLeakPrevention", "ipv4LeakPrevention",
-  "ipv6LeakPrevention", "udpLeakPrevention, "quicLeakPrevention",
+  "ipv6LeakPrevention", "udpLeakPrevention", "quicLeakPrevention",
   "tunBypassPrevention", "systemProxyBypassPrevention", "appBypassPrevention",
   "secureDnsBootstrap", "startupRaceProtection", "subscriptionUpdateProtection",
   "secretProtection", "configIntegrityProtection", "runtimeVerification"
