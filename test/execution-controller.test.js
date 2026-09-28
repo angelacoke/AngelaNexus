@@ -81,3 +81,31 @@ test("execution controller fails closed when path revalidation fails", async () 
   await assert.rejects(controller.start(), /path revalidation failed/);
   assert.equal(controller.state, ExecutionStates.FAILED);
 });
+
+test("execution controller fails closed when a running session is invalidated", async () => {
+  let listener = null;
+  let stopped = 0;
+  const factory = async () => ({
+    configPath: "/tmp/nexus-test/config.json",
+    async start() {},
+    async stop() { stopped += 1; },
+    async reload() {},
+    async status() { return { running: true }; },
+    async logs() { return []; }
+  });
+  const controller = createExecutionController({
+    executionFactory: factory,
+    pathRevalidator: async path => path,
+    sessionInvalidationSource: async callback => {
+      listener = callback;
+      return async () => { listener = null; };
+    }
+  });
+  await controller.prepare(request);
+  await controller.start();
+  assert.equal(controller.state, ExecutionStates.RUNNING);
+  await listener("network-generation-changed");
+  assert.equal(stopped, 1);
+  assert.equal(controller.state, ExecutionStates.FAILED);
+  assert.match(controller.snapshot().failure, /network-generation-changed/);
+});
