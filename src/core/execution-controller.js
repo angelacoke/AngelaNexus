@@ -77,8 +77,13 @@ export function createExecutionController(options = {}) {
   }
 
   async function discardExecution() {
-    if (!execution) { request = null; return; }
-    try { await execution.stop(); } finally { execution = null; request = null; }
+    try {
+      if (execution) await execution.stop();
+    } finally {
+      execution = null;
+      request = null;
+      await clearInvalidationSubscription();
+    }
   }
 
   return Object.freeze({
@@ -150,7 +155,21 @@ export function createExecutionController(options = {}) {
     async reload() {
       if (!execution || state !== ExecutionStates.RUNNING) throw new Error("execution is not running");
       try { return await execution.reload(); }
-      catch (error) { failure = error instanceof Error ? error.message : String(error); state = ExecutionStates.FAILED; throw error; }
+      catch (error) {
+        failure = error instanceof Error ? error.message : String(error);
+        state = ExecutionStates.STOPPING;
+        try { await execution.stop(); }
+        catch (cleanupError) {
+          failure += "; cleanup: " + (cleanupError instanceof Error ? cleanupError.message : String(cleanupError));
+        }
+        finally {
+          execution = null;
+          request = null;
+          await clearInvalidationSubscription();
+          state = ExecutionStates.FAILED;
+        }
+        throw error;
+      }
     },
 
     async status() {
