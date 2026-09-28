@@ -15,6 +15,47 @@ test("execution event ledger records bounded immutable security evidence", () =>
   assert.equal(Object.isFrozen(first.context), true);
 });
 
+test("execution event ledger retains only the privacy-safe evidence schema", () => {
+  const ledger = createExecutionEventLedger({ clock: () => 1000 });
+  const source = {
+    reason: "gfw-path-revalidation-required",
+    kernel: "sing-box",
+    decisionId: "decision-1",
+    decisionVersion: 1,
+    state: "stopping",
+    config: { password: "must-not-retain" },
+    payload: "must-not-retain",
+    evidence: {
+      state: "suspected",
+      signals: ["tcp-reset"],
+      actions: ["revalidate-path"],
+      score: 3.5,
+      confidence: 0.72,
+      config: { token: "must-not-retain" }
+    }
+  };
+  const event = ledger.record("session-invalidated", source);
+  source.evidence.signals.push("mutated-after-record");
+  assert.deepEqual(event.context, {
+    reason: "gfw-path-revalidation-required",
+    kernel: "sing-box",
+    decisionId: "decision-1",
+    decisionVersion: 1,
+    state: "stopping",
+    evidence: {
+      state: "suspected",
+      signals: ["tcp-reset"],
+      actions: ["revalidate-path"],
+      score: 3.5,
+      confidence: 0.72
+    }
+  });
+  assert.equal("config" in event.context, false);
+  assert.equal(Object.isFrozen(event.context.evidence), true);
+  assert.equal(Object.isFrozen(event.context.evidence.signals), true);
+  assert.throws(() => event.context.evidence.signals.push("blocked"), TypeError);
+});
+
 test("execution event ledger rejects malformed event types", () => {
   const ledger = createExecutionEventLedger();
   assert.throws(() => ledger.record(""), /event type/);
