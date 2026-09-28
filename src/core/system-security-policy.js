@@ -39,7 +39,7 @@ const REQUIRED_TRUE = Object.freeze([
   "tunBypassPrevention", "systemProxyBypassPrevention", "appBypassPrevention",
   "secureDnsBootstrap", "startupRaceProtection", "subscriptionUpdateProtection",
   "secretProtection", "configIntegrityProtection", "runtimeVerification",
-  "blockWebRTC3478", "ipv6LeakBlackhole", "encryptedDns", "gfwResilience"
+  "blockWebRTC3478", "ipv6LeakBlackhole", "encryptedDns"
 ]);
 
 const SECURITY_KEYS = Object.freeze([
@@ -238,7 +238,9 @@ export function securityEvidence(config = {}) {
   const policy = result.policy;
   const checks = SECURITY_KEYS.map((key) => Object.freeze({
     key,
-    status: policy[key] === true ? "enabled" : "failed"
+    status: key === "gfwResilience"
+      ? (policy[key] && policy[key].enabled === true && policy[key].failClosed === true ? "enabled" : "failed")
+      : (policy[key] === true ? "enabled" : "failed")
   }));
 
   return Object.freeze({
