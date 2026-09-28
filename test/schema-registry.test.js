@@ -40,3 +40,20 @@ test("compiled validation fails closed when the required root collection is miss
   assert.equal(result.ok, false);
   assert.match(result.errors.join("\n"), /sing-box\.config\.v1 requires array: outbounds/);
 });
+
+test("compiled validation checks Mihomo proxy-provider schema", () => {
+  const missingUrl = validateCompiledConfig({
+    "proxy-providers": {
+      provider1: { type: "http" }
+    }
+  }, Kernels.MIHOMO);
+  assert.equal(missingUrl.ok, false);
+  assert.match(missingUrl.errors.join("\n"), /proxy-provider\[provider1\] requires url/);
+
+  const validInline = validateCompiledConfig({
+    "proxy-providers": {
+      provider1: { type: "inline", payload: "proxies: []" }
+    }
+  }, Kernels.MIHOMO);
+  assert.equal(validInline.ok, true);
+});
