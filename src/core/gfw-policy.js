@@ -1,4 +1,4 @@
-export const GFW_POLICY_VERSION = 1;
+export const GFW_POLICY_VERSION = 2;
 
 export const GfwStates = Object.freeze({
   DISABLED: "disabled",
@@ -240,5 +240,197 @@ export function recommendGfwResilience(evidence, context = {}) {
     state: result.state || GfwStates.SUSPECTED,
     recommendations: Object.freeze(recommendations.map((item) => Object.freeze(item))),
     requiresUserChoice: recommendations.some((item) => item.requiresUserChoice)
+  });
+}
+
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function normalizeRuntimePolicy(overrides = {}) {
+  const policy = createGfwPolicy(overrides);
+  return Object.freeze({
+    ...policy,
+    decayHalfLifeMs: positiveInt(overrides.decayHalfLifeMs, 2 * 60 * 1000),
+    recoveryQuietPeriodMs: positiveInt(overrides.recoveryQuietPeriodMs, 3 * 60 * 1000),
+    maxObservations: positiveInt(overrides.maxObservations, 256),
+    confirmationDiversity: positiveInt(overrides.confirmationDiversity, 2)
+  });
+}
+
+/**
+ * Event-driven GFW resilience controller.
+ *
+ * The controller keeps a bounded, time-decayed evidence window. It does not
+ * run a polling loop: each observation immediately updates the decision, and
+ * snapshot() re-evaluates it against the supplied clock. This keeps idle
+ * memory/CPU cost low while allowing decisions to change as network evidence
+ * changes.
+ */
+export function createGfwRuntime(overrides = {}) {
+  const policy = normalizeRuntimePolicy(overrides);
+  const observations = [];
+  let lastNow = 0;
+  let lastState = GfwStates.NORMAL;
+  let lastEvidenceAt = null;
+
+  function prune(now) {
+    const cutoff = now - policy.maxObservationAgeMs;
+    while (observations.length > 0 && observations[0].at < cutoff) observations.shift();
+    if (observations.length > policy.maxObservations) {
+      observations.splice(0, observations.length - policy.maxObservations);
+    }
+  }
+
+  function scoreObservation(item, now) {
+    const age = Math.max(0, now - item.at);
+    const decay = Math.pow(0.5, age / policy.decayHalfLifeMs);
+    return (SIGNAL_WEIGHTS[item.signal] || 0) * item.count * decay;
+  }
+
+  function evaluate(now) {
+    const current = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+    if (current < lastNow) {
+      return Object.freeze({
+        version: GFW_POLICY_VERSION,
+        state: lastState,
+        score: 0,
+        evidenceCount: 0,
+        signals: Object.freeze([]),
+        confidence: 0,
+        actions: Object.freeze(["observe", "require-path-revalidation"]),
+        clockRollback: true
+      });
+    }
+    lastNow = current;
+    prune(current);
+
+    const active = observations.filter((item) => item.independent !== false);
+    const scores = active.map((item) => scoreObservation(item, current));
+    const score = scores.reduce((sum, value) => sum + value, 0);
+    const signals = [...new Set(active.map((item) => item.signal))];
+    const transports = [...new Set(active.map((item) => item.transport).filter(Boolean))];
+    const destinations = [...new Set(active.map((item) => item.destination).filter(Boolean))];
+    const diversity = new Set(active.map((item) => item.signal)).size;
+    const corroborated = diversity >= policy.confirmationDiversity;
+    const evidenceCount = active.reduce((sum, item) => sum + item.count, 0);
+    const confidence = clamp(
+      (score / Math.max(policy.confirmationScore, 1)) * (corroborated ? 1 : 0.65),
+      0,
+      1
+    );
+
+    const severe = signals.some((signal) =>
+      signal === GfwSignals.BOOTSTRAP_INTEGRITY_FAILURE ||
+      signal === GfwSignals.POISONED_DNS_DESTINATION ||
+      signal === GfwSignals.CERTIFICATE_ANOMALY
+    );
+
+    let state = lastState;
+    if (severe && evidenceCount >= 1) {
+      state = GfwStates.CONFIRMED;
+    } else if (
+      evidenceCount >= policy.minEvidence &&
+      score >= policy.confirmationScore &&
+      corroborated
+    ) {
+      state = GfwStates.CONFIRMED;
+    } else if (evidenceCount > 0) {
+      state = GfwStates.SUSPECTED;
+    } else if (
+      lastState === GfwStates.CONFIRMED &&
+      lastEvidenceAt !== null &&
+      current - lastEvidenceAt < policy.recoveryQuietPeriodMs
+    ) {
+      state = GfwStates.SUSPECTED;
+    } else {
+      state = GfwStates.NORMAL;
+    }
+
+    const actions = new Set(["observe"]);
+    if (
+      signals.includes(GfwSignals.POISONED_DNS_DESTINATION) ||
+      signals.includes(GfwSignals.CERTIFICATE_ANOMALY)
+    ) {
+      actions.add("invalidate-suspicious-destination");
+      actions.add("require-path-revalidation");
+    }
+    if (signals.includes(GfwSignals.BOOTSTRAP_INTEGRITY_FAILURE)) {
+      actions.add("block-untrusted-bootstrap");
+      actions.add("require-path-revalidation");
+    }
+    if (signals.includes(GfwSignals.DNS_INJECTION) && policy.requireSecureDnsOnInjection) {
+      actions.add("secure-dns");
+    }
+    if (
+      state === GfwStates.CONFIRMED &&
+      signals.includes(GfwSignals.QUIC_INITIAL_FAILURE) &&
+      policy.avoidQuicOnConfirmed
+    ) {
+      actions.add("avoid-affected-transport");
+    }
+    if (
+      signals.includes(GfwSignals.TCP_RESET) ||
+      signals.includes(GfwSignals.TLS_SNI_FAILURE) ||
+      signals.includes(GfwSignals.RESIDUAL_BLOCKING) ||
+      signals.includes(GfwSignals.CLOCK_ANOMALY)
+    ) {
+      actions.add("revalidate-path");
+    }
+    if (signals.includes(GfwSignals.UNEXPECTED_ROUTE_CHANGE)) actions.add("disable-unsafe-route");
+    if (signals.includes(GfwSignals.ACTIVE_PROBE_SUSPECTED)) {
+      actions.add("require-user-choice");
+      actions.add("require-path-revalidation");
+    }
+    if (state === GfwStates.CONFIRMED && policy.failClosed) actions.add("fail-closed");
+
+    return Object.freeze({
+      version: GFW_POLICY_VERSION,
+      state,
+      score,
+      evidenceCount,
+      signals: Object.freeze(signals),
+      confidence,
+      diversity,
+      corroborated,
+      transports: Object.freeze(transports),
+      destinations: Object.freeze(destinations),
+      actions: Object.freeze([...actions]),
+      clockRollback: false
+    });
+  }
+
+  return Object.freeze({
+    observe(observation = {}, now = Date.now()) {
+      const at = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+      const item = normalizeObservation({ ...observation, at });
+      if (!Object.values(GfwSignals).includes(item.signal) || item.independent === false) {
+        return evaluate(at);
+      }
+      if (at < lastNow) return evaluate(at);
+      observations.push(item);
+      lastEvidenceAt = at;
+      lastState = item.signal === GfwSignals.BOOTSTRAP_INTEGRITY_FAILURE ||
+        item.signal === GfwSignals.POISONED_DNS_DESTINATION ||
+        item.signal === GfwSignals.CERTIFICATE_ANOMALY
+        ? GfwStates.CONFIRMED
+        : GfwStates.SUSPECTED;
+      return evaluate(at);
+    },
+    snapshot(now = Date.now()) {
+      return evaluate(now);
+    },
+    clear(now = Date.now()) {
+      observations.length = 0;
+      lastEvidenceAt = null;
+      lastState = GfwStates.NORMAL;
+      lastNow = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+      return evaluate(lastNow);
+    },
+    size() {
+      return observations.length;
+    },
+    policy
   });
 }
