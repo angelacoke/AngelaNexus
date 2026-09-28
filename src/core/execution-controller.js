@@ -193,6 +193,7 @@ export function createExecutionController(options = {}) {
       if (!execution || state !== ExecutionStates.RUNNING) throw new Error("execution is not running");
       try { return await execution.reload(); }
       catch (error) {
+        const failedKernel = request ? request.kernel : null;
         failure = error instanceof Error ? error.message : String(error);
         state = ExecutionStates.STOPPING;
         try { await execution.stop(); }
@@ -205,7 +206,7 @@ export function createExecutionController(options = {}) {
           await clearInvalidationSubscription();
           state = ExecutionStates.FAILED;
         }
-        await emitEvent("execution-failed", { reason: "reload-failed", kernel: request ? request.kernel : null, state });
+        await emitEvent("execution-failed", { reason: "reload-failed", kernel: failedKernel, state });
         throw error;
       }
     },
