@@ -18,7 +18,6 @@ export * from "./core/chain-resolution.js";
 export * from "./core/node-state.js";
 export * from "./core/compile-preflight.js";
 export * from "./core/update-trust-policy.js";
-
 export * from "./core/gfw-policy.js";
 export * from "./core/system-security-policy.js";
 export * from "./core/native-network-compatibility.js";
@@ -27,3 +26,4 @@ export * from "./core/kernel-update-manager.js";
 export * from "./core/kernel-execution.js";
 export * from "./core/execution-controller.js";
 export * from "./core/execution-contract.js";
+export * from "./core/decision-planner.js";
