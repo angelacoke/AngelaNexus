@@ -62,7 +62,30 @@ export function assessAdapterImpact(files = []) {
   return { risk, paths };
 }
 
-export function createKernelUpdateCandidate({
+
+const IMPACT_DOMAINS = Object.freeze({
+  security: /security|crypto|tls|certificate|reality|key|credential/i,
+  transport: /transport|quic|http3|grpc|http|tcp|udp|wireguard|hysteria|tuic/i,
+  routing: /route|router|routing|rule|dns|tun|inbound|outbound|selector|urltest/i,
+  schema: /config|schema|api|json|yaml/i,
+  runtime: /runtime|core|engine|dispatcher|dial|listener/i
+});
+
+export function analyzeKernelAdapterImpact(files = [], releaseNotes = "") {
+  const paths = files.map(file => typeof file === "string" ? file : file.filename).filter(Boolean);
+  const text = paths.join("\n") + "\n" + String(releaseNotes || "");
+  const domains = Object.keys(IMPACT_DOMAINS).filter(domain => IMPACT_DOMAINS[domain].test(text));
+  const adapterAreas = [];
+  if (domains.some(domain => ["security", "transport"].includes(domain))) adapterAreas.push("execution.adapters");
+  if (domains.some(domain => ["routing", "schema"].includes(domain))) adapterAreas.push("execution.adapters", "system.policy");
+  if (domains.includes("runtime")) adapterAreas.push("execution.lifecycle", "platform.runtime");
+  return Object.freeze({
+    domains,
+    adapterAreas: [...new Set(adapterAreas)],
+    requiresManualAdapterReview: domains.length > 0
+  });
+}
+\nexport function createKernelUpdateCandidate({
   kernel,
   configuredVersion,
   upstreamVersion,
@@ -76,6 +99,7 @@ export function createKernelUpdateCandidate({
   else if (comparison < 0) state = KERNEL_UPDATE_STATES.REGISTRY_AHEAD;
 
   const impact = assessAdapterImpact(changedFiles);
+  const adapterImpact = analyzeKernelAdapterImpact(changedFiles, release.body || "");
   if (state === KERNEL_UPDATE_STATES.UPDATE_AVAILABLE) state = KERNEL_UPDATE_STATES.CANDIDATE;
 
   return Object.freeze({
@@ -90,6 +114,7 @@ export function createKernelUpdateCandidate({
       prerelease: release.prerelease === true
     },
     changedFiles: impact.paths,
+    adapterImpact,
     requiredGates: REQUIRED_GATES
   });
 }
