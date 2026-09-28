@@ -40,7 +40,7 @@ test("execution controller fails closed when authorization, security, or path va
   await assert.rejects(controller.prepare({ ...request, userAuthorized: false }), /explicit user authorization/); assert.equal(controller.state, ExecutionStates.FAILED);
   const second = createExecutionController({ executionFactory: fakeExecutionFactory, pathRevalidator: async path => path });
   await assert.rejects(second.prepare({ ...request, security: { preflightPassed: true, failClosed: false } }), /fail-closed security mode/);
-  const third = createExecutionController({ executionFactory: fakeExecutionFactory });
+  const third = createExecutionController({ executionFactory: fakeExecutionFactory, pathRevalidator: async path => path });
   await assert.rejects(third.prepare({ ...request, path: { validated: false } }), /validated network path/);
 });
 
