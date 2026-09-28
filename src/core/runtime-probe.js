@@ -3,7 +3,8 @@ const UNSUPPORTED_PATTERNS = [
   /unsupported\s+(?:outbound|protocol|type)/i,
   /(?:outbound|protocol|type).*not\s+supported/i,
   /(?:outbound|protocol|type).*not\s+found/i,
-  /(?:wireguard|outbound).*removed/i
+  /(?:wireguard|outbound).*removed/i,
+  /unknown\s+field\s+["']server["']/i
 ];
 
 const INVALID_FIXTURE_PATTERNS = [
