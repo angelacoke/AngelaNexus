@@ -143,6 +143,12 @@ export function createPlatformRuntime(implementation, runtime) {
     async enableNetworkBlock(reason) { return bridge.enableNetworkBlock(reason); },
     async disableNetworkBlock(reason) { return bridge.disableNetworkBlock(reason); },
     async subscribeNetworkState(listener) { return bridge.subscribeNetworkState(listener); },
+    async subscribeSessionInvalidation(listener) {
+      if (typeof listener !== "function") throw new TypeError("session invalidation listener must be a function");
+      return bridge.subscribeNetworkState(async () => {
+        await listener("network-generation-changed");
+      });
+    },
     async validateDirectTransit(options = {}) { return validateDirectTransit(options); },
     getDirectTransitState() { return directTransitState; },
     getNetworkState() { return bridge.getNetworkState(); },
