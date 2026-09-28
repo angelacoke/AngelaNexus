@@ -98,6 +98,10 @@ jobs:
           NEXUS_XRAY_BIN: /tmp/xray-bin/xray
         run: npm run kernel:conformance -- --require-binaries
 
+      - name: Verify candidate test plans
+        if: steps.changes.outputs.changed == 'true'
+        run: node scripts/validate-upstream-report.mjs .nexus/upstream-report.json release-verified unit-tests compatibility-tests kernel-conformance
+
       - name: Create verified update proposal
         if: steps.changes.outputs.changed == 'true'
         env:
