@@ -27,3 +27,5 @@ export * from "./core/kernel-execution.js";
 export * from "./core/execution-controller.js";
 export * from "./core/execution-contract.js";
 export * from "./core/decision-planner.js";
+
+export * from "./core/session-invalidation.js";
