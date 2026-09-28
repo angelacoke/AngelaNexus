@@ -136,9 +136,10 @@ export function createExecutionEventLedger(options = {}) {
 
   function record(type, context = {}) {
     if (typeof type !== "string" || !type.trim()) throw new TypeError("event type must be a non-empty string");
+    const normalizedType = type.trim().slice(0, MAX_STRING_LENGTH);
     const event = freezeEvent({
       id: String(nextEventId++),
-      type: type.trim(),
+      type: normalizedType,
       at: (() => {
         const value = typeof options.clock === "function" ? options.clock() : Date.now();
         return Number.isFinite(value) ? value : Date.now();
