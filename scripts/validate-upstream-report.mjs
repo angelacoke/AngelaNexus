@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
-export function validateUpstreamReport(report, executed = new Set()) {
+export function validateUpstreamReport(report, executed = new Set(), options = {}) {
   if (!report || !Array.isArray(report.kernels)) {
     return Object.freeze({
       ok: false,
@@ -9,11 +9,13 @@ export function validateUpstreamReport(report, executed = new Set()) {
     });
   }
 
+  const allowManualGates = options.allowManualGates === true;
+  const manualGates = new Set(["security-review", "user-approval"]);
   const failures = [];
   for (const candidate of report.kernels) {
     if (candidate.state !== "candidate") continue;
     const required = Array.isArray(candidate.testPlan?.checks) ? candidate.testPlan.checks : [];
-    const missing = required.filter(check => !executed.has(check));
+    const missing = required.filter(check => !executed.has(check) && !(allowManualGates && manualGates.has(check)));
     if (missing.length > 0) {
       failures.push(candidate.kernel + ": missing executed checks: " + missing.join(", "));
     }
@@ -24,7 +26,8 @@ export function validateUpstreamReport(report, executed = new Set()) {
 
   return Object.freeze({
     ok: failures.length === 0,
-    failures
+    failures,
+    pendingManualGates: allowManualGates ? ["security-review", "user-approval"] : []
   });
 }
 
@@ -47,15 +50,17 @@ async function readExecutedEvidence(directory) {
 async function runCli() {
   const reportPath = process.argv[2] || ".nexus/upstream-report.json";
   const evidenceDirectory = process.argv[3] || ".nexus/gates";
+  const allowManualGates = process.argv.includes("--allow-manual-gates");
   const report = JSON.parse(await readFile(reportPath, "utf8"));
   const executed = await readExecutedEvidence(evidenceDirectory);
-  const result = validateUpstreamReport(report, executed);
+  const result = validateUpstreamReport(report, executed, { allowManualGates });
 
   if (!result.ok) {
     for (const failure of result.failures) console.error(failure);
     process.exitCode = 1;
   } else {
-    console.log("Upstream candidate test plans are fully covered by recorded successful gate evidence.");
+    console.log("Upstream candidate test plans are covered by recorded automated evidence; manual gates remain required before promotion.");
+    if (result.pendingManualGates.length > 0) console.log("Pending manual gates: " + result.pendingManualGates.join(", "));
   }
 }
 
