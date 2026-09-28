@@ -31,21 +31,34 @@ async function getLatest(entry) {
 }
 
 async function compareRelease(entry, configured, upstream) {
-  if (!configured || !upstream || configured === upstream) return [];
-  const result = await github(
-    `https://api.github.com/repos/${entry.repository}/compare/v${encodeURIComponent(configured)}...v${encodeURIComponent(upstream)}`
-  );
-  if (!Array.isArray(result.files)) return { files: [], truncated: false };
-  return {
-    files: result.files.map(file => ({
+  if (!configured || !upstream || configured === upstream) {
+    return { files: [], truncated: false };
+  }
+
+  const files = [];
+  const perPage = 100;
+  for (let page = 1; page <= 10; page += 1) {
+    const result = await github(
+      `https://api.github.com/repos/${entry.repository}/compare/v${encodeURIComponent(configured)}...v${encodeURIComponent(upstream)}?per_page=${perPage}&page=${page}`
+    );
+    if (!Array.isArray(result.files)) {
+      throw new Error(entry.repository + ": upstream comparison returned no file list");
+    }
+
+    files.push(...result.files.map(file => ({
       filename: file.filename,
       status: file.status,
       additions: file.additions,
       deletions: file.deletions,
       changes: file.changes
-    })),
-    truncated: result.files.length >= 300
-  };
+    })));
+
+    if (result.files.length < perPage) {
+      return { files, truncated: false };
+    }
+  }
+
+  return { files, truncated: true };
 }
 
 function replaceStable(source, kernel, version) {
@@ -78,7 +91,7 @@ for (const [kernel, entry] of Object.entries(UpstreamKernelRegistry)) {
   const release = await getLatest(entry);
   const comparison = await compareRelease(entry, entry.stable, release.tag);
   if (comparison.truncated) {
-    throw new Error(kernel + ": upstream comparison returned the maximum file set; refusing incomplete impact analysis");
+    throw new Error(kernel + ": upstream comparison exceeded pagination safety bound; refusing incomplete impact analysis");
   }
   const changedFiles = comparison.files;
   const candidate = createKernelUpdateCandidate({
