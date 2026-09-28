@@ -33,9 +33,11 @@ export function createExecutionController(options = {}) {
   const executionFactory = options.executionFactory || createKernelExecution;
   const pathRevalidator = options.pathRevalidator;
   const sessionInvalidationSource = options.sessionInvalidationSource;
+  const eventSink = options.eventSink;
   if (typeof executionFactory !== "function") throw new TypeError("executionFactory must be a function");
   if (typeof pathRevalidator !== "function") throw new TypeError("pathRevalidator must be a function");
   if (sessionInvalidationSource !== undefined && typeof sessionInvalidationSource !== "function") throw new TypeError("sessionInvalidationSource must be a function");
+  if (eventSink !== undefined && typeof eventSink !== "function") throw new TypeError("eventSink must be a function");
   let state = ExecutionStates.IDLE;
   let execution = null;
   let request = null;
@@ -58,6 +60,11 @@ export function createExecutionController(options = {}) {
     if (unsubscribeInvalidation) { await unsubscribeInvalidation(); unsubscribeInvalidation = null; }
   }
 
+  async function emitEvent(type, context = {}) {
+    if (!eventSink) return;
+    try { await eventSink(type, context); } catch {}
+  }
+
   async function invalidateRunningExecution(reason = "network-session-invalidated") {
     if (state !== ExecutionStates.RUNNING || !execution) return;
     const normalizedReason = typeof reason === "string"
@@ -67,6 +74,13 @@ export function createExecutionController(options = {}) {
     invalidationInFlight = (async () => {
       state = ExecutionStates.STOPPING;
       failure = normalizedReason;
+      await emitEvent("session-invalidated", {
+        reason: normalizedReason,
+        kernel: request ? request.kernel : null,
+        decisionId: request ? request.decision.id : null,
+        decisionVersion: request ? request.decision.version : null,
+        state: ExecutionStates.STOPPING
+      });
       try {
         await execution.stop();
       } finally {
