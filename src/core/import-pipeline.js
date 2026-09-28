@@ -1,5 +1,5 @@
 import { sniff } from "./sniffer.js";
-import { parseSubscription, parseSubscriptionDocument } from "./subscription.js";
+import { classifyImportSource, fetchSubscription, parseSubscription, parseSubscriptionDocument } from "./subscription.js";
 import { toUnifiedConfig } from "./unified-config.js";
 import { normalizeNodeConfig } from "./config.js";
 import { Kernels } from "./model.js";
@@ -69,6 +69,18 @@ export function inspectImport(input, { kernel = null } = {}) {
       }
     }
   };
+}
+
+export async function importSource(input, { kernel = null, maxNodes = null, fetcher = globalThis.fetch } = {}) {
+  const source = classifyImportSource(input);
+  if (source.type === "url") {
+    const content = await fetchSubscription(source.url, { fetcher });
+    return importConfig(content, { kernel, maxNodes });
+  }
+  if (source.type === "file" || source.type === "text") {
+    return importConfig(source.content, { kernel, maxNodes });
+  }
+  return importConfig(source.value, { kernel, maxNodes });
 }
 
 export function importConfig(input, { kernel = null, maxNodes = null } = {}) {

@@ -72,6 +72,29 @@ function parseShareLinks(text) {
   return matches.map((link) => parseShareLink(link));
 }
 
+export function classifyImportSource(input) {
+  if (typeof input === "string") {
+    const text = input.trim();
+    if (/^https?:\/\//i.test(text)) return { type: "url", url: text };
+    return { type: "text", content: input };
+  }
+  if (input && typeof input === "object" && !Array.isArray(input)) {
+    if (input.type === "url" && typeof input.url === "string") {
+      return { type: "url", url: input.url.trim() };
+    }
+    if (input.type === "file" && typeof input.content === "string") {
+      return { type: "file", name: input.name || "config", content: input.content };
+    }
+    if (input.type === "text" && typeof input.content === "string") {
+      return { type: "text", content: input.content };
+    }
+    if (typeof input.content === "string" && typeof input.name === "string") {
+      return { type: "file", name: input.name, content: input.content };
+    }
+  }
+  return { type: "structured", value: input };
+}
+
 export function parseSubscriptionDocument(input) {
   if (typeof input !== "string" || !input.trim()) {
     throw new TypeError("subscription input must be non-empty text");
@@ -90,6 +113,48 @@ export function parseSubscriptionDocument(input) {
   if (parsed !== null) return { kind: "base64", value: parsed };
 
   throw new Error("unsupported subscription format");
+}
+
+export function validateSubscriptionUrl(value) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("invalid subscription URL");
+  }
+  if (!["http:", "https:"].includes(url.protocol)) {
+    throw new Error("subscription URL must use http or https");
+  }
+  if (url.username || url.password) {
+    throw new Error("subscription URL must not contain embedded credentials");
+  }
+  return url.toString();
+}
+
+export async function fetchSubscription(url, { fetcher = globalThis.fetch, maxBytes = 5 * 1024 * 1024 } = {}) {
+  const target = validateSubscriptionUrl(url);
+  if (typeof fetcher !== "function") throw new Error("no HTTP fetch implementation available");
+  const response = await fetcher(target, { redirect: "follow" });
+  if (!response || !response.ok) throw new Error("subscription download failed");
+  if (response.body && typeof response.body.getReader === "function") {
+    const reader = response.body.getReader();
+    const chunks = [];
+    let total = 0;
+    for (;;) {
+      const part = await reader.read();
+      if (part.done) break;
+      total += part.value.byteLength;
+      if (total > maxBytes) {
+        try { await reader.cancel(); } catch {}
+        throw new Error("subscription exceeds size limit");
+      }
+      chunks.push(part.value);
+    }
+    return new TextDecoder().decode(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))));
+  }
+  const text = await response.text();
+  if (Buffer.byteLength(text, "utf8") > maxBytes) throw new Error("subscription exceeds size limit");
+  return text;
 }
 
 export function parseSubscription(input, { maxNodes = null } = {}) {
