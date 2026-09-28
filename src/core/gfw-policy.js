@@ -279,6 +279,7 @@ export function createGfwRuntime(overrides = {}) {
   let lastNow = 0;
   let lastState = GfwStates.NORMAL;
   let lastEvidenceAt = null;
+  const invalidationListeners = new Set();
 
   function prune(now) {
     const cutoff = now - policy.maxObservationAgeMs;
@@ -389,7 +390,10 @@ export function createGfwRuntime(overrides = {}) {
     ) {
       actions.add("revalidate-path");
     }
-    if (signals.includes(GfwSignals.UNEXPECTED_ROUTE_CHANGE)) actions.add("disable-unsafe-route");
+    if (signals.includes(GfwSignals.UNEXPECTED_ROUTE_CHANGE)) {
+      actions.add("disable-unsafe-route");
+      actions.add("require-path-revalidation");
+    }
     if (signals.includes(GfwSignals.ACTIVE_PROBE_SUSPECTED)) {
       actions.add("require-user-choice");
       actions.add("require-path-revalidation");
@@ -412,14 +416,33 @@ export function createGfwRuntime(overrides = {}) {
     });
   }
 
+  function notifyInvalidation(result) {
+    if (!result || !Array.isArray(result.actions) || !result.actions.includes("require-path-revalidation")) return;
+    const event = Object.freeze({
+      reason: "gfw-path-revalidation-required",
+      state: result.state,
+      signals: Object.freeze([...result.signals]),
+      actions: Object.freeze([...result.actions]),
+      score: result.score,
+      confidence: result.confidence
+    });
+    for (const listener of invalidationListeners) {
+      try { listener(event); } catch {}
+    }
+  }
+
   return Object.freeze({
     observe(observation = {}, now = Date.now()) {
       const at = Number.isFinite(Number(now)) ? Number(now) : Date.now();
       const item = normalizeObservation({ ...observation, at });
+      const result = evaluate(at);
       if (!Object.values(GfwSignals).includes(item.signal) || item.independent === false) {
-        return evaluate(at);
+        return result;
       }
-      if (at < lastNow) return evaluate(at);
+      if (at < lastNow) {
+        notifyInvalidation(result);
+        return result;
+      }
       observations.push(item);
       lastEvidenceAt = at;
       lastState = item.signal === GfwSignals.BOOTSTRAP_INTEGRITY_FAILURE ||
@@ -427,10 +450,17 @@ export function createGfwRuntime(overrides = {}) {
         item.signal === GfwSignals.CERTIFICATE_ANOMALY
         ? GfwStates.CONFIRMED
         : GfwStates.SUSPECTED;
-      return evaluate(at);
+      const updatedResult = evaluate(at);
+      notifyInvalidation(updatedResult);
+      return updatedResult;
     },
     snapshot(now = Date.now()) {
       return evaluate(now);
+    },
+    subscribeInvalidation(listener) {
+      if (typeof listener !== "function") throw new TypeError("GFW invalidation listener must be a function");
+      invalidationListeners.add(listener);
+      return () => { invalidationListeners.delete(listener); };
     },
     clear(now = Date.now()) {
       observations.length = 0;
