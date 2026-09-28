@@ -42,7 +42,9 @@ function buildUnifiedInput(input, sourceDocument, nodes) {
   delete safe.proxies;
   delete safe.nodes;
   if (Array.isArray(safe.outbounds)) {
-    const groups = safe.outbounds.filter((item) => item && typeof item === "object" && ["selector", "urltest"].includes(String(item.type || "").toLowerCase())).map((item) => ({ ...item }));
+    const groups = safe.outbounds
+      .filter((item) => item && typeof item === "object" && ["selector", "urltest"].includes(String(item.type || "").toLowerCase()))
+      .map((item) => ({ ...item }));
     delete safe.outbounds;
     if (groups.length) safe.proxy_groups = groups;
   } else {
