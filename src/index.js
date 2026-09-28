@@ -26,3 +26,4 @@ export * from "./core/direct-transit.js";
 export * from "./core/kernel-update-manager.js";
 export * from "./core/kernel-execution.js";
 export * from "./core/execution-controller.js";
+export * from "./core/execution-contract.js";
