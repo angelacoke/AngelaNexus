@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createExecutionController, ExecutionStates } from "../src/core/execution-controller.js";
+import { Kernels } from "../src/core/model.js";
 import {
   GfwSignals,
   GfwStates,
@@ -144,4 +146,39 @@ test("GFW runtime route-change evidence also requires path revalidation", () => 
   runtime.observe({ signal: GfwSignals.UNEXPECTED_ROUTE_CHANGE }, 100000);
   assert.equal(reason, "gfw-path-revalidation-required");
   unsubscribe();
+});
+
+
+test("GFW path invalidation fails closed a running execution session", async () => {
+  const gfw = createGfwRuntime();
+  let stopped = 0;
+  const controller = createExecutionController({
+    executionFactory: async () => ({
+      configPath: "/tmp/nexus-test/gfw-config.json",
+      async start() {},
+      async stop() { stopped += 1; },
+      async reload() {},
+      async status() { return { running: true }; },
+      async logs() {}
+    }),
+    pathRevalidator: async path => path,
+    sessionInvalidationSource: gfw.subscribeInvalidation
+  });
+  const request = {
+    decision: { id: "gfw-session-001", version: 1, action: "routing", choice: "proxy", requiresUserChoice: true, confirmed: false },
+    kernel: Kernels.SING_BOX,
+    config: { kernel: Kernels.SING_BOX, nodes: [] },
+    userAuthorized: true,
+    security: { preflightPassed: true, failClosed: true },
+    path: { validated: true, networkGeneration: 0 }
+  };
+  await controller.prepare(request);
+  await controller.start();
+  assert.equal(controller.state, ExecutionStates.RUNNING);
+  const evidence = gfw.observe({ signal: GfwSignals.TCP_RESET }, 100000);
+  assert.ok(evidence.actions.includes("revalidate-path"));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(stopped, 1);
+  assert.equal(controller.state, ExecutionStates.FAILED);
+  assert.match(controller.snapshot().failure, /gfw-path-revalidation-required/);
 });
