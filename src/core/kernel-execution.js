@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import yaml from "js-yaml";
@@ -39,22 +39,31 @@ export async function createKernelExecution(config, options = {}) {
   if (!Object.values(Kernels).includes(kernel)) throw new Error("unsupported kernel: " + kernel);
 
   const compiled = compileUnifiedConfig(config, kernel);
-  const baseDir = options.workdir || join(tmpdir(), "angela-nexus");
-  await mkdir(baseDir, { recursive: true, mode: 0o700 });
+  const managedWorkdir = !options.workdir;
+  const baseDir = options.workdir || await mkdtemp(join(tmpdir(), "angela-nexus-"));
+  if (options.workdir) await mkdir(baseDir, { recursive: true, mode: 0o700 });
 
   const configPath = join(baseDir, CONFIG_NAMES[kernel]);
   const content = serialize(kernel, compiled.config);
   await writeFile(configPath, content, { encoding: "utf8", mode: 0o600 });
+  await chmod(configPath, 0o600);
 
   const runtimeFactory = options.runtimeFactory || createKernelRuntime;
-  const runtime = runtimeFactory(kernel, {
+  let runtime;
+  try {
+    runtime = runtimeFactory(kernel, {
     binary: options.binary,
     args: runtimeArgs(kernel, configPath),
     cwd: options.cwd || baseDir,
     env: options.env,
     reloadSignal: options.reloadSignal
   });
+  } catch (error) {
+    if (managedWorkdir) await rm(baseDir, { recursive: true, force: true });
+    throw error;
+  }
   if (!runtime || typeof runtime.start !== "function" || typeof runtime.stop !== "function" || typeof runtime.status !== "function") {
+    if (managedWorkdir) await rm(baseDir, { recursive: true, force: true });
     throw new TypeError("runtimeFactory must return a kernel runtime");
   }
 
@@ -62,7 +71,7 @@ export async function createKernelExecution(config, options = {}) {
   async function cleanup() {
     if (cleaned) return;
     cleaned = true;
-    if (!options.workdir) await rm(baseDir, { recursive: true, force: true });
+    if (managedWorkdir) await rm(baseDir, { recursive: true, force: true });
   }
 
   return Object.freeze({
