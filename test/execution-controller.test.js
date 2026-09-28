@@ -173,3 +173,47 @@ test("execution controller fails closed after reload failure and stops the kerne
   assert.equal(controller.state, ExecutionStates.FAILED);
   assert.equal((await controller.status()).execution, null);
 });
+
+
+test("execution controller records security evidence when a session is invalidated", async () => {
+  const events = [];
+  let stopped = 0;
+  const controller = createExecutionController({
+    executionFactory: async () => ({
+      configPath: "/tmp/nexus-test/audit.json",
+      async start() {},
+      async stop() { stopped += 1; },
+      async reload() {},
+      async status() { return { running: true }; },
+      async logs() {}
+    }),
+    pathRevalidator: async path => path,
+    sessionInvalidationSource: async listener => {
+      const unsubscribe = async () => {};
+      globalThis.__nexusTestInvalidate = listener;
+      return unsubscribe;
+    },
+    eventSink: async (type, context) => { events.push({ type, context }); }
+  });
+  await controller.prepare({
+    decision: { id: "audit-session-001", version: 2, action: "routing", choice: "proxy", requiresUserChoice: true, confirmed: false },
+    kernel: Kernels.SING_BOX,
+    config: { kernel: Kernels.SING_BOX, nodes: [] },
+    userAuthorized: true,
+    security: { preflightPassed: true, failClosed: true },
+    path: { validated: true, networkGeneration: 0 }
+  });
+  await controller.start();
+  await globalThis.__nexusTestInvalidate("gfw-path-revalidation-required");
+  assert.equal(stopped, 1);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].type, "session-invalidated");
+  assert.deepEqual(events[0].context, {
+    reason: "gfw-path-revalidation-required",
+    kernel: Kernels.SING_BOX,
+    decisionId: "audit-session-001",
+    decisionVersion: 2,
+    state: ExecutionStates.STOPPING
+  });
+  delete globalThis.__nexusTestInvalidate;
+});
