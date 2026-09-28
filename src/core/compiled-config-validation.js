@@ -16,8 +16,8 @@ function push(errors, message) {
 }
 
 const MIHOMO_TYPES = new Set(["http","socks","shadowsocks","vmess","vless","trojan","hysteria","hysteria2","tuic","anytls","wireguard"]);
-const SING_BOX_TYPES = new Set(["http","socks","shadowsocks","vmess","vless","trojan","hysteria","hysteria2","tuic","anytls","wireguard","block"]);
-const XRAY_TYPES = new Set(["http","socks","shadowsocks","vmess","vless","trojan","hysteria","wireguard"]);
+const SING_BOX_TYPES = new Set(["http","socks","shadowsocks","vmess","vless","trojan","hysteria","hysteria2","tuic","anytls","wireguard","block","selector","urltest"]);
+const XRAY_TYPES = new Set(["http","socks","shadowsocks","vmess","vless","trojan","hysteria","wireguard","blackhole"]);
 
 function validateEndpoint(item, label, errors) {
   if (!hasText(item.server)) push(errors, label + " requires server");
@@ -46,6 +46,10 @@ function validateSingBoxOutbound(outbound, index, errors) {
     return;
   }
   if (outbound.type === "block") return;
+  if (outbound.type === "selector" || outbound.type === "urltest") {
+    if (!Array.isArray(outbound.outbounds) || outbound.outbounds.length === 0) push(errors, label + " requires non-empty outbounds");
+    return;
+  }
   validateEndpoint(outbound, label, errors);
   if (["vmess","vless","tuic"].includes(outbound.type) && !hasText(outbound.uuid)) push(errors, label + " requires uuid");
   if (["trojan","shadowsocks","hysteria2","tuic","anytls"].includes(outbound.type) && !hasText(outbound.password)) push(errors, label + " requires password");
@@ -67,6 +71,7 @@ function validateXrayOutbound(outbound, index, errors) {
     push(errors, label + " uses unsupported protocol: " + outbound.protocol);
     return;
   }
+  if (outbound.protocol === "blackhole") return;
   const settings = nonEmptyObject(outbound.settings) ? outbound.settings : {};
   if (["vless","vmess","trojan","shadowsocks","hysteria","socks","http"].includes(outbound.protocol)) {
     if (!hasText(settings.address)) push(errors, label + " requires settings.address");
