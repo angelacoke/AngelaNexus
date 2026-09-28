@@ -78,7 +78,7 @@ test("execution event ledger bounds evidence values and rejects non-finite metri
       confidence: 2
     }
   });
-  assert.equal(event.at, 0 + Date.now() >= 0, true);
+  assert.equal(Number.isFinite(event.at), true);
   assert.equal(event.context.reason.length, 256);
   assert.equal(event.context.kernel.length, 256);
   assert.equal(event.context.decisionId.length, 256);
