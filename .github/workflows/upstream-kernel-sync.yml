@@ -25,7 +25,7 @@ jobs:
       - name: Discover upstream releases and prepare candidates
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: node scripts/check-upstream.mjs --propose --write-report .nexus/upstream-report.json
+        run: |\n          mkdir -p .nexus/gates\n          node scripts/check-upstream.mjs --propose --write-report .nexus/upstream-report.json\n          printf "success\\n" > .nexus/gates/release-verified.ok
 
       - name: Upload upstream report
         if: always()
@@ -96,11 +96,11 @@ jobs:
           NEXUS_MIHOMO_BIN: /tmp/mihomo
           NEXUS_SING_BOX_BIN: /tmp/sing-box
           NEXUS_XRAY_BIN: /tmp/xray-bin/xray
-        run: npm run kernel:conformance -- --require-binaries
+        run: |\n          npm run kernel:conformance -- --require-binaries\n          printf "success\\n" > .nexus/gates/kernel-conformance.ok
 
       - name: Verify candidate test plans
         if: steps.changes.outputs.changed == 'true'
-        run: node scripts/validate-upstream-report.mjs .nexus/upstream-report.json release-verified unit-tests compatibility-tests kernel-conformance
+        run: node scripts/validate-upstream-report.mjs .nexus/upstream-report.json .nexus/gates
 
       - name: Create verified update proposal
         if: steps.changes.outputs.changed == 'true'
