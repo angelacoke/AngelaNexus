@@ -45,6 +45,7 @@ function mockPlatform(failRuntimeStart = false) {
     runtime: {
       async start() { events.push("runtime.start"); if (failRuntimeStart) throw new Error("runtime failed"); },
       async stop() { events.push("runtime.stop"); },
+      async reload() { events.push("runtime.reload"); },
     },
     events,
   };
@@ -133,6 +134,22 @@ test("network change invalidates native direct transit validation", async () => 
   assert.equal(runtime.getDirectTransitState().revalidationRequired, false);
   await mock.implementation.emitNetworkChange();
   assert.equal(runtime.getDirectTransitState().revalidationRequired, true);
+  await runtime.stop();
+});
+
+test("kernel reload invalidates an active network path session", async () => {
+  const mock = mockPlatform();
+  const runtime = createPlatformRuntime(mock.implementation, mock.runtime);
+  await runtime.start({ security: { killSwitch: true } });
+  const before = runtime.getDirectTransitState().networkGeneration;
+  await runtime.reload({ version: 2 });
+  const state = runtime.getDirectTransitState();
+  assert.equal(state.networkGeneration, before + 1);
+  assert.equal(state.validatedNetworkGeneration, null);
+  assert.equal(state.revalidationRequired, true);
+  assert.ok(mock.events.includes("block.on:kill-switch-reload"));
+  assert.ok(mock.events.includes("runtime.reload"));
+  assert.ok(!mock.events.includes("block.off:kill-switch-network-revalidated"));
   await runtime.stop();
 });
 
