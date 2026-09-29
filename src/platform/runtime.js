@@ -47,14 +47,19 @@ export function createPlatformRuntime(implementation, runtime) {
     killSwitchEnabled = false;
   }
 
-  async function handleNetworkState(state) {
+  async function invalidateNetworkSession(reason = "network-generation-changed") {
     networkGeneration += 1;
-    networkState = state;
     directTransitState = createDirectTransitSessionState({
       networkGeneration,
-      validatedNetworkGeneration: directTransitState.validatedNetworkGeneration
+      validatedNetworkGeneration: null
     });
-    if (killSwitchEnabled) await bridge.enableNetworkBlock("kill-switch-network-change");
+    if (killSwitchEnabled) await bridge.enableNetworkBlock("kill-switch-" + reason);
+    return Object.freeze({ networkGeneration, reason });
+  }
+
+  async function handleNetworkState(state) {
+    networkState = state;
+    return invalidateNetworkSession("network-change");
   }
 
   async function markNetworkPathRevalidated(generation = networkGeneration) {
@@ -121,10 +126,7 @@ export function createPlatformRuntime(implementation, runtime) {
         await bridge.start();
         networkState = bridge.getNetworkState();
         if (security.killSwitch === true) {
-          directTransitState = createDirectTransitSessionState({
-            networkGeneration,
-            validatedNetworkGeneration: null
-          });
+          directTransitState = createDirectTransitSessionState({ networkGeneration, validatedNetworkGeneration: null });
           unsubscribe = await bridge.subscribeNetworkState(handleNetworkState);
         } else if (directTransitRequirements(bridge.capabilities).length === 0) {
           unsubscribe = await bridge.subscribeNetworkState(handleNetworkState);
@@ -147,6 +149,10 @@ export function createPlatformRuntime(implementation, runtime) {
     },
     async reload(config) {
       if (typeof runtime.reload !== "function") throw new Error("kernel runtime does not support reload");
+      if (killSwitchEnabled) {
+        await invalidateNetworkSession("reload");
+        await bridge.enableNetworkBlock("kill-switch-reload");
+      }
       return runtime.reload(config);
     },
     async status() {
