@@ -96,7 +96,7 @@ test("session establishes trust and invalidates on route change", () => {
   assert.equal(result.trusted, false);
   assert.equal(session.snapshot().invalidated, true);
   assert.equal(events.length, 1);
-  assert.equal(events[0].reason, "path-trust-invalidated");
+  assert.equal(events[0].reason, "route-identity-mismatch");
   assert.ok(events[0].signals.includes(PathTrustSignals.ROUTE_CHANGED));
   unsubscribe();
 });
