@@ -83,3 +83,19 @@ test("compiler fails closed with structured preflight diagnostics", async () => 
     return true;
   });
 });
+
+test("preflight enforces the system GFW security floor", () => {
+  const result = preflightUnifiedConfig({
+    kernel: Kernels.MIHOMO,
+    security: {
+      gfwResilience: {
+        enabled: false,
+        failClosed: false
+      }
+    },
+    nodes: [{ id: "us-1", protocol: "socks", server: "example.com", port: 1080 }]
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((item) => item.code === "GFW_RESILIENCE_REQUIRED"));
+  assert.ok(result.errors.some((item) => item.code === "GFW_FAIL_CLOSED_REQUIRED"));
+});
