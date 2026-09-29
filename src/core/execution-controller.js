@@ -199,8 +199,11 @@ export function createExecutionController(options = {}) {
       }
       catch (error) {
         const failedKernel = request ? request.kernel : null;
+        if (state === ExecutionStates.FAILED && !execution && failure) {
+          throw new Error(failure);
+        }
         failure = error instanceof Error ? error.message : String(error);
-        try { await execution.stop(); }
+        try { if (execution) await execution.stop(); }
         catch (cleanupError) { failure += "; cleanup: " + (cleanupError instanceof Error ? cleanupError.message : String(cleanupError)); }
         finally { execution = null; request = null; await clearInvalidationSubscription(); }
         state = ExecutionStates.FAILED;
