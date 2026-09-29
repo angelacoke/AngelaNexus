@@ -57,3 +57,24 @@ test("compiled validation checks Mihomo proxy-provider schema", () => {
   }, Kernels.MIHOMO);
   assert.equal(validInline.ok, true);
 });
+
+test("compiled validation enforces Mihomo fail-closed terminal routing", () => {
+  const missingRules = validateCompiledConfig({
+    proxies: [{ name: "us", type: "socks", server: "example.com", port: 1080 }]
+  }, Kernels.MIHOMO);
+  assert.equal(missingRules.ok, false);
+  assert.match(missingRules.errors.join("\n"), /requires rules for fail-closed terminal routing/);
+
+  const directFallback = validateCompiledConfig({
+    proxies: [{ name: "us", type: "socks", server: "example.com", port: 1080 }],
+    rules: ["MATCH,DIRECT"]
+  }, Kernels.MIHOMO);
+  assert.equal(directFallback.ok, false);
+  assert.match(directFallback.errors.join("\n"), /forbids MATCH,DIRECT/);
+
+  const safeTerminal = validateCompiledConfig({
+    proxies: [{ name: "us", type: "socks", server: "example.com", port: 1080 }],
+    rules: ["DOMAIN-SUFFIX,example.com,us", "MATCH,us"]
+  }, Kernels.MIHOMO);
+  assert.equal(safeTerminal.ok, true);
+});
