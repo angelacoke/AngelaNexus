@@ -79,3 +79,34 @@ test("secure storage capability is never silently substituted", async () => {
     /capability unavailable: secure-storage/,
   );
 });
+
+
+test("configuration import capability forwards the selected source without substitution", async () => {
+  const calls = [];
+  const bridge = createPlatformBridge({
+    platform: PlatformId.ANDROID,
+    capabilities: [PlatformCapabilities.CONFIG_IMPORT],
+    async start() {},
+    async stop() {},
+    getNetworkState() { return { online: true }; },
+    async importConfiguration(input, options) {
+      calls.push([input, options]);
+      return { accepted: true };
+    },
+  });
+
+  assert.deepEqual(await bridge.importConfiguration("config-text", { source: "local-file" }), { accepted: true });
+  assert.deepEqual(calls, [["config-text", { source: "local-file" }]]);
+});
+
+test("configuration import capability remains unavailable unless explicitly declared", async () => {
+  const bridge = createPlatformBridge({
+    platform: PlatformId.IOS,
+    capabilities: [],
+    async start() {},
+    async stop() {},
+    getNetworkState() { return { online: true }; },
+  });
+
+  await assert.rejects(() => bridge.importConfiguration("config-text"), /capability unavailable: config-import/);
+});
