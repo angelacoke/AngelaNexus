@@ -65,9 +65,9 @@ Android 只是当前最先落地的平台验证，不是 APP 的主平台，也�
 
 ## UI 技术方向
 
-优先采用 Compose Multiplatform 作为共享 UI 技术路线。当前官方文档明确支持 Android、iOS、Windows、macOS、Linux desktop，并支持共享 UI；平台仍保留独立入口和平台特有 API 层。citeturn0search2turn0search4turn0search13
+优先采用 Compose Multiplatform 作为共享 UI 技术路线。官方文档明确支持 Android、iOS、Windows、macOS、Linux desktop，并支持共享 UI；平台仍保留独立入口和平台特有 API 层。
 
-当前稳定线使用 Compose Multiplatform 1.12.x；具体依赖版本必须通过 CI 验证后才能提升为仓库基线。1.12.1 是当前已发布稳定版本。citeturn1search0
+当前稳定线使用 Compose Multiplatform 1.12.x；具体依赖版本必须通过 CI 验证后才能提升为仓库基线。1.12.1 为当前已发布稳定版本。
 
 ## 现代化 UI 原则
 
