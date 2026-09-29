@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { createGfwRuntime, GfwSignals } from "../src/core/gfw-policy.js";
 import { createPathTrustSession, PathTrustStates } from "../src/core/path-trust.js";
 import { bindGfwPathTrust } from "../src/core/gfw-path-trust.js";
+import { createExecutionController, ExecutionStates } from "../src/core/execution-controller.js";
+import { Kernels } from "../src/core/model.js";
 
 test("GFW revalidation evidence invalidates the kernel-neutral path trust session", () => {
   const gfw = createGfwRuntime();
@@ -69,4 +71,69 @@ test("GFW-triggered invalidation uses fail-closed path trust state", () => {
   assert.equal(result.trusted, true);
   assert.equal(pathTrust.snapshot().invalidated, false);
   assert.equal(result.state, PathTrustStates.TRUSTED);
+});
+
+test("GFW invalidation propagates through path trust into the running execution controller", async () => {
+  const gfw = createGfwRuntime();
+  const pathTrust = createPathTrustSession();
+  pathTrust.establish({
+    networkId: "n1",
+    networkGeneration: 1,
+    routeId: "r1",
+    dnsPathId: "d1",
+    destinationId: "x1",
+    transport: "tls",
+    certificateId: "c1",
+    bootstrapId: "b1"
+  });
+
+  const unsubscribeGfw = bindGfwPathTrust(gfw, pathTrust);
+  let stopped = 0;
+  const controller = createExecutionController({
+    executionFactory: async () => ({
+      configPath: "/tmp/nexus-test/gfw-path-trust-controller.json",
+      async start() {},
+      async stop() { stopped += 1; },
+      async reload() {},
+      async status() { return { running: true }; },
+      async logs() { return []; }
+    }),
+    pathRevalidator: async path => ({ ...path, validated: true }),
+    sessionInvalidationSource: pathTrust.subscribeInvalidation
+  });
+
+  await controller.prepare({
+    decision: {
+      id: "gfw-path-trust-001",
+      version: 1,
+      action: "routing",
+      choice: "proxy",
+      requiresUserChoice: true,
+      confirmed: false
+    },
+    kernel: Kernels.SING_BOX,
+    config: { kernel: Kernels.SING_BOX, nodes: [] },
+    userAuthorized: true,
+    security: { preflightPassed: true, failClosed: true },
+    path: {
+      validated: true,
+      networkGeneration: 1,
+      trust: {
+        expected: pathTrust.snapshot().expected,
+        observed: pathTrust.snapshot().expected
+      }
+    }
+  });
+
+  await controller.start();
+  assert.equal(controller.state, ExecutionStates.RUNNING);
+
+  gfw.observe({ signal: GfwSignals.TCP_RESET, transport: "tls" }, 100000);
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(stopped, 1);
+  assert.equal(controller.state, ExecutionStates.FAILED);
+  assert.match(controller.snapshot().failure, /gfw:/);
+
+  unsubscribeGfw();
 });
