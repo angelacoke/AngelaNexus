@@ -213,7 +213,25 @@ export function createExecutionController(options = {}) {
 
     async reload() {
       if (!execution || state !== ExecutionStates.RUNNING) throw new Error("execution is not running");
-      try { return await execution.reload(); }
+      try {
+        const result = await execution.reload();
+        const currentPath = await pathRevalidator(request.path, request);
+        if (!currentPath || currentPath.validated !== true) throw new Error("execution path revalidation failed after reload");
+        if (request.path.networkGeneration !== undefined && currentPath.networkGeneration !== request.path.networkGeneration) {
+          throw new Error("execution path changed after reload");
+        }
+        if (request.path.trust && typeof request.path.trust === "object") {
+          const trustInput = request.path.trust;
+          const trustResult = evaluatePathTrust({
+            expected: trustInput.expected || request.path,
+            observed: trustInput.observed || currentPath,
+            previous: trustInput.previous || null,
+            policy: trustInput.policy || {}
+          });
+          if (!trustResult.trusted) throw new Error("execution path trust validation failed after reload: " + trustResult.reasons.join(", "));
+        }
+        return result;
+      }
       catch (error) {
         const failedKernel = request ? request.kernel : null;
         failure = error instanceof Error ? error.message : String(error);
