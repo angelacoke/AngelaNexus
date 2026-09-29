@@ -72,7 +72,7 @@ private fun AngelaNexusRoot() {
         onStartVpn = {
             val intent = VpnService.prepare(context)
             if (intent == null) {
-                context.startService(Intent(context, app.nexus.NexusVpnService::class.java))
+                context.startService(Intent(context, app.angelanexus.AngelaNexusVpnService::class.java))
                 status = "vpn-boundary-started"
             } else {
                 vpnLauncher.launch(intent)
