@@ -243,6 +243,8 @@ test("execution controller remains failed closed when invalidation unsubscribe f
 test("execution controller does not let a stale start failure stop a new session", async () => {
   let startGate;
   const gate = new Promise(resolve => { startGate = resolve; });
+  let startEntered;
+  const entered = new Promise(resolve => { startEntered = resolve; });
   let starts = 0;
   let stops = 0;
   const executions = [];
@@ -251,7 +253,7 @@ test("execution controller does not let a stale start failure stop a new session
       const id = ++starts;
       const execution = {
         configPath: "/tmp/nexus-test/stale-start.json",
-        async start() { if (id === 1) await gate; },
+        async start() { if (id === 1) { startEntered(); await gate; } },
         async stop() { stops += 1; },
         async reload() {},
         async status() { return { running: true }; },
@@ -265,6 +267,7 @@ test("execution controller does not let a stale start failure stop a new session
 
   await controller.prepare(request);
   const firstStart = controller.start();
+  await entered;
   await controller.stop();
   await controller.prepare(request);
   await controller.start();
