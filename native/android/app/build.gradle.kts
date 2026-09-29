@@ -45,13 +45,22 @@ android {
 
     buildTypes {
         getByName("release") {
-            val signingConfigured = !System.getenv("ANGELANEXUS_RELEASE_KEYSTORE_B64").isNullOrBlank()
-            check(signingConfigured) {
-                "Release signing is not configured. Set ANGELANEXUS_RELEASE_KEYSTORE_B64, " +
-                    "ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD, ANGELANEXUS_RELEASE_KEY_ALIAS, " +
-                    "and ANGELANEXUS_RELEASE_KEY_PASSWORD."
+            val releaseTaskRequested = gradle.startParameter.taskNames.any {
+                it.contains("Release", ignoreCase = true)
             }
-            signingConfig = signingConfigs.getByName("release")
+            if (releaseTaskRequested) {
+                val signingConfigured =
+                    !System.getenv("ANGELANEXUS_RELEASE_KEYSTORE_B64").isNullOrBlank() &&
+                        !System.getenv("ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD").isNullOrBlank() &&
+                        !System.getenv("ANGELANEXUS_RELEASE_KEY_ALIAS").isNullOrBlank() &&
+                        !System.getenv("ANGELANEXUS_RELEASE_KEY_PASSWORD").isNullOrBlank()
+                check(signingConfigured) {
+                    "Release signing is not configured. Set ANGELANEXUS_RELEASE_KEYSTORE_B64, " +
+                        "ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD, ANGELANEXUS_RELEASE_KEY_ALIAS, " +
+                        "and ANGELANEXUS_RELEASE_KEY_PASSWORD."
+                }
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
