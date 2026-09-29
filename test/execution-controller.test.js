@@ -384,6 +384,42 @@ test("execution controller deduplicates concurrent session invalidation", async 
   assert.match(controller.snapshot().failure, /network-generation-changed/);
 });
 
+test("execution controller does not double-stop when explicit stop races session invalidation", async () => {
+  let releaseStop;
+  const stopGate = new Promise(resolve => { releaseStop = resolve; });
+  let listener = null;
+  let stops = 0;
+  const controller = createExecutionController({
+    executionFactory: async () => ({
+      configPath: "/tmp/nexus-test/invalidation-stop-race.json",
+      async start() {},
+      async stop() { stops += 1; await stopGate; },
+      async reload() {},
+      async status() { return { running: true }; },
+      async logs() { return []; }
+    }),
+    pathRevalidator: async path => path,
+    sessionInvalidationSource: async callback => {
+      listener = callback;
+      return async () => { listener = null; };
+    }
+  });
+
+  await controller.prepare(request);
+  await controller.start();
+  const invalidation = listener("gfw-path-revalidation-required");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(stops, 1);
+
+  const stop = controller.stop();
+  releaseStop();
+  await invalidation;
+  await stop;
+
+  assert.equal(stops, 1);
+  assert.equal(controller.state, ExecutionStates.IDLE);
+});
+
 test("execution controller does not double-stop when reload fails during explicit stop", async () => {
   let releaseReload;
   const reloadGate = new Promise(resolve => { releaseReload = resolve; });
