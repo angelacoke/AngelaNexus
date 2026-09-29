@@ -24,7 +24,8 @@ test("GFW revalidation evidence invalidates the kernel-neutral path trust sessio
   assert.equal(pathTrust.snapshot().invalidated, false);
 
   const unsubscribe = bindGfwPathTrust(gfw, pathTrust);
-  const evidence = gfw.observe({ signal: GfwSignals.TCP_RESET, transport: "tcp" }, 100000);
+  const now = Date.now();
+  const evidence = gfw.observe({ signal: GfwSignals.TCP_RESET, transport: "tcp" }, now);
 
   assert.ok(evidence.actions.includes("revalidate-path"));
   assert.equal(pathTrust.snapshot().invalidated, true);
@@ -48,11 +49,12 @@ test("GFW path-trust binding replays active evidence that predates subscription"
     bootstrapId: "prebind-bootstrap"
   });
 
-  gfw.observe({ signal: GfwSignals.TCP_RESET, transport: "tls" }, 100000);
-  assert.equal(pathTrust.snapshot().invalidated, false);
+  const now = Date.now();
+  gfw.observe({ signal: GfwSignals.TCP_RESET, transport: "tls" }, now);
+  assert.equal(pathTrust.snapshot(now).invalidated, false);
 
   const unsubscribe = bindGfwPathTrust(gfw, pathTrust);
-  assert.equal(pathTrust.snapshot().invalidated, true);
+  assert.equal(pathTrust.snapshot(now).invalidated, true);
   unsubscribe();
 });
 
