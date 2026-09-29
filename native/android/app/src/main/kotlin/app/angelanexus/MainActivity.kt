@@ -58,7 +58,7 @@ private fun AngelaNexusRoot() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
-            context.startService(Intent(context, app.nexus.NexusVpnService::class.java))
+            context.startService(Intent(context, app.angelanexus.AngelaNexusVpnService::class.java))
             status = "vpn-boundary-started"
         }
     }
