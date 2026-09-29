@@ -291,6 +291,7 @@ test("execution controller fails closed when reload invalidates the network path
 test("execution controller fails closed when invalidation races the final reload validation", async () => {
   let listener = null;
   let stopped = 0;
+  let raceEnabled = false;
   const controller = createExecutionController({
     executionFactory: async () => ({
       configPath: "/tmp/nexus-test/config.json",
@@ -301,7 +302,7 @@ test("execution controller fails closed when invalidation races the final reload
       async logs() {}
     }),
     pathRevalidator: async path => {
-      queueMicrotask(() => listener("gfw-path-revalidation-required"));
+      if (raceEnabled) queueMicrotask(() => listener("gfw-path-revalidation-required"));
       return path;
     },
     sessionInvalidationSource: async callback => {
@@ -311,6 +312,7 @@ test("execution controller fails closed when invalidation races the final reload
   });
   await controller.prepare(request);
   await controller.start();
+  raceEnabled = true;
   await assert.rejects(controller.reload(), /execution session invalidated during reload/);
   assert.equal(stopped, 1);
   assert.equal(controller.state, ExecutionStates.FAILED);
