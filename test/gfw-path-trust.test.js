@@ -137,3 +137,55 @@ test("GFW invalidation propagates through path trust into the running execution 
 
   unsubscribeGfw();
 });
+
+test("GFW clock rollback propagates through path trust into a running execution controller", async () => {
+  const gfw = createGfwRuntime();
+  const pathTrust = createPathTrustSession();
+  const baseline = {
+    networkId: "n-clock",
+    networkGeneration: 7,
+    routeId: "r-clock",
+    dnsPathId: "d-clock",
+    destinationId: "x-clock",
+    transport: "tls",
+    certificateId: "c-clock",
+    bootstrapId: "b-clock"
+  };
+  pathTrust.establish(baseline);
+  const unsubscribeGfw = bindGfwPathTrust(gfw, pathTrust);
+  let stopped = 0;
+  const controller = createExecutionController({
+    executionFactory: async () => ({
+      configPath: "/tmp/nexus-test/gfw-clock-rollback.json",
+      async start() {},
+      async stop() { stopped += 1; },
+      async reload() {},
+      async status() { return { running: true }; },
+      async logs() { return []; }
+    }),
+    pathRevalidator: async path => ({ ...path, validated: true }),
+    sessionInvalidationSource: pathTrust.subscribeInvalidation
+  });
+
+  await controller.prepare({
+    decision: { id: "gfw-clock-001", version: 1, action: "routing", choice: "proxy", requiresUserChoice: true, confirmed: false },
+    kernel: Kernels.SING_BOX,
+    config: { kernel: Kernels.SING_BOX, nodes: [] },
+    userAuthorized: true,
+    security: { preflightPassed: true, failClosed: true },
+    path: { validated: true, networkGeneration: 7, trust: { expected: baseline, observed: baseline } }
+  });
+
+  await controller.start();
+  assert.equal(controller.state, ExecutionStates.RUNNING);
+
+  gfw.observe({ signal: GfwSignals.TCP_RESET }, 100000);
+  gfw.snapshot(99000);
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(stopped, 1);
+  assert.equal(controller.state, ExecutionStates.FAILED);
+  assert.match(controller.snapshot().failure, /gfw-path-revalidation-required/);
+  unsubscribeGfw();
+});
+
