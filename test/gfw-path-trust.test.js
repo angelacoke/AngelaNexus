@@ -179,7 +179,7 @@ test("GFW clock rollback propagates through path trust into a running execution 
   await controller.start();
   assert.equal(controller.state, ExecutionStates.RUNNING);
 
-  gfw.observe({ signal: GfwSignals.TCP_RESET }, 100000);
+  gfw.observe({ signal: GfwSignals.REGIONAL_VARIANCE }, 100000);
   gfw.snapshot(99000);
   await new Promise(resolve => setImmediate(resolve));
 
@@ -188,4 +188,3 @@ test("GFW clock rollback propagates through path trust into a running execution 
   assert.match(controller.snapshot().failure, /gfw-path-revalidation-required/);
   unsubscribeGfw();
 });
-
