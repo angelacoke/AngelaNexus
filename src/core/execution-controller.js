@@ -252,6 +252,10 @@ export function createExecutionController(options = {}) {
         return result;
       }
       catch (error) {
+        if (invalidationInFlight) {
+          await invalidationInFlight;
+          throw error;
+        }
         const failedKernel = request ? request.kernel : null;
         failure = error instanceof Error ? error.message : String(error);
         state = ExecutionStates.STOPPING;
