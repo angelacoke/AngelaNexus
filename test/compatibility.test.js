@@ -11,9 +11,9 @@ test("recognizes documented common protocols", () => {
 });
 
 test("tracks stable kernel baselines", () => {
-  assert.equal(KernelVersions[Kernels.MIHOMO].stable, "1.19.31");
-  assert.equal(KernelVersions[Kernels.SING_BOX].stable, "1.14.1");
-  assert.equal(KernelVersions[Kernels.XRAY].stable, "26.3.27");
+  assert.equal(KernelVersions[Kernels.MIHOMO].stable, "1.19.30");
+  assert.equal(KernelVersions[Kernels.SING_BOX].stable, "1.14.2");
+  assert.equal(KernelVersions[Kernels.XRAY].stable, "26.9.8");
 });
 
 test("keeps protocol claims in a dedicated manifest", () => {
