@@ -230,6 +230,13 @@ export function createExecutionController(options = {}) {
     },
 
     async stop() {
+      if (invalidationInFlight) {
+        await invalidationInFlight;
+        if (!execution) {
+          if (state === ExecutionStates.FAILED) { state = ExecutionStates.IDLE; request = null; failure = null; }
+          return snapshot();
+        }
+      }
       if (!execution) {
         if (state === ExecutionStates.FAILED) { state = ExecutionStates.IDLE; request = null; failure = null; }
         return snapshot();
