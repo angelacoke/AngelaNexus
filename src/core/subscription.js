@@ -3,6 +3,7 @@ import { normalizeNodeConfig } from "./config.js";
 
 const SHARE_PROTOCOLS = "(?:vmess|vless|trojan|ss|hysteria2|hy2|tuic|anytls)";
 const SHARE_LINK_RE = new RegExp(SHARE_PROTOCOLS + "://[^\\s\\\\]+", "gi");
+const MAX_REDIRECTS = 5;
 
 function decodeBase64(value) {
   const normalized = value.replace(/\s+/g, "").replace(/-/g, "+").replace(/_/g, "/");
@@ -102,19 +103,46 @@ export function validateSubscriptionUrl(value) {
   return url.toString();
 }
 
+function responseHeader(response, name) {
+  if (!response || !response.headers || typeof response.headers.get !== "function") return null;
+  return response.headers.get(name);
+}
+
 export async function fetchSubscription(url, { fetcher = globalThis.fetch, maxBytes = 5 * 1024 * 1024 } = {}) {
-  const target = validateSubscriptionUrl(url);
+  let target = validateSubscriptionUrl(url);
   if (typeof fetcher !== "function") throw new Error("no HTTP fetch implementation available");
-  const response = await fetcher(target, { redirect: "follow" });
-  if (!response || !response.ok) throw new Error("subscription download failed");
-  if (response.body && typeof response.body.getReader === "function") {
-    const reader = response.body.getReader(); const chunks = []; let total = 0;
-    for (;;) { const part = await reader.read(); if (part.done) break; total += part.value.byteLength; if (total > maxBytes) { try { await reader.cancel(); } catch {} throw new Error("subscription exceeds size limit"); } chunks.push(part.value); }
-    return new TextDecoder().decode(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))));
+
+  for (let redirectCount = 0; ; redirectCount += 1) {
+    const response = await fetcher(target, { redirect: "manual" });
+    if (!response) throw new Error("subscription download failed");
+
+    if (response.status >= 300 && response.status < 400) {
+      if (redirectCount >= MAX_REDIRECTS) throw new Error("subscription redirect limit exceeded");
+      const location = responseHeader(response, "location");
+      if (!location) throw new Error("subscription redirect missing location");
+      target = validateSubscriptionUrl(new URL(location, target).toString());
+      continue;
+    }
+
+    if (!response.ok) throw new Error("subscription download failed");
+    if (response.body && typeof response.body.getReader === "function") {
+      const reader = response.body.getReader(); const chunks = []; let total = 0;
+      for (;;) {
+        const part = await reader.read();
+        if (part.done) break;
+        total += part.value.byteLength;
+        if (total > maxBytes) {
+          try { await reader.cancel(); } catch {}
+          throw new Error("subscription exceeds size limit");
+        }
+        chunks.push(part.value);
+      }
+      return new TextDecoder().decode(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))));
+    }
+    const text = await response.text();
+    if (Buffer.byteLength(text, "utf8") > maxBytes) throw new Error("subscription exceeds size limit");
+    return text;
   }
-  const text = await response.text();
-  if (Buffer.byteLength(text, "utf8") > maxBytes) throw new Error("subscription exceeds size limit");
-  return text;
 }
 
 export function parseSubscription(input, { maxNodes = null } = {}) {
