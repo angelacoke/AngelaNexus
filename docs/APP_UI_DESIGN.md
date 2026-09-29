@@ -1,10 +1,50 @@
 # AngelaNexus APP UI Design Baseline
 
+## Product scope
+
+This UI specification applies to the full AngelaNexus APP product:
+
+- Android
+- iOS
+- Windows
+- macOS
+- Linux
+
+Android is only the first executable UI surface. The information architecture, semantic states and user concepts are shared across platforms.
+
 ## Direction
 
 AngelaNexus adopts a modern, modular Material 3 interface. FlClash is used as a reference for several interaction principles rather than copied as a visual implementation: adaptive layouts, Material You styling, light/dark themes, bottom navigation, compact cards, and a clear separation between proxy/profile/settings areas.
 
-Reference: FlClash publicly describes adaptive screen sizes, multiple color themes, Material You Design and a Surfboard-like UI. Its current repository and release history also show continued UI/app-layer rework. The AngelaNexus implementation remains independently structured around its own Core/Kernel architecture.
+The implementation remains independently structured around the AngelaNexus Core/Kernel architecture.
+
+## Shared UI boundary
+
+Shared UI is responsible for:
+
+- navigation and page composition;
+- connection/runtime state presentation;
+- configuration and import flows;
+- proxy/node/strategy views;
+- routing and security policy visualization;
+- GFW observation and response visibility;
+- diagnostics and logs;
+- user preferences and appearance.
+
+Platform shells are responsible for OS capabilities:
+
+- VPN/TUN;
+- system proxy;
+- permissions;
+- background lifecycle;
+- notifications;
+- secure storage;
+- network interfaces;
+- system tray/menu bar;
+- native file/document pickers;
+- OS-specific firewall/routing APIs.
+
+Shared UI must not directly import Android, iOS, Windows, macOS or Linux APIs.
 
 ## Primary navigation
 
@@ -12,18 +52,35 @@ Reference: FlClash publicly describes adaptive screen sizes, multiple color them
 2. **配置** — subscriptions, local files, single nodes and multi-node imports.
 3. **代理** — nodes, selectors, chains and kernel-independent proxy views.
 4. **规则** — routing, anti-leak, China-network optimization and GFW-aware policy visibility.
-5. **设置** — platform settings, security, kernel selection/diagnostics and appearance.
+5. **设置** — platform settings, security, kernel diagnostics and appearance.
+
+## Adaptive layout
+
+### Phone
+
+Bottom navigation is used for the five primary modules.
+
+### Tablet
+
+Use an adaptive navigation rail or two-column layout with persistent module navigation.
+
+### Windows / macOS / Linux
+
+Use a desktop navigation rail/sidebar with a central workspace and optional detail panel. Desktop-specific interactions include keyboard shortcuts, context menus, resizable windows and tray/menu-bar surfaces.
+
+Desktop is not a scaled-up phone layout.
 
 ## UI principles
 
-- **Modular:** each page is a composable module; core policy is never duplicated in UI code.
+- **Modular:** each page is a reusable semantic module; core policy is never duplicated in UI code.
 - **State-driven:** UI reflects Core state instead of inventing its own proxy/runtime state.
 - **Progressive disclosure:** simple controls first; advanced routing, security and kernel diagnostics remain accessible without cluttering the home screen.
 - **Security-visible:** anti-leak, route mode, VPN state, DNS state and GFW-related decisions are observable.
 - **Low resource use:** avoid persistent animations and unnecessary polling; traffic/status widgets should subscribe to a shared state stream.
-- **Adaptive:** phone, tablet and desktop layouts should use the same semantic components with responsive containers.
-- **Accessible:** minimum touch targets, dynamic text sizing, semantic labels and sufficient contrast.
+- **Adaptive:** phone, tablet and desktop layouts use the same semantic components with responsive containers.
+- **Accessible:** minimum touch targets, dynamic text sizing, keyboard navigation on desktop, semantic labels and sufficient contrast.
 - **Theme-aware:** follow system light/dark mode first; support platform dynamic colors where available.
+- **Platform-native where necessary:** shared semantics do not force identical OS controls where the platform has a materially better native mechanism.
 
 ## Home layout
 
@@ -68,6 +125,6 @@ The UI displays the effective decision and evidence source where available; it d
 
 ## Current implementation
 
-The first Compose implementation is intentionally a functional visual baseline. It establishes the navigation shell, modular pages, Material 3 theme, dynamic color, dark-mode support, brand integration and clear placeholders for Core-connected state.
+The first Android implementation establishes a functional Material 3 visual baseline. The next UI milestone is extraction of reusable semantic components and state contracts into the cross-platform UI layer.
 
-It does not yet claim production proxy execution, because Android kernel integration and Core-to-UI state bridging are still separate milestones.
+It does not yet claim production proxy execution, because Android kernel integration and Core-to-UI state bridging are still separate milestones. iOS and desktop application shells remain separate platform milestones.
