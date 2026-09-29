@@ -26,7 +26,7 @@ Android 只是当前最先落地的平台验证，不是 APP 的主平台，也�
         |                |                |
         +----------------+----------------+
                          |
-                  Platform Bridge
+                Account / Sync Layer
                          |
                   AngelaNexus Core
                          |
@@ -44,6 +44,8 @@ Android 只是当前最先落地的平台验证，不是 APP 的主平台，也�
 - 内核状态
 - 日志/诊断
 - 设置
+- 账户与云同步
+- 备份与恢复
 - 导入与配置编辑流程
 - 统一状态模型
 
@@ -62,6 +64,62 @@ Android 只是当前最先落地的平台验证，不是 APP 的主平台，也�
 - OS-specific routing/firewall
 
 共享 UI 不直接调用 Android、iOS、Windows、macOS 或 Linux API。
+
+## 账户、云同步与平台差异
+
+同一个 AngelaNexus 账户在五个平台共享一套用户公共数据模型，但不共享设备运行状态。
+
+### 跨平台共享的账户公共数据
+
+- Profiles
+- 订阅/导入来源元数据
+- 节点与代理偏好
+- 策略组偏好
+- 路由策略
+- 安全/防泄露偏好
+- GFW 用户策略偏好
+- 规则覆写
+- UI/应用通用偏好
+
+### 平台独立的数据
+
+- VPN/TUN 授权与运行状态
+- 系统代理状态
+- 后台服务
+- 网络接口
+- 平台窗口/导航布局
+- 系统快捷键
+- OS-specific firewall/routing
+- 当前内核运行时状态
+
+### 设备专属数据
+
+默认永不进入普通云同步：
+
+- Token
+- 私钥
+- VPN/系统凭据
+- Keystore/Keychain/Credential Store 内容
+- 设备密钥
+- 本地日志和缓存
+
+详细规范见 `docs/APP_ACCOUNT_SYNC.md`。
+
+## 备份恢复
+
+APP 必须提供：
+
+- 立即备份
+- 自动备份设置
+- 云备份历史
+- 本地备份文件
+- 云恢复
+- 本地恢复
+- 恢复预览
+- 选择性恢复
+- 恢复后 Core/安全策略重新校验
+
+恢复时平台无关数据进入 Shared Core；平台差异由 Platform Bridge 处理。不支持的字段必须明确显示，不能伪造恢复成功。
 
 ## UI 技术方向
 
@@ -109,6 +167,9 @@ Android 只是当前最先落地的平台验证，不是 APP 的主平台，也�
 | 能力 | Android | iOS | Windows | macOS | Linux |
 |---|---|---|---|---|---|
 | Shared UI | 目标 | 目标 | 目标 | 目标 | 目标 |
+| 账户身份 | 目标 | 目标 | 目标 | 目标 | 目标 |
+| 云公共数据 | 目标 | 目标 | 目标 | 目标 | 目标 |
+| 本地备份恢复 | 目标 | 目标 | 目标 | 目标 | 目标 |
 | 配置导入 | 实施中 | 规划 | 规划 | 规划 | 规划 |
 | VPN/TUN | VpnService | Network Extension | TUN/WFP | Network Extension/TUN | TUN/routing |
 | 系统代理 | 平台能力 | 平台能力 | 平台能力 | 平台能力 | 平台能力 |
@@ -121,13 +182,15 @@ Android 只是当前最先落地的平台验证，不是 APP 的主平台，也�
 ## 发布顺序
 
 1. 共享 UI/状态模型基线
-2. Android 功能闭环
-3. Desktop JVM 基线：Windows/macOS/Linux 共用 UI
-4. iOS 原生入口与 Network Extension 边界
-5. 各平台内核运行时适配
-6. 各平台安全、后台、资源与系统集成
-7. 真机/真实 OS 回归
-8. 发布构建与签名体系
+2. 账户/同步/备份数据模型与安全边界
+3. Android 功能闭环
+4. Desktop JVM 基线：Windows/macOS/Linux 共用 UI
+5. iOS 原生入口与 Network Extension 边界
+6. 云账户/同步服务实现
+7. 各平台内核运行时适配
+8. 各平台安全、后台、资源与系统集成
+9. 真机/真实 OS 回归
+10. 发布构建与签名体系
 
 ## 强制原则
 
@@ -141,4 +204,4 @@ Android 只是当前最先落地的平台验证，不是 APP 的主平台，也�
 - 平台限制
 - 待实现
 
-所有平台最终使用同一套用户概念、同一套核心策略模型和同一套安全边界。
+所有平台最终使用同一套用户概念、同一套核心策略模型和同一套安全边界；平台差异由 Platform Bridge 实现。
