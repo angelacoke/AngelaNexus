@@ -20,7 +20,7 @@ test("version-aware compiled validation reports the pinned upstream baseline", a
   const { validateCompiledConfig } = await import("../src/core/compiled-config-validation.js");
   const result = validateCompiledConfig({ outbounds: [{ type: "block", tag: "Nexus-Blackhole" }], route: { final: "Nexus-Blackhole" } }, Kernels.SING_BOX);
   assert.equal(result.ok, true);
-  assert.equal(result.version, "1.14.1");
+  assert.equal(result.version, "1.14.2");
 });
 
 test("sing-box Hysteria requires current auth and TLS fields", async () => {
