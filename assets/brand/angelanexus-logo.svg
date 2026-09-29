@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 380" role="img" aria-labelledby="title desc">
+  <title id="title">AngelaNexus logo</title>
+  <desc id="desc">Four colored quadrants separated by a black cross.</desc>
+  <rect width="380" height="380" fill="#fff"/>
+  <rect x="0" y="0" width="152" height="152" fill="#0878c9"/>
+  <rect x="228" y="0" width="152" height="152" fill="#29b34d"/>
+  <rect x="0" y="228" width="152" height="152" fill="#ff9700"/>
+  <rect x="228" y="228" width="152" height="152" fill="#df2038"/>
+  <rect x="174" y="0" width="32" height="380" fill="#000"/>
+  <rect x="0" y="174" width="380" height="32" fill="#000"/>
+</svg>
