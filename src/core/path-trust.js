@@ -239,11 +239,12 @@ export function createPathTrustSession(overrides = {}) {
   function emit(result) {
     if (result.trusted) return;
     const event = Object.freeze({
-      reason: "path-trust-invalidated",
+      reason: result.reasons[0] || "path-trust-invalidated",
       state: result.state,
       action: result.action,
       signals: Object.freeze([...result.signals]),
-      reasons: Object.freeze([...result.reasons])
+      reasons: Object.freeze([...result.reasons]),
+      ...(result.evidence ? { evidence: result.evidence } : {})
     });
     for (const listener of listeners) {
       try { listener(event); } catch {}
