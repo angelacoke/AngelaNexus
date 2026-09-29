@@ -24,3 +24,13 @@ test("supports typed URL import sources", async () => {
   });
   assert.equal(result.config.nodes[0].name, "JP-1");
 });
+
+
+test("does not retain subscription query or fragment in source metadata", async () => {
+  const result = await importConfigurationAsync("https://example.com/sub?token=secret#fragment", {
+    fetcher: async () => new Response("proxies:\n  - name: US-1\n    type: socks5\n    server: us.example\n    port: 1080", { status: 200 })
+  });
+  assert.equal(result.config.metadata.sourceName, "https://example.com/sub");
+  assert.equal(result.config.metadata.sourceName.includes("secret"), false);
+  assert.equal(result.config.metadata.sourceName.includes("fragment"), false);
+});
