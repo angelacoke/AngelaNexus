@@ -114,6 +114,9 @@ test("network change keeps the kill switch armed until explicit path revalidatio
   assert.equal(runtime.getDirectTransitState().revalidationRequired, true);
   assert.ok(mock.events.includes("block.on:kill-switch-network-change"));
   assert.ok(!mock.events.includes("block.off:kill-switch-network-revalidated"));
+  const premature = await runtime.confirmNetworkRevalidated(1);
+  assert.equal(premature.ok, false);
+  assert.equal(premature.reason, "network-path-revalidation-required");
   const marked = await runtime.markNetworkPathRevalidated(1);
   assert.equal(marked.ok, true);
   const released = await runtime.confirmNetworkRevalidated(1);
