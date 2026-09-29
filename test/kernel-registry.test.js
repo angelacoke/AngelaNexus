@@ -4,9 +4,9 @@ import { getKernelUpstream, getKernelUpdatePolicy, UpstreamKernelNames } from ".
 
 test("kernel registry tracks three upstream stable baselines", () => {
   assert.deepEqual(UpstreamKernelNames, ["mihomo", "sing-box", "xray"]);
-  assert.equal(getKernelUpstream("mihomo").stable, "1.19.30");
+  assert.equal(getKernelUpstream("mihomo").stable, "1.19.31");
   assert.equal(getKernelUpstream("sing-box").stable, "1.14.2");
-  assert.equal(getKernelUpstream("xray").stable, "26.9.8");
+  assert.equal(getKernelUpstream("xray").stable, "26.3.27");
 });
 
 test("kernel updates never silently change the user's selected runtime", () => {
