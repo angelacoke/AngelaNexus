@@ -138,6 +138,37 @@ test("execution controller fails closed when path revalidation fails", async () 
   assert.equal(controller.state, ExecutionStates.FAILED);
 });
 
+test("execution controller fails closed when invalidation races kernel start", async () => {
+  let listener = null;
+  let stopped = 0;
+  let started = 0;
+  const controller = createExecutionController({
+    executionFactory: async () => ({
+      configPath: "/tmp/nexus-test/config.json",
+      async start() {
+        started += 1;
+        await listener("gfw-path-revalidation-required");
+      },
+      async stop() { stopped += 1; },
+      async reload() {},
+      async status() { return { running: true }; },
+      async logs() { return []; }
+    }),
+    pathRevalidator: async path => path,
+    sessionInvalidationSource: async callback => {
+      listener = callback;
+      return async () => { listener = null; };
+    }
+  });
+
+  await controller.prepare(request);
+  await assert.rejects(controller.start(), /execution session invalidated during start/);
+  assert.equal(started, 1);
+  assert.equal(stopped, 1);
+  assert.equal(controller.state, ExecutionStates.FAILED);
+  assert.match(controller.snapshot().failure, /gfw-path-revalidation-required/);
+});
+
 test("execution controller fails closed when a running session is invalidated", async () => {
   let listener = null;
   let stopped = 0;
