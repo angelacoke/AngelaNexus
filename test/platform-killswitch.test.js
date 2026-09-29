@@ -54,14 +54,20 @@ test("kill switch blocks before TUN and releases only on a safe network state", 
     "block:on:kill-switch-start",
     "tun:start",
     "platform:start",
-    "block:off:kill-switch-network-restored",
+    "block:off:kill-switch-network-initialized",
   ]);
 
   await fake.emit({ online: false, captivePortal: false });
-  assert.equal(fake.events.at(-1), "block:on:kill-switch-network-state");
+  assert.equal(fake.events.at(-1), "block:on:kill-switch-network-change");
 
   await fake.emit({ online: true, captivePortal: false });
-  assert.equal(fake.events.at(-1), "block:off:kill-switch-network-restored");
+  assert.equal(fake.events.at(-1), "block:on:kill-switch-network-change");
+
+  const marked = await runtime.markNetworkPathRevalidated(2);
+  assert.equal(marked.ok, true);
+  const released = await runtime.confirmNetworkRevalidated(2);
+  assert.equal(released.ok, true);
+  assert.equal(fake.events.at(-1), "block:off:kill-switch-network-revalidated");
 
   await runtime.stop();
   assert.ok(fake.events.includes("block:on:kill-switch-stop"));
