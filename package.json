@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "AngelaNexus — 智能化全能代理系统",
+  "description": "AngelaNexus — 智能网络代理平台",
   "scripts": {
     "test": "node --test",
     "compatibility:test": "node --test test/compatibility.test.js",
