@@ -1,0 +1,20 @@
+# AngelaNexus
+# Android / Gradle
+.gradle/
+**/build/
+local.properties
+
+# Production signing material — never commit these files
+*.keystore
+*.jks
+*.p12
+*.pfx
+*.b64
+
+# IDE
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
