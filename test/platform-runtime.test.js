@@ -102,6 +102,32 @@ test("kernel reload invalidates an active network path session", async () => {
   assert.equal(state.networkGeneration, before + 1); assert.equal(state.validatedNetworkGeneration, null); assert.equal(state.revalidationRequired, true); assert.ok(mock.events.includes("block.on:kill-switch-reload")); assert.ok(mock.events.includes("runtime.reload")); assert.ok(!mock.events.includes("block.off:kill-switch-network-revalidated")); await runtime.stop();
 });
 
+test("platform reload invalidation fails closed through the execution controller", async () => {
+  const mock = mockPlatform();
+  const platform = createPlatformRuntime(mock.implementation, mock.runtime);
+  await platform.start();
+  const stopped = { count: 0 };
+  const controller = createExecutionController({
+    executionFactory: async () => ({
+      configPath: "/tmp/nexus-test/reload-platform.json",
+      async start() {},
+      async stop() { stopped.count += 1; },
+      async reload() { await platform.reload({ version: 2 }); },
+      async status() { return { running: true }; },
+      async logs() {}
+    }),
+    pathRevalidator: async path => ({ ...path, validated: true, networkGeneration: platform.getDirectTransitState().networkGeneration })
+  });
+  await controller.prepare(executionRequest("platform-reload-001", 0));
+  await controller.start();
+  assert.equal(controller.state, ExecutionStates.RUNNING);
+  await assert.rejects(controller.reload(), /execution path changed after reload/);
+  assert.equal(stopped.count, 1);
+  assert.equal(controller.state, ExecutionStates.FAILED);
+  assert.ok(mock.events.includes("runtime.reload"));
+  await platform.stop();
+});
+
 test("platform runtime exposes network changes as execution session invalidation", async () => {
   const mock = mockPlatform(); const runtime = createPlatformRuntime(mock.implementation, mock.runtime); await runtime.start(); let reason = null; const unsubscribe = await runtime.subscribeSessionInvalidation(async value => { reason = value; }); await mock.implementation.emitNetworkChange(); assert.equal(reason, "network-generation-changed"); await unsubscribe(); await runtime.stop();
 });
