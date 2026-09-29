@@ -9,7 +9,7 @@
  * Minimal Linux TUN boundary.
  * Routing, DNS, firewall and fail-closed policy are intentionally not changed here.
  */
-int nexus_open_tun(void) {
+int angelanexus_open_tun(void) {
     int fd = open("/dev/net/tun", O_RDWR | O_CLOEXEC);
     if (fd < 0) return -1;
 
