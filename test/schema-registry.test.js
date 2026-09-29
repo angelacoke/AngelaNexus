@@ -80,3 +80,47 @@ test("compiled validation enforces Mihomo fail-closed terminal routing", () => {
   }, Kernels.MIHOMO);
   assert.equal(safeTerminal.ok, true);
 });
+
+
+test("compiled validation enforces explicit fail-closed terminal routing for sing-box", () => {
+  const missingFinal = validateCompiledConfig({
+    outbounds: [{ type: "block", tag: "Nexus-Blackhole" }]
+  }, Kernels.SING_BOX);
+  assert.equal(missingFinal.ok, false);
+  assert.match(missingFinal.errors.join("\n"), /requires an explicit route\.final/);
+
+  const directFinal = validateCompiledConfig({
+    outbounds: [{ type: "direct", tag: "Nexus-Direct" }],
+    route: { final: "Nexus-Direct" }
+  }, Kernels.SING_BOX);
+  assert.equal(directFinal.ok, false);
+  assert.match(directFinal.errors.join("\n"), /forbids a direct route\.final/);
+
+  const safeFinal = validateCompiledConfig({
+    outbounds: [{ type: "block", tag: "Nexus-Blackhole" }],
+    route: { final: "Nexus-Blackhole" }
+  }, Kernels.SING_BOX);
+  assert.equal(safeFinal.ok, true);
+});
+
+test("compiled validation enforces explicit fail-closed terminal routing for Xray", () => {
+  const missingTerminal = validateCompiledConfig({
+    outbounds: [{ protocol: "blackhole", tag: "Nexus-Blackhole" }],
+    routing: { rules: [] }
+  }, Kernels.XRAY);
+  assert.equal(missingTerminal.ok, false);
+  assert.match(missingTerminal.errors.join("\n"), /requires a terminal routing rule/);
+
+  const directTerminal = validateCompiledConfig({
+    outbounds: [{ protocol: "freedom", tag: "Nexus-Direct" }],
+    routing: { rules: [{ network: "tcp,udp", outboundTag: "Nexus-Direct" }] }
+  }, Kernels.XRAY);
+  assert.equal(directTerminal.ok, false);
+  assert.match(directTerminal.errors.join("\n"), /forbids freedom as terminal fallback/);
+
+  const safeTerminal = validateCompiledConfig({
+    outbounds: [{ protocol: "blackhole", tag: "Nexus-Blackhole" }],
+    routing: { rules: [{ network: "tcp,udp", outboundTag: "Nexus-Blackhole" }] }
+  }, Kernels.XRAY);
+  assert.equal(safeTerminal.ok, true);
+});
