@@ -115,6 +115,19 @@ test("real-time runtime detects clock rollback without silently downgrading secu
   assert.ok(result.actions.includes("require-path-revalidation"));
 });
 
+test("clock rollback snapshot emits path invalidation once per rollback timestamp", () => {
+  const runtime = createGfwRuntime();
+  const events = [];
+  const unsubscribe = runtime.subscribeInvalidation(event => events.push(event));
+  runtime.observe({ signal: GfwSignals.TCP_RESET }, 100000);
+  runtime.snapshot(99000);
+  runtime.snapshot(99000);
+  assert.equal(events.length, 2);
+  assert.equal(events[1].reason, "gfw-path-revalidation-required");
+  assert.ok(events[1].signals.includes(GfwSignals.TCP_RESET));
+  unsubscribe();
+});
+
 test("real-time runtime stays bounded and ignores non-independent observations", () => {
   const runtime = createGfwRuntime({ maxObservations: 2 });
   runtime.observe({ signal: GfwSignals.DNS_INJECTION, independent: false }, 100000);
