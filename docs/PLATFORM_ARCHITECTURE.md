@@ -1,6 +1,6 @@
 # AngelaNexus Platform Architecture
 
-Nexus is a real cross-platform proxy application from the first architectural layer.
+AngelaNexus is a real cross-platform proxy application from the first architectural layer.
 
 ## Target platforms
 
@@ -15,7 +15,7 @@ No platform is the architectural primary target. Platform-specific capabilities 
 ## Runtime layers
 
 ~~~text
-Nexus UI
+AngelaNexus UI
    |
 Application / Orchestration
    |
@@ -73,7 +73,7 @@ The adapters are responsible for expressing that policy in native configuration 
 
 Unified behavior does not mean pretending that kernels or platforms are identical.
 
-For every feature Nexus must distinguish:
+For every feature AngelaNexus must distinguish:
 
 - supported and directly compilable;
 - supported with a different native mechanism;
@@ -81,7 +81,7 @@ For every feature Nexus must distinguish:
 - unavailable;
 - unknown / not yet verified.
 
-A non-equivalent feature must never be silently dropped or changed into a different policy. Nexus should expose the limitation and let the user choose an alternative.
+A non-equivalent feature must never be silently dropped or changed into a different policy. AngelaNexus should expose the limitation and let the user choose an alternative.
 
 ## Resource-efficiency boundary
 
