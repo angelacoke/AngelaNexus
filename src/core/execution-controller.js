@@ -200,10 +200,12 @@ export function createExecutionController(options = {}) {
           }
         }
         if (state !== ExecutionStates.STARTING || execution !== startingExecution) {
+          if (state === ExecutionStates.FAILED && !execution && failure) throw new Error(failure);
           throw new Error("execution session invalidated during start");
         }
         await execution.start();
         if (state !== ExecutionStates.STARTING || execution !== startingExecution) {
+          if (state === ExecutionStates.FAILED && !execution && failure) throw new Error(failure);
           throw new Error("execution session invalidated during start");
         }
         state = ExecutionStates.RUNNING;
