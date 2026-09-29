@@ -1,4 +1,5 @@
 import { Kernels } from "./model.js";
+import { validateSystemSecurityPolicy } from "./system-security-policy.js";
 
 export const EXECUTION_CONTRACT_VERSION = 1;
 
@@ -41,6 +42,15 @@ function assertExecutionGates(input) {
   if (!input.security || input.security.preflightPassed !== true) {
     throw new Error("execution contract requires a passed security preflight");
   }
+
+  const systemSecurity = validateSystemSecurityPolicy(input.config);
+  if (!systemSecurity.ok) {
+    const firstError = systemSecurity.errors[0];
+    throw new Error(
+      `execution contract rejects system security policy: ${firstError && firstError.code ? firstError.code : "SYSTEM_SECURITY_POLICY_INVALID"}`
+    );
+  }
+
   if (input.security.failClosed !== true) {
     throw new Error("execution contract requires fail-closed security mode");
   }
