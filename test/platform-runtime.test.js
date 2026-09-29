@@ -54,6 +54,14 @@ test("kill switch releases only during an orderly stop", async () => {
   assert.ok(mock.events.includes("block.on:kill-switch-start")); assert.ok(mock.events.includes("tun.start")); assert.ok(!mock.events.includes("block.off:kill-switch-network-restored")); assert.ok(mock.events.includes("block.off:kill-switch-stop"));
 });
 
+test("kill switch startup permits fresh direct transit validation after path checks", async () => {
+  const mock = mockPlatform(); const runtime = createPlatformRuntime(mock.implementation, mock.runtime); await runtime.start({ security: { killSwitch: true } });
+  const result = await runtime.validateDirectTransit({ dnsPathConsistent: true });
+  assert.equal(result.action, "native"); assert.equal(runtime.getDirectTransitState().revalidationRequired, false);
+  assert.equal(runtime.getDirectTransitState().validatedNetworkGeneration, runtime.getDirectTransitState().networkGeneration);
+  await runtime.stop();
+});
+
 test("native direct transit is validated through platform capabilities", async () => {
   const mock = mockPlatform(); const runtime = createPlatformRuntime(mock.implementation, mock.runtime); await runtime.start();
   const result = await runtime.validateDirectTransit({ dnsPathConsistent: true });
