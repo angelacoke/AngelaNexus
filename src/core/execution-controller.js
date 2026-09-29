@@ -65,7 +65,10 @@ export function createExecutionController(options = {}) {
 
   async function clearInvalidationSubscription() {
     sessionId += 1;
-    if (unsubscribeInvalidation) { await unsubscribeInvalidation(); unsubscribeInvalidation = null; }
+    const unsubscribe = unsubscribeInvalidation;
+    unsubscribeInvalidation = null;
+    if (!unsubscribe) return;
+    try { await unsubscribe(); } catch {}
   }
 
   async function emitEvent(type, context = {}) {
