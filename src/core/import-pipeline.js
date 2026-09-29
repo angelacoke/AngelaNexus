@@ -15,7 +15,7 @@ function validateKernel(kernel) {
 function promptFor(detected, selected, explicit) {
   if (explicit) return { required: false, title: "Kernel binding", message: "The selected kernel will be used for this import.", reason: "user-selected" };
   if (selected) return { required: false, title: "Kernel detected", message: "AngelaNexus detected " + selected + " from the input format and bound it automatically.", reason: detected.confidence };
-  return { required: false, title: "Native runtime resolution", message: detected.candidates.length ? "Nexus recognized the input and will resolve a compatible native runtime automatically." : "Nexus could not establish a native runtime yet; the original input will be preserved for later resolution.", reason: detected.confidence, options: detected.candidates.slice() };
+  return { required: false, title: "Native runtime resolution", message: detected.candidates.length ? "AngelaNexus recognized the input and will resolve a compatible native runtime automatically." : "Nexus could not establish a native runtime yet; the original input will be preserved for later resolution.", reason: detected.confidence, options: detected.candidates.slice() };
 }
 
 export function inspectImport(input, { kernel = null } = {}) {
