@@ -3,6 +3,7 @@ import { Kernels } from "./model.js";
 import { createExecutionContract } from "./execution-contract.js";
 import { createPlannedExecutionContract } from "./decision-planner.js";
 import { createExecutionEventLedger } from "./execution-event-ledger.js";
+import { evaluatePathTrust } from "./path-trust.js";
 
 export const ExecutionStates = Object.freeze({
   IDLE: "idle",
@@ -161,6 +162,27 @@ export function createExecutionController(options = {}) {
         if (!currentPath || currentPath.validated !== true) throw new Error("execution path revalidation failed");
         if (request.path.networkGeneration !== undefined && currentPath.networkGeneration !== request.path.networkGeneration) {
           throw new Error("execution path changed after decision validation");
+        }
+        if (request.path.trust && typeof request.path.trust === "object") {
+          const trustInput = request.path.trust;
+          const trustResult = evaluatePathTrust({
+            expected: trustInput.expected || request.path,
+            observed: trustInput.observed || currentPath,
+            previous: trustInput.previous || null,
+            policy: trustInput.policy || {}
+          });
+          if (!trustResult.trusted) {
+            await emitEvent("path-trust-rejected", {
+              reason: "path-trust-validation-failed",
+              state: trustResult.state,
+              signals: [...trustResult.signals],
+              reasons: [...trustResult.reasons],
+              kernel: request.kernel,
+              decisionId: request.decision.id,
+              decisionVersion: request.decision.version
+            });
+            throw new Error("execution path trust validation failed: " + trustResult.reasons.join(", "));
+          }
         }
         await execution.start();
         state = ExecutionStates.RUNNING;
