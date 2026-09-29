@@ -87,7 +87,7 @@ export function createPlatformRuntime(implementation, runtime) {
       validatedNetworkGeneration: directTransitState.validatedNetworkGeneration,
     });
     if (result.action === DirectTransitActions.NATIVE && (nativeSocket === false || bypass === false)) return Object.freeze({ action: DirectTransitActions.FAIL_CLOSED, reasons: Object.freeze(["native-path-establishment-failed"]) });
-    if (result.action === DirectTransitActions.NATIVE) await markNetworkPathRevalidated(validationGeneration);
+    if (result.action === DirectTransitActions.NATIVE) {\n      const marked = await markNetworkPathRevalidated(validationGeneration);\n      if (marked.ok !== true) return Object.freeze({ action: DirectTransitActions.REVALIDATE, reasons: Object.freeze(["network-generation-changed-during-validation"]) });\n    }
     return result;
   }
 
