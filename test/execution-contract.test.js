@@ -23,6 +23,24 @@ test("execution contract freezes system decision and execution gates", () => {
   assert.equal(Object.isFrozen(contract.decision), true);
 });
 
+test("execution contract independently revalidates the configured system security floor", () => {
+  assert.throws(
+    () => createExecutionContract({
+      ...base,
+      config: {
+        ...base.config,
+        security: {
+          gfwResilience: {
+            enabled: false,
+            failClosed: false
+          }
+        }
+      }
+    }),
+    /system security policy: GFW_RESILIENCE_REQUIRED/
+  );
+});
+
 test("confirmed GFW state requires a revalidated execution path", () => {
   assert.throws(() => createExecutionContract({ ...base, gfw: { state: "confirmed" } }), /GFW path revalidation/);
   const contract = createExecutionContract({ ...base, gfw: { state: "confirmed" }, path: { ...base.path, gfwValidated: true, gfwValidatedGeneration: 4 } });
