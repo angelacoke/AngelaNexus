@@ -168,9 +168,6 @@ export function createExecutionController(options = {}) {
         if (request.path.networkGeneration !== undefined && currentPath.networkGeneration !== request.path.networkGeneration) {
           throw new Error("execution path changed after decision validation");
         }
-        if (sessionEpoch !== reloadEpoch || state !== ExecutionStates.RUNNING || execution !== reloadExecution) {
-          throw new Error("execution session invalidated during reload");
-        }
         if (request.path.trust && typeof request.path.trust === "object") {
           const trustInput = request.path.trust;
           const trustResult = evaluatePathTrust({
@@ -248,6 +245,9 @@ export function createExecutionController(options = {}) {
             policy: trustInput.policy || {}
           });
           if (!trustResult.trusted) throw new Error("execution path trust validation failed after reload: " + trustResult.reasons.join(", "));
+        }
+        if (sessionEpoch !== reloadEpoch || state !== ExecutionStates.RUNNING || execution !== reloadExecution) {
+          throw new Error("execution session invalidated during reload");
         }
         return result;
       }
