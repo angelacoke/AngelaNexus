@@ -284,15 +284,23 @@ export function createPathTrustSession(overrides = {}) {
     validate,
     invalidate(reason = "explicit-invalidation") {
       invalidated = true;
+      const evidence = reason && typeof reason === "object" ? structuredClone(reason) : null;
+      const normalizedReason = evidence && typeof evidence.reason === "string"
+        ? text(evidence.reason)
+        : text(reason);
+      const signals = evidence && Array.isArray(evidence.signals)
+        ? [...new Set(evidence.signals.filter(signal => typeof signal === "string"))]
+        : [PathTrustSignals.ROUTE_CHANGED];
       const result = Object.freeze({
         version: PATH_TRUST_VERSION,
         state: PathTrustStates.REVALIDATION_REQUIRED,
         trusted: false,
         action: PathTrustActions.FAIL_CLOSED,
-        signals: Object.freeze([PathTrustSignals.ROUTE_CHANGED]),
-        reasons: Object.freeze([text(reason) || "explicit-invalidation"]),
+        signals: Object.freeze(signals.length ? signals : [PathTrustSignals.ROUTE_CHANGED]),
+        reasons: Object.freeze([normalizedReason || "explicit-invalidation"]),
         expected,
-        observed: previous || expected
+        observed: previous || expected,
+        ...(evidence ? { evidence } : {})
       });
       emit(result);
       return result;
