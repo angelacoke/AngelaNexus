@@ -234,7 +234,7 @@ test("execution controller remains failed closed when invalidation unsubscribe f
 
   await controller.prepare(request);
   await controller.start();
-  await assert.rejects(listener("gfw-path-revalidation-required"), /gfw-path-revalidation-required/);
+  await listener("gfw-path-revalidation-required");
   assert.equal(stopped, 1);
   assert.equal(controller.state, ExecutionStates.FAILED);
   assert.match(controller.snapshot().failure, /gfw-path-revalidation-required/);
