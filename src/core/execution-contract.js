@@ -58,6 +58,11 @@ function assertExecutionGates(input) {
     if (requiresPathRevalidation && input.path.gfwValidated !== true) {
       throw new Error("execution contract requires GFW path revalidation");
     }
+    if (requiresPathRevalidation && input.path.networkGeneration !== undefined) {
+      if (input.path.gfwValidatedGeneration !== input.path.networkGeneration) {
+        throw new Error("execution contract rejects stale GFW path validation");
+      }
+    }
   }
   if (
     input.path.networkGeneration !== undefined &&
