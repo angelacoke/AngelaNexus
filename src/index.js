@@ -31,3 +31,5 @@ export * from "./core/decision-planner.js";
 export * from "./core/session-invalidation.js";
 
 export * from "./core/execution-event-ledger.js";
+
+export * from "./core/path-trust.js";
