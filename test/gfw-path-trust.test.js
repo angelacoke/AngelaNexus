@@ -133,7 +133,7 @@ test("GFW invalidation propagates through path trust into the running execution 
 
   assert.equal(stopped, 1);
   assert.equal(controller.state, ExecutionStates.FAILED);
-  assert.match(controller.snapshot().failure, /gfw:/);
+  assert.match(controller.snapshot().failure, /gfw-path-revalidation-required/);
 
   unsubscribeGfw();
 });
