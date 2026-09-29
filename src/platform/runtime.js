@@ -12,18 +12,12 @@ function isSafeNetworkState(state) {
 }
 
 function directTransitRequirements(capabilities) {
-  return [
-    PlatformCapabilities.NATIVE_SOCKET_PATH,
-    PlatformCapabilities.NATIVE_ROUTE,
-    PlatformCapabilities.BYPASS_TUN,
-    PlatformCapabilities.ROUTE_INTEGRITY,
-  ].filter((capability) => !capabilities.includes(capability));
+  return [PlatformCapabilities.NATIVE_SOCKET_PATH, PlatformCapabilities.NATIVE_ROUTE, PlatformCapabilities.BYPASS_TUN, PlatformCapabilities.ROUTE_INTEGRITY]
+    .filter((capability) => !capabilities.includes(capability));
 }
 
 export function createPlatformRuntime(implementation, runtime) {
-  if (!runtime || typeof runtime.start !== "function" || typeof runtime.stop !== "function") {
-    throw new TypeError("kernel runtime requires start() and stop()");
-  }
+  if (!runtime || typeof runtime.start !== "function" || typeof runtime.stop !== "function") throw new TypeError("kernel runtime requires start() and stop()");
   const bridge = createPlatformBridge(implementation);
   let unsubscribe = null;
   let killSwitchEnabled = false;
@@ -49,10 +43,7 @@ export function createPlatformRuntime(implementation, runtime) {
 
   async function invalidateNetworkSession(reason = "network-generation-changed") {
     networkGeneration += 1;
-    directTransitState = createDirectTransitSessionState({
-      networkGeneration,
-      validatedNetworkGeneration: null
-    });
+    directTransitState = createDirectTransitSessionState({ networkGeneration, validatedNetworkGeneration: null });
     if (killSwitchEnabled) await bridge.enableNetworkBlock("kill-switch-" + reason);
     return Object.freeze({ networkGeneration, reason });
   }
@@ -63,55 +54,40 @@ export function createPlatformRuntime(implementation, runtime) {
   }
 
   async function markNetworkPathRevalidated(generation = networkGeneration) {
-    if (!Number.isInteger(generation) || generation !== networkGeneration) {
-      return Object.freeze({ ok: false, reason: "network-generation-mismatch", networkGeneration });
-    }
-    if (!isSafeNetworkState(networkState || bridge.getNetworkState())) {
-      return Object.freeze({ ok: false, reason: "network-state-not-safe", networkGeneration });
-    }
-    directTransitState = Object.freeze({
-      ...directTransitState,
-      validatedNetworkGeneration: networkGeneration,
-      revalidationRequired: false
-    });
+    if (!Number.isInteger(generation) || generation !== networkGeneration) return Object.freeze({ ok: false, reason: "network-generation-mismatch", networkGeneration });
+    if (!isSafeNetworkState(networkState || bridge.getNetworkState())) return Object.freeze({ ok: false, reason: "network-state-not-safe", networkGeneration });
+    directTransitState = Object.freeze({ ...directTransitState, validatedNetworkGeneration: networkGeneration, revalidationRequired: false });
     return Object.freeze({ ok: true, networkGeneration });
   }
 
   async function confirmNetworkRevalidated(generation = networkGeneration) {
     if (!killSwitchEnabled) return Object.freeze({ ok: false, reason: "kill-switch-not-active" });
-    if (!Number.isInteger(generation) || generation !== networkGeneration) {
-      return Object.freeze({ ok: false, reason: "network-generation-mismatch", networkGeneration });
-    }
-    if (directTransitState.revalidationRequired !== false ||
-        directTransitState.validatedNetworkGeneration !== networkGeneration) {
-      return Object.freeze({ ok: false, reason: "network-path-revalidation-required", networkGeneration });
-    }
+    if (!Number.isInteger(generation) || generation !== networkGeneration) return Object.freeze({ ok: false, reason: "network-generation-mismatch", networkGeneration });
+    if (directTransitState.revalidationRequired !== false || directTransitState.validatedNetworkGeneration !== networkGeneration) return Object.freeze({ ok: false, reason: "network-path-revalidation-required", networkGeneration });
     await bridge.disableNetworkBlock("kill-switch-network-revalidated");
     return Object.freeze({ ok: true, networkGeneration });
   }
 
   async function validateDirectTransit(options = {}) {
     const missing = directTransitRequirements(bridge.capabilities);
-    if (missing.length) {
-      return Object.freeze({ action: DirectTransitActions.FAIL_CLOSED, reasons: Object.freeze(["missing-native-capability:" + missing.join(",")]) });
-    }
+    if (missing.length) return Object.freeze({ action: DirectTransitActions.FAIL_CLOSED, reasons: Object.freeze(["missing-native-capability:" + missing.join(",")]) });
+    const validationGeneration = networkGeneration;
     const nativeSocket = await bridge.openNativeSocketPath(options);
     const nativeRoute = await bridge.validateNativeRoute(options);
     const bypass = await bridge.setTunBypass(options);
     const routeIntegrity = await bridge.validateRouteIntegrity(options);
+    if (validationGeneration !== networkGeneration) return Object.freeze({ action: DirectTransitActions.REVALIDATE, reasons: Object.freeze(["network-generation-changed-during-validation"]) });
     const result = evaluateDirectTransit({
       capabilities: bridge.capabilities,
       tunEntered: options.tunEntered === true,
       proxyEntered: options.proxyEntered === true,
       route: { native: nativeRoute === true || nativeRoute?.native === true, consistent: routeIntegrity === true || routeIntegrity?.consistent === true },
       dnsPath: { consistent: options.dnsPathConsistent === true },
-      networkGeneration,
-      validatedNetworkGeneration: networkGeneration,
+      networkGeneration: validationGeneration,
+      validatedNetworkGeneration: directTransitState.validatedNetworkGeneration,
     });
-    if (result.action === DirectTransitActions.NATIVE && (nativeSocket === false || bypass === false)) {
-      return Object.freeze({ action: DirectTransitActions.FAIL_CLOSED, reasons: Object.freeze(["native-path-establishment-failed"]) });
-    }
-    if (result.action === DirectTransitActions.NATIVE) await markNetworkPathRevalidated(networkGeneration);
+    if (result.action === DirectTransitActions.NATIVE && (nativeSocket === false || bypass === false)) return Object.freeze({ action: DirectTransitActions.FAIL_CLOSED, reasons: Object.freeze(["native-path-establishment-failed"]) });
+    if (result.action === DirectTransitActions.NATIVE) await markNetworkPathRevalidated(validationGeneration);
     return result;
   }
 
@@ -128,9 +104,7 @@ export function createPlatformRuntime(implementation, runtime) {
         if (security.killSwitch === true) {
           directTransitState = createDirectTransitSessionState({ networkGeneration, validatedNetworkGeneration: null });
           unsubscribe = await bridge.subscribeNetworkState(handleNetworkState);
-        } else if (directTransitRequirements(bridge.capabilities).length === 0) {
-          unsubscribe = await bridge.subscribeNetworkState(handleNetworkState);
-        }
+        } else if (directTransitRequirements(bridge.capabilities).length === 0) unsubscribe = await bridge.subscribeNetworkState(handleNetworkState);
         return networkState;
       } catch (error) {
         if (security.killSwitch === true) {
@@ -149,29 +123,17 @@ export function createPlatformRuntime(implementation, runtime) {
     },
     async reload(config) {
       if (typeof runtime.reload !== "function") throw new Error("kernel runtime does not support reload");
-      if (killSwitchEnabled) {
-        await invalidateNetworkSession("reload");
-        await bridge.enableNetworkBlock("kill-switch-reload");
-      }
+      if (killSwitchEnabled) await invalidateNetworkSession("reload");
       return runtime.reload(config);
     },
-    async status() {
-      if (typeof runtime.status !== "function") throw new Error("kernel runtime does not support status");
-      return runtime.status();
-    },
-    async logs(options = {}) {
-      if (typeof runtime.logs !== "function") throw new Error("kernel runtime does not support logs");
-      return runtime.logs(options);
-    },
+    async status() { if (typeof runtime.status !== "function") throw new Error("kernel runtime does not support status"); return runtime.status(); },
+    async logs(options = {}) { if (typeof runtime.logs !== "function") throw new Error("kernel runtime does not support logs"); return runtime.logs(options); },
     async startTun(options = {}) { return bridge.startTun(options); },
     async stopTun() { return bridge.stopTun(); },
     async enableNetworkBlock(reason) { return bridge.enableNetworkBlock(reason); },
     async disableNetworkBlock(reason) { return bridge.disableNetworkBlock(reason); },
     async subscribeNetworkState(listener) { return bridge.subscribeNetworkState(listener); },
-    async subscribeSessionInvalidation(listener) {
-      if (typeof listener !== "function") throw new TypeError("session invalidation listener is required");
-      return bridge.subscribeNetworkState(async () => listener("network-generation-changed"));
-    },
+    async subscribeSessionInvalidation(listener) { if (typeof listener !== "function") throw new TypeError("session invalidation listener is required"); return bridge.subscribeNetworkState(async () => listener("network-generation-changed")); },
     async validateDirectTransit(options = {}) { return validateDirectTransit(options); },
     async markNetworkPathRevalidated(generation) { return markNetworkPathRevalidated(generation); },
     async confirmNetworkRevalidated(generation) { return confirmNetworkRevalidated(generation); },
