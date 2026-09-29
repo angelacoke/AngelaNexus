@@ -16,6 +16,7 @@ import android.widget.Toast
 class MainActivity : Activity() {
     private val openConfigRequest = 1001
     private val vpnRequest = 1002
+    private lateinit var statusView: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,23 +55,23 @@ class MainActivity : Activity() {
         }
         root.addView(subtitle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        val status = TextView(this).apply {
+        statusView = TextView(this).apply {
             text = getString(R.string.status_ready)
             textSize = 16f
             setTextColor(Color.DKGRAY)
             setPadding(0, 0, 0, 20)
         }
-        root.addView(status, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        root.addView(statusView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         val importButton = Button(this).apply {
             text = getString(R.string.import_config)
-            setOnClickListener { openConfigPicker(status) }
+            setOnClickListener { openConfigPicker() }
         }
         root.addView(importButton, buttonParams())
 
         val vpnButton = Button(this).apply {
             text = getString(R.string.test_vpn_boundary)
-            setOnClickListener { requestVpnPermission(status) }
+            setOnClickListener { requestVpnPermission() }
         }
         root.addView(vpnButton, buttonParams())
 
@@ -90,40 +91,34 @@ class MainActivity : Activity() {
         ViewGroup.LayoutParams.WRAP_CONTENT
     ).apply { bottomMargin = 12 }
 
-    private fun openConfigPicker(status: TextView) {
+    private fun openConfigPicker() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "*/*"
         }
         startActivityForResult(intent, openConfigRequest)
-        status.text = getString(R.string.status_select_config)
+        statusView.text = getString(R.string.status_select_config)
     }
 
-    private fun requestVpnPermission(status: TextView) {
+    private fun requestVpnPermission() {
         val intent = VpnService.prepare(this)
         if (intent != null) {
             startActivityForResult(intent, vpnRequest)
         } else {
-            startVpnService(status)
+            startVpnService()
         }
     }
 
-    private fun startVpnService(status: TextView) {
+    private fun startVpnService() {
         startService(Intent(this, app.nexus.NexusVpnService::class.java))
-        status.text = getString(R.string.status_vpn_boundary_started)
+        statusView.text = getString(R.string.status_vpn_boundary_started)
         Toast.makeText(this, R.string.vpn_boundary_notice, Toast.LENGTH_LONG).show()
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == vpnRequest && resultCode == RESULT_OK) {
-            val status = findStatusView()
-            startVpnService(status)
+            startVpnService()
         }
-    }
-
-    private fun findStatusView(): TextView {
-        val root = window.decorView.findViewById<ViewGroup>(android.R.id.content)
-        return root.findViewWithTag("status") ?: TextView(this)
     }
 }
