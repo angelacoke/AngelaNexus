@@ -4,6 +4,8 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose") version "2.0.21"
 }
 
+import java.util.Base64
+
 android {
     namespace = "app.angelanexus"
     compileSdk = 35
@@ -14,6 +16,43 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+    }
+
+    signingConfigs {
+        create("release") {
+            val keystoreBase64 = System.getenv("ANGELANEXUS_RELEASE_KEYSTORE_B64")
+            val keystorePassword = System.getenv("ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD")
+            val keyAlias = System.getenv("ANGELANEXUS_RELEASE_KEY_ALIAS")
+            val keyPassword = System.getenv("ANGELANEXUS_RELEASE_KEY_PASSWORD")
+
+            if (!keystoreBase64.isNullOrBlank() &&
+                !keystorePassword.isNullOrBlank() &&
+                !keyAlias.isNullOrBlank() &&
+                !keyPassword.isNullOrBlank()
+            ) {
+                val keystoreFile = layout.buildDirectory.file("signing/release.keystore").get().asFile
+                keystoreFile.parentFile.mkdirs()
+                if (!keystoreFile.exists()) {
+                    keystoreFile.writeBytes(Base64.getDecoder().decode(keystoreBase64))
+                }
+                storeFile = keystoreFile
+                storePassword = keystorePassword
+                this.keyAlias = keyAlias
+                this.keyPassword = keyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            val signingConfigured = !System.getenv("ANGELANEXUS_RELEASE_KEYSTORE_B64").isNullOrBlank()
+            check(signingConfigured) {
+                "Release signing is not configured. Set ANGELANEXUS_RELEASE_KEYSTORE_B64, " +
+                    "ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD, ANGELANEXUS_RELEASE_KEY_ALIAS, " +
+                    "and ANGELANEXUS_RELEASE_KEY_PASSWORD."
+            }
+            signingConfig = signingConfigs.getByName("release")
+        }
     }
 
     sourceSets["main"].java.srcDirs("../src/main/kotlin")
