@@ -43,15 +43,23 @@ private fun AngelaNexusRoot() {
     val documentLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
-        status = if (uri != null) "config-selected" else "ready"
-        if (uri != null) {
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            }
+        if (uri == null) {
+            status = "ready"
+            return@rememberLauncherForActivityResult
         }
+
+        status = runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                ConfigImportReader.readUtf8(stream)
+            } ?: throw IllegalStateException("selected configuration cannot be opened")
+        }.fold(
+            onSuccess = { "config-loaded" },
+            onFailure = { "config-import-error" }
+        )
     }
 
     val vpnLauncher = rememberLauncherForActivityResult(
