@@ -24,7 +24,8 @@ export function bindGfwPathTrust(gfwRuntime, pathTrustSession) {
     const state = typeof event.state === "string" ? event.state : null;
     const signals = cloneSignals(event.signals);
     const actions = cloneSignals(event.actions);
-    const reason = [
+    const eventReason = typeof event.reason === "string" ? event.reason.trim() : "";
+    const reason = eventReason || [
       "gfw",
       state || GfwStates.SUSPECTED,
       ...signals
