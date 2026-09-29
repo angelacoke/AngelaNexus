@@ -210,3 +210,26 @@ test("canonical GFW runtime assembly binds evidence to a path-trust session", ()
   assert.equal(runtime.pathTrust.snapshot().invalidated, true);
   runtime.unsubscribe();
 });
+
+
+test("canonical GFW runtime enforces the system security floor", () => {
+  assert.throws(
+    () => createGfwPathTrustRuntime({
+      securityPolicy: { gfwResilience: { enabled: false, failClosed: true } }
+    }),
+    /requires enabled fail-closed resilience/
+  );
+  assert.throws(
+    () => createGfwPathTrustRuntime({
+      securityPolicy: { gfwResilience: { enabled: true, failClosed: false } }
+    }),
+    /requires enabled fail-closed resilience/
+  );
+
+  const runtime = createGfwPathTrustRuntime({
+    securityPolicy: { gfwResilience: { enabled: true, failClosed: true, minEvidence: 3 } },
+    policy: { minEvidence: 2 }
+  });
+  assert.equal(runtime.gfw.policy.minEvidence, 2);
+  runtime.unsubscribe();
+});
