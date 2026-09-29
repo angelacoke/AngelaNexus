@@ -6,7 +6,19 @@
 
 <p align="center">智能化全能代理系统</p>
 
-AngelaNexus is the unified proxy-system project for Mihomo, sing-box, and Xray adapters.
+AngelaNexus is the unified cross-platform proxy-system project for Mihomo, sing-box, and Xray adapters.
+
+## Product platforms
+
+AngelaNexus APP is designed for all five primary platforms from the first architecture layer:
+
+- Android
+- iOS
+- Windows
+- macOS
+- Linux
+
+Android is currently the first executable application surface, not the architectural primary target.
 
 ## Project identity
 
@@ -15,9 +27,11 @@ The four-quadrant cross mark in `assets/brand/angelanexus-logo.svg` is the offic
 ## Current implementation status
 
 - Platform-neutral core: active development with automated unit and three-kernel conformance verification.
+- Cross-platform UI strategy: shared UI semantics with independent native platform capability adapters.
 - Android: real application module baseline is present under `native/android/app`.
 - Android VPN: native `VpnService` boundary is wired into the application shell.
 - Android configuration import: document-picker entry point is present; core import integration remains the next milestone.
+- iOS / Windows / macOS / Linux executable shells: architectural targets established; implementation remains milestone-driven and is not claimed as complete.
 - Mihomo / sing-box / Xray Android runtime embedding: not yet claimed as production-ready.
 
-See [`docs/APP_PROGRESS.md`](docs/APP_PROGRESS.md) for the evidence-based APP status and next milestones.
+See [`docs/APP_PLATFORM_STRATEGY.md`](docs/APP_PLATFORM_STRATEGY.md), [`docs/APP_UI_DESIGN.md`](docs/APP_UI_DESIGN.md) and [`docs/APP_PROGRESS.md`](docs/APP_PROGRESS.md) for the evidence-based APP architecture, UI design and progress.
