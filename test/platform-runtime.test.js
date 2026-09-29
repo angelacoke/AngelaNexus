@@ -88,7 +88,7 @@ test("kill switch releases only during an orderly stop", async () => {
   await runtime.stop();
   assert.ok(mock.events.includes("block.on:kill-switch-start"));
   assert.ok(mock.events.includes("tun.start"));
-  assert.ok(mock.events.includes("block.off:kill-switch-network-restored"));
+  assert.ok(!mock.events.includes("block.off:kill-switch-network-restored"));
   assert.ok(mock.events.includes("block.off:kill-switch-stop"));
 });
 
@@ -103,6 +103,22 @@ test("native direct transit is validated through platform capabilities", async (
   assert.ok(mock.events.includes("native.route"));
   assert.ok(mock.events.includes("native.bypass"));
   assert.ok(mock.events.includes("native.integrity"));
+  await runtime.stop();
+});
+
+test("network change keeps the kill switch armed until explicit path revalidation", async () => {
+  const mock = mockPlatform();
+  const runtime = createPlatformRuntime(mock.implementation, mock.runtime);
+  await runtime.start({ security: { killSwitch: true } });
+  await mock.implementation.emitNetworkChange();
+  assert.equal(runtime.getDirectTransitState().revalidationRequired, true);
+  assert.ok(mock.events.includes("block.on:kill-switch-network-change"));
+  assert.ok(!mock.events.includes("block.off:kill-switch-network-revalidated"));
+  const marked = await runtime.markNetworkPathRevalidated(1);
+  assert.equal(marked.ok, true);
+  const released = await runtime.confirmNetworkRevalidated(1);
+  assert.equal(released.ok, true);
+  assert.ok(mock.events.includes("block.off:kill-switch-network-revalidated"));
   await runtime.stop();
 });
 
