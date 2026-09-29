@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">AngelaNexus</string>
+    <string name="app_subtitle">智能化全能代理系统</string>
+    <string name="status_ready">状态：应用层已启动，核心运行时待接入</string>
+    <string name="status_select_config">状态：等待选择配置文件</string>
+    <string name="status_vpn_boundary_started">状态：Android VPN 边界已启动</string>
+    <string name="import_config">导入配置</string>
+    <string name="test_vpn_boundary">启动 VPN 边界</string>
+    <string name="kernel_status">内核：Mihomo / sing-box / Xray（统一核心层选择；Android 内核运行时尚未接入）</string>
+    <string name="vpn_boundary_notice">当前仅验证 Android VpnService 边界，不代表代理流量已经接管。</string>
+</resources>
