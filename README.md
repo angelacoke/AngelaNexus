@@ -35,3 +35,8 @@ The four-quadrant cross mark in `assets/brand/angelanexus-logo.svg` is the offic
 - Mihomo / sing-box / Xray Android runtime embedding: not yet claimed as production-ready.
 
 See [`docs/APP_PLATFORM_STRATEGY.md`](docs/APP_PLATFORM_STRATEGY.md), [`docs/APP_UI_DESIGN.md`](docs/APP_UI_DESIGN.md) and [`docs/APP_PROGRESS.md`](docs/APP_PROGRESS.md) for the evidence-based APP architecture, UI design and progress.
+
+## License
+
+Original AngelaNexus source code is intended to be licensed under Apache License 2.0 unless a more specific file-level notice states otherwise. Third-party components retain their own licenses and attribution requirements. See [`LICENSE`](LICENSE), [`NOTICE`](NOTICE), and [`docs/legal/THIRD_PARTY_LICENSES.md`](docs/legal/THIRD_PARTY_LICENSES.md).
+
