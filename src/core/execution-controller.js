@@ -49,6 +49,7 @@ export function createExecutionController(options = {}) {
   let failure = null;
   let unsubscribeInvalidation = null;
   let invalidationInFlight = null;
+  let sessionEpoch = 0;
 
   function snapshot() {
     return Object.freeze({
@@ -81,6 +82,7 @@ export function createExecutionController(options = {}) {
         : "network-session-invalidated");
     if (invalidationInFlight) return invalidationInFlight;
     invalidationInFlight = (async () => {
+      sessionEpoch += 1;
       state = ExecutionStates.STOPPING;
       failure = normalizedReason;
       await emitEvent("session-invalidated", {
@@ -166,6 +168,9 @@ export function createExecutionController(options = {}) {
         if (request.path.networkGeneration !== undefined && currentPath.networkGeneration !== request.path.networkGeneration) {
           throw new Error("execution path changed after decision validation");
         }
+        if (sessionEpoch !== reloadEpoch || state !== ExecutionStates.RUNNING || execution !== reloadExecution) {
+          throw new Error("execution session invalidated during reload");
+        }
         if (request.path.trust && typeof request.path.trust === "object") {
           const trustInput = request.path.trust;
           const trustResult = evaluatePathTrust({
@@ -225,6 +230,8 @@ export function createExecutionController(options = {}) {
 
     async reload() {
       if (!execution || state !== ExecutionStates.RUNNING) throw new Error("execution is not running");
+      const reloadExecution = execution;
+      const reloadEpoch = sessionEpoch;
       try {
         const result = await execution.reload();
         const currentPath = await pathRevalidator(request.path, request);
