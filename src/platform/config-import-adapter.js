@@ -8,9 +8,9 @@ export function createConfigImportAdapter({ importer = importSource } = {}) {
     async importConfiguration(input, options = {}) {
       const request = createConfigImportRequest(input, options);
       const { version, source, name, content } = request;
-      const importInput = source === "subscription-url"
-        ? content
-        : { type: source === "local-file" ? "file" : source, name, content };
+      const importInput = source === "local-file"
+        ? { type: "file", name, content }
+        : content;
       const result = await importer(importInput, options);
       return Object.freeze({ version, source, name, result });
     },
