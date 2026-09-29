@@ -126,7 +126,7 @@ export function createPlatformRuntime(implementation, runtime) {
     },
     async reload(config) {
       if (typeof runtime.reload !== "function") throw new Error("kernel runtime does not support reload");
-      if (killSwitchEnabled) await invalidateNetworkSession("reload");
+      if (killSwitchEnabled || directTransitRequirements(bridge.capabilities).length === 0) await invalidateNetworkSession("reload");
       return runtime.reload(config);
     },
     async status() { if (typeof runtime.status !== "function") throw new Error("kernel runtime does not support status"); return runtime.status(); },
