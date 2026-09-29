@@ -2,7 +2,7 @@
 
 ## Baseline verified
 
-The repository now contains a real Android application module in addition to the platform-neutral core and native VPN boundary.
+The repository contains a real Android application module in addition to the platform-neutral core and native VPN boundary.
 
 ### Android 0.1.0 application shell
 
@@ -17,11 +17,26 @@ Implemented:
 - Explicit runtime status indicating that kernel execution is not yet connected.
 - Dedicated Android debug-build CI workflow.
 
+### Modern modular UI baseline
+
+Implemented:
+
+- Jetpack Compose + Material 3 foundation.
+- System light/dark theme support and Android dynamic colors.
+- Five-module bottom navigation: Home / Profiles / Proxies / Rules / Settings.
+- Compact card-based dashboard inspired by modern Clash clients while keeping AngelaNexus-specific information architecture.
+- Explicit Core, VPN, routing, anti-leak and GFW status surfaces.
+- Responsive semantic component structure intended for phone/tablet/desktop adaptation.
+- UI design specification in `docs/APP_UI_DESIGN.md`.
+
+The UI reference direction is based on documented FlClash characteristics such as Material You, adaptive screen sizes, multiple color themes and separated proxy/profile/settings experiences. AngelaNexus does not copy FlClash implementation or architecture.
+
 Not yet claimed as production functionality:
 
 - No Mihomo/sing-box/Xray runtime is embedded in the Android APK yet.
-- Configuration import is currently a UI entry point; it does not yet pass the selected file into the core import pipeline.
+- Configuration import currently reaches the Android document-picker boundary; the selected input is not yet connected to the core import pipeline.
 - VPN boundary establishment is only a platform integration check; it does not install a proxy route or claim traffic interception.
+- The UI is not yet backed by the full Core execution state stream.
 - No production Android background lifecycle, notification channel, secure storage, or battery policy integration is claimed yet.
 
 ## Next APP milestones
