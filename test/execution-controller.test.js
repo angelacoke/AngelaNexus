@@ -162,7 +162,7 @@ test("execution controller fails closed when invalidation races kernel start", a
   });
 
   await controller.prepare(request);
-  await assert.rejects(controller.start(), /execution session invalidated during start/);
+  await assert.rejects(controller.start(), /gfw-path-revalidation-required/);
   assert.equal(started, 1);
   assert.equal(stopped, 1);
   assert.equal(controller.state, ExecutionStates.FAILED);
