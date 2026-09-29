@@ -4,7 +4,7 @@
 
 <h1 align="center">AngelaNexus</h1>
 
-<p align="center">智能化全能代理系统</p>
+<p align="center">智能网络代理平台</p>
 
 AngelaNexus is the unified cross-platform proxy-system project for Mihomo, sing-box, and Xray adapters.
 
