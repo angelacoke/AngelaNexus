@@ -50,8 +50,12 @@ function assertExecutionGates(input) {
   if (!input.path || input.path.validated !== true) {
     throw new Error("execution contract requires a validated network path");
   }
-  if (input.gfw && typeof input.gfw === "object" && input.gfw.state === "confirmed") {
-    if (input.path.gfwValidated !== true) {
+  if (input.gfw && typeof input.gfw === "object") {
+    const actions = Array.isArray(input.gfw.actions) ? input.gfw.actions : [];
+    const requiresPathRevalidation = input.gfw.state === "confirmed" ||
+      actions.includes("require-path-revalidation") ||
+      actions.includes("revalidate-path");
+    if (requiresPathRevalidation && input.path.gfwValidated !== true) {
       throw new Error("execution contract requires GFW path revalidation");
     }
   }
