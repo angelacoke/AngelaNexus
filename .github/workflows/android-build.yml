@@ -31,6 +31,7 @@ jobs:
       ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD }}
       ANGELANEXUS_RELEASE_KEY_ALIAS: ${{ secrets.ANGELANEXUS_RELEASE_KEY_ALIAS }}
       ANGELANEXUS_RELEASE_KEY_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEY_PASSWORD }}
+      ANGELANEXUS_EXPECTED_CERT_SHA256: "34:95:51:A3:6A:7B:E7:AC:57:C8:B1:23:C9:8C:92:E5:0A:C7:53:19:66:43:1A:AC:D7:D1:0B:C3:54:FA:7B:E8"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -61,7 +62,19 @@ jobs:
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           test -x "$APKSIGNER"
           "$APKSIGNER" verify --verbose "$APK"
-          "$APKSIGNER" verify --print-certs "$APK"
+          CERT_OUTPUT="$("$APKSIGNER" verify --print-certs "$APK")"
+          printf '%s\n' "$CERT_OUTPUT"
+          ACTUAL_CERT_SHA256="$(printf '%s\n' "$CERT_OUTPUT" | awk -F': ' '/certificate SHA-256 digest:/ {print $2; exit}')"
+          test -n "$ACTUAL_CERT_SHA256"
+          EXPECTED="${ANGELANEXUS_EXPECTED_CERT_SHA256^^}"
+          ACTUAL="${ACTUAL_CERT_SHA256^^}"
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "ERROR: release APK certificate SHA-256 does not match the production signing certificate."
+            echo "Expected: $EXPECTED"
+            echo "Actual:   $ACTUAL"
+            exit 1
+          fi
+          echo "Production signing certificate SHA-256 verified: $ACTUAL"
       - name: Upload signed release artifacts
         uses: actions/upload-artifact@v4
         with:
