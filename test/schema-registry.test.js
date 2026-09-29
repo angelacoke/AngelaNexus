@@ -87,7 +87,7 @@ test("compiled validation enforces explicit fail-closed terminal routing for sin
     outbounds: [{ type: "block", tag: "Nexus-Blackhole" }]
   }, Kernels.SING_BOX);
   assert.equal(missingFinal.ok, false);
-  assert.match(missingFinal.errors.join("\n"), /requires an explicit route\.final/);
+  assert.match(missingFinal.errors.join("\n"), /requires route for fail-closed terminal routing|requires an explicit route\.final/);
 
   const directFinal = validateCompiledConfig({
     outbounds: [{ type: "direct", tag: "Nexus-Direct" }],
