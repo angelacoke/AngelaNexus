@@ -170,6 +170,7 @@ export function createExecutionController(options = {}) {
     async start() {
       if (!execution || state !== ExecutionStates.READY) throw new Error("execution is not ready");
       const startingExecution = execution;
+      const startSessionId = sessionId;
       state = ExecutionStates.STARTING;
       try {
         const currentPath = await pathRevalidator(request.path, request);
@@ -209,6 +210,9 @@ export function createExecutionController(options = {}) {
         return snapshot();
       }
       catch (error) {
+        if (sessionId !== startSessionId || execution !== startingExecution) {
+          throw error;
+        }
         const failedKernel = request ? request.kernel : null;
         if (state === ExecutionStates.FAILED && !execution && failure) {
           throw new Error(failure);
@@ -237,6 +241,7 @@ export function createExecutionController(options = {}) {
     async reload() {
       if (!execution || state !== ExecutionStates.RUNNING) throw new Error("execution is not running");
       const reloadExecution = execution;
+      const reloadSessionId = sessionId;
       const reloadEpoch = sessionEpoch;
       try {
         const result = await execution.reload();
@@ -261,6 +266,9 @@ export function createExecutionController(options = {}) {
         return result;
       }
       catch (error) {
+        if (sessionId !== reloadSessionId || execution !== reloadExecution) {
+          throw error;
+        }
         if (invalidationInFlight) {
           await invalidationInFlight;
           throw error;
