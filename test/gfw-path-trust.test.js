@@ -34,6 +34,28 @@ test("GFW revalidation evidence invalidates the kernel-neutral path trust sessio
   unsubscribe();
 });
 
+test("GFW path-trust binding replays active evidence that predates subscription", () => {
+  const gfw = createGfwRuntime();
+  const pathTrust = createPathTrustSession();
+  pathTrust.establish({
+    networkId: "prebind-network",
+    networkGeneration: 1,
+    routeId: "prebind-route",
+    dnsPathId: "prebind-dns",
+    destinationId: "prebind-destination",
+    transport: "tls",
+    certificateId: "prebind-cert",
+    bootstrapId: "prebind-bootstrap"
+  });
+
+  gfw.observe({ signal: GfwSignals.TCP_RESET, transport: "tls" }, 100000);
+  assert.equal(pathTrust.snapshot().invalidated, false);
+
+  const unsubscribe = bindGfwPathTrust(gfw, pathTrust);
+  assert.equal(pathTrust.snapshot().invalidated, true);
+  unsubscribe();
+});
+
 test("GFW path-trust binding rejects invalid inputs", () => {
   const gfw = createGfwRuntime();
   assert.throws(() => bindGfwPathTrust(null, createPathTrustSession()), /GFW runtime/);
