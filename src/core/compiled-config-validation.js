@@ -24,6 +24,21 @@ function validateEndpoint(item, label, errors) {
   if (!finitePort(item.server_port ?? item.port)) push(errors, label + " requires a valid server port");
 }
 
+function validateMihomoTerminalRouting(config, errors) {
+  if (!Array.isArray(config.rules)) {
+    push(errors, "Mihomo compiled configuration requires rules for fail-closed terminal routing");
+    return;
+  }
+  const terminal = [...config.rules].reverse().find((rule) => typeof rule === "string" && rule.trim());
+  if (!terminal || !/^MATCH,/i.test(terminal.trim())) {
+    push(errors, "Mihomo compiled configuration requires a terminal MATCH rule");
+    return;
+  }
+  if (/^MATCH,DIRECT$/i.test(terminal.trim())) {
+    push(errors, "Mihomo compiled configuration forbids MATCH,DIRECT as terminal fallback");
+  }
+}
+
 function validateMihomoProxyProvider(provider, name, errors) {
   const label = "Mihomo proxy-provider[" + name + "]";
   if (!nonEmptyObject(provider)) {
@@ -158,6 +173,7 @@ export function validateCompiledConfig(config, kernel, expectedVersion = getKern
   if (nonEmptyObject(config)) {
     if (kernel === Kernels.MIHOMO) {
       if (Array.isArray(config.proxies)) config.proxies.forEach((proxy, index) => validateMihomoProxy(proxy, index, errors));
+      validateMihomoTerminalRouting(config, errors);
       if (nonEmptyObject(config["proxy-providers"])) {
         for (const [name, provider] of Object.entries(config["proxy-providers"])) {
           if (!hasText(name)) {
