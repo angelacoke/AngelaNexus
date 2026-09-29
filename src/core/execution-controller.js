@@ -9,6 +9,7 @@ export const ExecutionStates = Object.freeze({
   IDLE: "idle",
   PREPARING: "preparing",
   READY: "ready",
+  STARTING: "starting",
   RUNNING: "running",
   STOPPING: "stopping",
   FAILED: "failed"
@@ -71,7 +72,7 @@ export function createExecutionController(options = {}) {
   }
 
   async function invalidateRunningExecution(reason = "network-session-invalidated") {
-    if (state !== ExecutionStates.RUNNING || !execution) return;
+    if (state !== ExecutionStates.RUNNING && state !== ExecutionStates.STARTING || !execution) return;
     const invalidationContext = reason && typeof reason === "object" ? reason : null;
     const normalizedReason = typeof reason === "string"
       ? reason
@@ -157,6 +158,8 @@ export function createExecutionController(options = {}) {
 
     async start() {
       if (!execution || state !== ExecutionStates.READY) throw new Error("execution is not ready");
+      const startingExecution = execution;
+      state = ExecutionStates.STARTING;
       try {
         const currentPath = await pathRevalidator(request.path, request);
         if (!currentPath || currentPath.validated !== true) throw new Error("execution path revalidation failed");
@@ -184,7 +187,13 @@ export function createExecutionController(options = {}) {
             throw new Error("execution path trust validation failed: " + trustResult.reasons.join(", "));
           }
         }
+        if (state !== ExecutionStates.STARTING || execution !== startingExecution) {
+          throw new Error("execution session invalidated during start");
+        }
         await execution.start();
+        if (state !== ExecutionStates.STARTING || execution !== startingExecution) {
+          throw new Error("execution session invalidated during start");
+        }
         state = ExecutionStates.RUNNING;
         return snapshot();
       }
@@ -205,7 +214,7 @@ export function createExecutionController(options = {}) {
         if (state === ExecutionStates.FAILED) { state = ExecutionStates.IDLE; request = null; failure = null; }
         return snapshot();
       }
-      if (state !== ExecutionStates.RUNNING && state !== ExecutionStates.READY && state !== ExecutionStates.FAILED) throw new Error("execution is not stoppable");
+      if (state !== ExecutionStates.RUNNING && state !== ExecutionStates.STARTING && state !== ExecutionStates.READY && state !== ExecutionStates.FAILED) throw new Error("execution is not stoppable");
       state = ExecutionStates.STOPPING;
       try { await execution.stop(); execution = null; request = null; await clearInvalidationSubscription(); state = ExecutionStates.IDLE; failure = null; return snapshot(); }
       catch (error) { failure = error instanceof Error ? error.message : String(error); state = ExecutionStates.FAILED; await emitEvent("execution-failed", { reason: "stop-failed", kernel: request ? request.kernel : null, state }); throw error; }
