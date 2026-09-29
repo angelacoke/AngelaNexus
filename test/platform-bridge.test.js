@@ -110,3 +110,16 @@ test("configuration import capability remains unavailable unless explicitly decl
 
   await assert.rejects(() => bridge.importConfiguration("config-text"), /capability unavailable: config-import/);
 });
+
+import { createConfigImportRequest } from "../src/platform/index.js";
+
+test("configuration import envelope is versioned and source-explicit", () => {
+  const request = createConfigImportRequest("vless://example", { source: "local-file", name: "node.txt" });
+  assert.deepEqual(request, { version: 1, source: "local-file", name: "node.txt", content: "vless://example" });
+  assert.equal(Object.isFrozen(request), true);
+});
+
+test("configuration import envelope rejects unsupported or empty payloads", () => {
+  assert.throws(() => createConfigImportRequest("", { source: "text" }), /non-empty/);
+  assert.throws(() => createConfigImportRequest("x", { source: "unknown" }), /unsupported config import source/);
+});
