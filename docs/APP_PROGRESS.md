@@ -1,6 +1,20 @@
 # AngelaNexus APP Progress
 
-## Baseline verified
+## Product scope
+
+AngelaNexus APP is a full-platform product from the architecture baseline:
+
+- Android
+- iOS
+- Windows
+- macOS
+- Linux
+
+Android is currently the first platform with an executable application shell. It is not the architectural primary platform.
+
+See `docs/APP_PLATFORM_STRATEGY.md` for the cross-platform application architecture and capability boundaries.
+
+## Verified Android baseline
 
 The repository contains a real Android application module in addition to the platform-neutral core and native VPN boundary.
 
@@ -19,35 +33,38 @@ Implemented:
 
 ### Modern modular UI baseline
 
-Implemented:
+Implemented on Android as the first platform surface:
 
 - Jetpack Compose + Material 3 foundation.
 - System light/dark theme support and Android dynamic colors.
-- Five-module bottom navigation: Home / Profiles / Proxies / Rules / Settings.
+- Five-module navigation: Home / Profiles / Proxies / Rules / Settings.
 - Compact card-based dashboard inspired by modern Clash clients while keeping AngelaNexus-specific information architecture.
 - Explicit Core, VPN, routing, anti-leak and GFW status surfaces.
 - Responsive semantic component structure intended for phone/tablet/desktop adaptation.
 - UI design specification in `docs/APP_UI_DESIGN.md`.
 
-The UI reference direction is based on documented FlClash characteristics such as Material You, adaptive screen sizes, multiple color themes and separated proxy/profile/settings experiences. AngelaNexus does not copy FlClash implementation or architecture.
+The long-term UI implementation will move common semantics and reusable UI into the shared multiplatform layer. Android-only APIs remain in the Android shell.
 
-Not yet claimed as production functionality:
+## Not yet claimed as production functionality
 
 - No Mihomo/sing-box/Xray runtime is embedded in the Android APK yet.
 - Configuration import currently reaches the Android document-picker boundary; the selected input is not yet connected to the core import pipeline.
 - VPN boundary establishment is only a platform integration check; it does not install a proxy route or claim traffic interception.
 - The UI is not yet backed by the full Core execution state stream.
 - No production Android background lifecycle, notification channel, secure storage, or battery policy integration is claimed yet.
+- iOS, Windows, macOS and Linux executable application shells are not yet claimed as implemented.
 
-## Next APP milestones
+## Cross-platform APP milestones
 
-1. Connect Android configuration import to the existing kernel-neutral import pipeline through a platform bridge.
-2. Add a typed Android application-state model backed by the core execution controller.
-3. Connect user-visible start/stop state to the core execution lifecycle without duplicating kernel policy in Android code.
-4. Integrate one verified kernel runtime on Android behind the existing adapter contract.
-5. Add Android secure storage, foreground-service lifecycle, notification, network-state and resource-policy adapters.
-6. Add device-level regression/build verification before claiming a production Android release.
-7. Repeat the same contract-driven implementation for Apple, Windows, macOS and Linux.
+1. Establish shared UI/state contracts across all target platforms.
+2. Extract reusable UI into the multiplatform UI layer without leaking platform APIs.
+3. Connect Android configuration import to the kernel-neutral import pipeline.
+4. Complete Android execution-state bridge and one verified kernel runtime.
+5. Establish Desktop JVM application shell shared by Windows/macOS/Linux.
+6. Establish iOS application entry point and Network Extension boundary.
+7. Add platform-specific secure storage, background lifecycle, notifications, network state and resource-policy adapters.
+8. Integrate Mihomo/sing-box/Xray per platform only after adapter-level verification.
+9. Add device/OS regression verification and release packaging for every target.
 
 ## Evidence rule
 
