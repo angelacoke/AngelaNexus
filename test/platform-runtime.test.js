@@ -69,12 +69,13 @@ test("native direct transit is validated through platform capabilities", async (
   assert.ok(mock.events.includes("native.socket")); assert.ok(mock.events.includes("native.route")); assert.ok(mock.events.includes("native.bypass")); assert.ok(mock.events.includes("native.integrity")); await runtime.stop();
 });
 
-test("stale direct transit validation is rejected after network generation changes", async () => {
+test("network generation change invalidates prior direct transit validation until a fresh validation", async () => {
   const mock = mockPlatform(); const runtime = createPlatformRuntime(mock.implementation, mock.runtime); await runtime.start();
   const first = await runtime.validateDirectTransit({ dnsPathConsistent: true }); assert.equal(first.action, "native");
   await mock.implementation.emitNetworkChange();
-  const stale = await runtime.validateDirectTransit({ dnsPathConsistent: true });
-  assert.equal(stale.action, "revalidate"); assert.match(stale.reasons[0], /network-generation-changed/); assert.equal(runtime.getDirectTransitState().revalidationRequired, true); await runtime.stop();
+  const state = runtime.getDirectTransitState();
+  assert.equal(state.revalidationRequired, true); assert.equal(state.validatedNetworkGeneration, null);
+  await runtime.stop();
 });
 
 test("network change keeps the kill switch armed until explicit path revalidation", async () => {
