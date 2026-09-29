@@ -291,3 +291,90 @@ test("execution controller records security evidence when a session is invalidat
   });
   assert.equal(invalidate, null);
 });
+
+
+test("execution controller enforces optional path trust before kernel start", async () => {
+  let starts = 0;
+  const controller = createExecutionController({
+    executionFactory: async () => ({
+      configPath: "/tmp/nexus-test/config.json",
+      async start() { starts += 1; },
+      async stop() {},
+      async reload() {},
+      async status() { return { running: false }; },
+      async logs() { return []; }
+    }),
+    pathRevalidator: async path => ({ ...path, routeId: "route-2" })
+  });
+
+  const trustedPath = {
+    validated: true,
+    networkId: "net-1",
+    networkGeneration: 1,
+    routeId: "route-1",
+    dnsPathId: "dns-1",
+    destinationId: "dest-1",
+    transport: "tls",
+    certificateId: "cert-1",
+    bootstrapId: "boot-1",
+    trust: {
+      expected: {
+        networkId: "net-1",
+        networkGeneration: 1,
+        routeId: "route-1",
+        dnsPathId: "dns-1",
+        destinationId: "dest-1",
+        transport: "tls"
+      }
+    }
+  };
+
+  await controller.prepare({ ...request, path: trustedPath });
+  await assert.rejects(controller.start(), /path trust validation failed/);
+  assert.equal(starts, 0);
+  assert.equal(controller.state, ExecutionStates.FAILED);
+  assert.equal(controller.events()[0].type, "path-trust-rejected");
+});
+
+test("execution controller starts when optional path trust remains consistent", async () => {
+  let starts = 0;
+  const controller = createExecutionController({
+    executionFactory: async () => ({
+      configPath: "/tmp/nexus-test/config.json",
+      async start() { starts += 1; },
+      async stop() {},
+      async reload() {},
+      async status() { return { running: true }; },
+      async logs() { return []; }
+    }),
+    pathRevalidator: async path => ({ ...path })
+  });
+
+  const path = {
+    validated: true,
+    networkId: "net-1",
+    networkGeneration: 1,
+    routeId: "route-1",
+    dnsPathId: "dns-1",
+    destinationId: "dest-1",
+    transport: "tls",
+    certificateId: "cert-1",
+    bootstrapId: "boot-1",
+    trust: {
+      expected: {
+        networkId: "net-1",
+        networkGeneration: 1,
+        routeId: "route-1",
+        dnsPathId: "dns-1",
+        destinationId: "dest-1",
+        transport: "tls"
+      }
+    }
+  };
+
+  await controller.prepare({ ...request, path });
+  await controller.start();
+  assert.equal(starts, 1);
+  assert.equal(controller.state, ExecutionStates.RUNNING);
+  await controller.stop();
+});
