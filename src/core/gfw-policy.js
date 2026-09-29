@@ -279,6 +279,7 @@ export function createGfwRuntime(overrides = {}) {
   let lastNow = 0;
   let lastState = GfwStates.NORMAL;
   let lastEvidenceAt = null;
+  let lastClockRollbackAt = null;
   const invalidationListeners = new Set();
 
   function prune(now) {
@@ -456,7 +457,12 @@ export function createGfwRuntime(overrides = {}) {
       return updatedResult;
     },
     snapshot(now = Date.now()) {
-      return evaluate(now);
+      const result = evaluate(now);
+      if (result.clockRollback && lastClockRollbackAt !== now) {
+        lastClockRollbackAt = now;
+        notifyInvalidation(result);
+      }
+      return result;
     },
     subscribeInvalidation(listener) {
       if (typeof listener !== "function") throw new TypeError("GFW invalidation listener must be a function");
