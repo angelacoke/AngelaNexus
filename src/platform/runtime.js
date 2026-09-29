@@ -74,10 +74,15 @@ export function createPlatformRuntime(implementation, runtime) {
 
   async function confirmNetworkRevalidated(generation = networkGeneration) {
     if (!killSwitchEnabled) return Object.freeze({ ok: false, reason: "kill-switch-not-active" });
-    const marked = await markNetworkPathRevalidated(generation);
-    if (!marked.ok) return marked;
+    if (!Number.isInteger(generation) || generation !== networkGeneration) {
+      return Object.freeze({ ok: false, reason: "network-generation-mismatch", networkGeneration });
+    }
+    if (directTransitState.revalidationRequired !== false ||
+        directTransitState.validatedNetworkGeneration !== networkGeneration) {
+      return Object.freeze({ ok: false, reason: "network-path-revalidation-required", networkGeneration });
+    }
     await bridge.disableNetworkBlock("kill-switch-network-revalidated");
-    return marked;
+    return Object.freeze({ ok: true, networkGeneration });
   }
 
   async function validateDirectTransit(options = {}) {
