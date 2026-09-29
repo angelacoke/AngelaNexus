@@ -29,7 +29,8 @@ test("compiled validation exposes the schema identity", () => {
       type: "socks",
       server: "example.com",
       port: 1080
-    }]
+    }],
+    rules: ["MATCH,us"]
   }, Kernels.MIHOMO);
   assert.equal(result.ok, true);
   assert.equal(result.schemaId, "mihomo.config.v1");
@@ -53,7 +54,8 @@ test("compiled validation checks Mihomo proxy-provider schema", () => {
   const validInline = validateCompiledConfig({
     "proxy-providers": {
       provider1: { type: "inline", payload: "proxies: []" }
-    }
+    },
+    rules: ["MATCH,REJECT"]
   }, Kernels.MIHOMO);
   assert.equal(validInline.ok, true);
 });
