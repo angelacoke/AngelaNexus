@@ -30,7 +30,7 @@ export function bindGfwPathTrust(gfwRuntime, pathTrustSession) {
       ...signals
     ].join(":");
 
-    pathTrustSession.invalidate(reason);
+    pathTrustSession.invalidate({ reason, state, signals, actions });
 
     return Object.freeze({
       reason,
