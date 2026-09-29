@@ -80,5 +80,5 @@ test("captive portal is treated as unsafe while kill switch is active", async ()
   const runtime = createPlatformRuntime(fake.platform, fakeKernel());
   await runtime.start({ security: { killSwitch: true } });
   await fake.emit({ online: true, captivePortal: true });
-  assert.equal(fake.events.at(-1), "block:on:kill-switch-network-state");
+  assert.equal(fake.events.at(-1), "block:on:kill-switch-network-change");
 });
