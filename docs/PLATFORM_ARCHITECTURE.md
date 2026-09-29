@@ -1,4 +1,4 @@
-# Nexus Platform Architecture
+# AngelaNexus Platform Architecture
 
 Nexus is a real cross-platform proxy application from the first architectural layer.
 
