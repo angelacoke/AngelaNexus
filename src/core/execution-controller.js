@@ -50,6 +50,7 @@ export function createExecutionController(options = {}) {
   let unsubscribeInvalidation = null;
   let invalidationInFlight = null;
   let sessionEpoch = 0;
+  let sessionId = 0;
 
   function snapshot() {
     return Object.freeze({
@@ -63,6 +64,7 @@ export function createExecutionController(options = {}) {
   }
 
   async function clearInvalidationSubscription() {
+    sessionId += 1;
     if (unsubscribeInvalidation) { await unsubscribeInvalidation(); unsubscribeInvalidation = null; }
   }
 
@@ -133,13 +135,17 @@ export function createExecutionController(options = {}) {
       failure = null;
       try {
         if (execution) await discardExecution();
+        const preparedSessionId = ++sessionId;
         request = createExecutionRequest(input);
         execution = await executionFactory(request.config, {
           binary: request.binary, workdir: request.workdir, cwd: request.cwd, env: request.env,
           reloadSignal: request.reloadSignal, runtimeFactory: request.runtimeFactory
         });
         if (sessionInvalidationSource) {
-          unsubscribeInvalidation = await sessionInvalidationSource((reason) => invalidateRunningExecution(reason));
+          unsubscribeInvalidation = await sessionInvalidationSource((reason) => {
+            if (sessionId !== preparedSessionId) return undefined;
+            return invalidateRunningExecution(reason);
+          });
         }
         state = ExecutionStates.READY;
         return snapshot();
