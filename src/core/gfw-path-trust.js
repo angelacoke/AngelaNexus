@@ -21,7 +21,7 @@ export function bindGfwPathTrust(gfwRuntime, pathTrustSession) {
     throw new TypeError("path trust session with invalidate is required");
   }
 
-  return gfwRuntime.subscribeInvalidation((event = {}) => {
+  const unsubscribe = gfwRuntime.subscribeInvalidation((event = {}) => {
     const state = typeof event.state === "string" ? event.state : null;
     const signals = cloneSignals(event.signals);
     const actions = cloneSignals(event.actions);
@@ -41,6 +41,23 @@ export function bindGfwPathTrust(gfwRuntime, pathTrustSession) {
       actions: Object.freeze(actions)
     });
   });
+
+  if (typeof gfwRuntime.snapshot === "function") {
+    const current = gfwRuntime.snapshot();
+    const actions = Array.isArray(current && current.actions) ? current.actions : [];
+    if (actions.includes("require-path-revalidation") || actions.includes("revalidate-path")) {
+      pathTrustSession.invalidate({
+        reason: "gfw-path-revalidation-required",
+        state: typeof current.state === "string" ? current.state : GfwStates.SUSPECTED,
+        signals: cloneSignals(current.signals),
+        actions: cloneSignals(current.actions),
+        score: current.score,
+        confidence: current.confidence
+      });
+    }
+  }
+
+  return unsubscribe;
 }
 
 
