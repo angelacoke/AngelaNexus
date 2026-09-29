@@ -2,14 +2,14 @@ import NetworkExtension
 
 /// Native Apple Network Extension boundary for packet tunneling.
 /// Kernel selection, routing policy and security policy remain outside this class.
-final class NexusPacketTunnelProvider: NEPacketTunnelProvider {
+final class AngelaNexusPacketTunnelProvider: NEPacketTunnelProvider {
     override func startTunnel(
         options: [String : NSObject]?,
         completionHandler: @escaping (Error?) -> Void
     ) {
         guard let remoteAddress = options?["remoteAddress"] as? NSString else {
             completionHandler(NSError(
-                domain: "Nexus",
+                domain: "AngelaNexus",
                 code: 1,
                 userInfo: [NSLocalizedDescriptionKey: "remoteAddress is required"]
             ))
