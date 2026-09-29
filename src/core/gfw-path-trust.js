@@ -52,9 +52,18 @@ export function bindGfwPathTrust(gfwRuntime, pathTrustSession) {
  * integration explicit while preventing individual callers from forgetting
  * the GFW -> path-trust binding.
  */
-export function createGfwPathTrustRuntime({ policy = {}, pathTrustSession } = {}) {
+export function createGfwPathTrustRuntime({ policy = {}, securityPolicy = null, pathTrustSession } = {}) {
   const session = pathTrustSession || createPathTrustSession();
-  const gfw = createGfwRuntime(policy);
+  const systemGfwPolicy = securityPolicy && typeof securityPolicy === "object"
+    ? securityPolicy.gfwResilience
+    : null;
+  const effectivePolicy = systemGfwPolicy && typeof systemGfwPolicy === "object"
+    ? { ...systemGfwPolicy, ...policy }
+    : policy;
+  if (effectivePolicy.enabled === false || effectivePolicy.failClosed === false) {
+    throw new Error("GFW path trust runtime requires enabled fail-closed resilience");
+  }
+  const gfw = createGfwRuntime(effectivePolicy);
   const unsubscribe = bindGfwPathTrust(gfw, session);
 
   return Object.freeze({
