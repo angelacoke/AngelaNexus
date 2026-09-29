@@ -288,6 +288,35 @@ test("execution controller fails closed when reload invalidates the network path
   assert.match(controller.snapshot().failure, /execution path changed after reload/);
 });
 
+test("execution controller fails closed when invalidation races the final reload validation", async () => {
+  let listener = null;
+  let stopped = 0;
+  const controller = createExecutionController({
+    executionFactory: async () => ({
+      configPath: "/tmp/nexus-test/config.json",
+      async start() {},
+      async stop() { stopped += 1; },
+      async reload() {},
+      async status() { return { running: true }; },
+      async logs() {}
+    }),
+    pathRevalidator: async path => {
+      queueMicrotask(() => listener("gfw-path-revalidation-required"));
+      return path;
+    },
+    sessionInvalidationSource: async callback => {
+      listener = callback;
+      return async () => { listener = null; };
+    }
+  });
+  await controller.prepare(request);
+  await controller.start();
+  await assert.rejects(controller.reload(), /execution session invalidated during reload/);
+  assert.equal(stopped, 1);
+  assert.equal(controller.state, ExecutionStates.FAILED);
+  assert.match(controller.snapshot().failure, /gfw-path-revalidation-required/);
+});
+
 test("execution controller records security evidence when a session is invalidated", async () => {
   const events = [];
   let stopped = 0;
