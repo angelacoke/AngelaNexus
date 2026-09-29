@@ -2,7 +2,7 @@ export const UpstreamKernelRegistry = Object.freeze({
   mihomo: Object.freeze({
     name: "Mihomo",
     repository: "MetaCubeX/mihomo",
-    stable: "1.19.31",
+    stable: "1.19.30",
     channel: "stable",
     preview: null,
     releases: "https://github.com/MetaCubeX/mihomo/releases",
@@ -11,16 +11,16 @@ export const UpstreamKernelRegistry = Object.freeze({
   "sing-box": Object.freeze({
     name: "sing-box",
     repository: "SagerNet/sing-box",
-    stable: "1.14.1",
+    stable: "1.14.2",
     channel: "stable",
-    preview: "1.15.0-alpha.6",
+    preview: "1.15.0-alpha.8",
     releases: "https://github.com/SagerNet/sing-box/releases",
     docs: "https://sing-box.sagernet.org/configuration/outbound/"
   }),
   xray: Object.freeze({
     name: "Xray-core",
     repository: "XTLS/Xray-core",
-    stable: "26.3.27",
+    stable: "26.9.8",
     channel: "stable",
     preview: "26.9.9",
     releases: "https://github.com/XTLS/Xray-core/releases",
