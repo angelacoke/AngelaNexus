@@ -213,6 +213,45 @@ test("execution controller ignores invalidation before the session is running", 
   await controller.stop();
 });
 
+test("execution controller ignores stale invalidation callbacks after a new session is prepared", async () => {
+  const listeners = [];
+  let stoppedFirst = 0;
+  let stoppedSecond = 0;
+  const factory = async () => {
+    const session = listeners.length + 1;
+    return {
+      configPath: "/tmp/nexus-test/config.json",
+      async start() {},
+      async stop() { if (session === 1) stoppedFirst += 1; else stoppedSecond += 1; },
+      async reload() {},
+      async status() { return { running: true }; },
+      async logs() {}
+    };
+  };
+  const controller = createExecutionController({
+    executionFactory: factory,
+    pathRevalidator: async path => path,
+    sessionInvalidationSource: async listener => {
+      listeners.push(listener);
+      return async () => {};
+    }
+  });
+
+  await controller.prepare(request);
+  const staleListener = listeners[0];
+  await controller.start();
+  await controller.stop();
+
+  await controller.prepare(request);
+  await controller.start();
+  await staleListener("gfw-path-revalidation-required");
+
+  assert.equal(stoppedFirst, 1);
+  assert.equal(stoppedSecond, 0);
+  assert.equal(controller.state, ExecutionStates.RUNNING);
+  await controller.stop();
+});
+
 test("execution controller deduplicates concurrent session invalidation", async () => {
   let listener = null;
   let resolveStop;
