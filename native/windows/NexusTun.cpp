@@ -1,17 +1,17 @@
 #include <windows.h>
 
-struct NexusTunState {
+struct AngelaNexusTunState {
     HMODULE wintun = nullptr;
     bool running = false;
 };
 
-bool nexus_load_wintun(NexusTunState& state, const wchar_t* dllPath) {
+bool angelanexus_load_wintun(AngelaNexusTunState& state, const wchar_t* dllPath) {
     if (state.wintun != nullptr) return true;
     state.wintun = LoadLibraryW(dllPath);
     return state.wintun != nullptr;
 }
 
-void nexus_unload_wintun(NexusTunState& state) {
+void angelanexus_unload_wintun(AngelaNexusTunState& state) {
     if (state.wintun != nullptr) {
         FreeLibrary(state.wintun);
         state.wintun = nullptr;
