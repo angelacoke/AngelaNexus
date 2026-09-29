@@ -1,4 +1,4 @@
-# Nexus native platform layer
+# AngelaNexus native platform layer
 
 This directory contains real OS-facing transport boundaries. It is separate from
 the platform-neutral JavaScript core.
