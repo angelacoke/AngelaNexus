@@ -31,7 +31,6 @@ jobs:
       ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD }}
       ANGELANEXUS_RELEASE_KEY_ALIAS: ${{ secrets.ANGELANEXUS_RELEASE_KEY_ALIAS }}
       ANGELANEXUS_RELEASE_KEY_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEY_PASSWORD }}
-      ANGELANEXUS_EXPECTED_CERT_SHA256: "34:95:51:A3:6A:7B:E7:AC:57:C8:B1:23:C9:8C:92:E5:0A:C7:53:19:66:43:1A:AC:D7:D1:0B:C3:54:FA:7B:E8"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -44,6 +43,7 @@ jobs:
       - name: Verify signing configuration is present
         shell: bash
         run: |
+          set -euo pipefail
           test -n "$ANGELANEXUS_RELEASE_KEYSTORE_B64"
           test -n "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD"
           test -n "$ANGELANEXUS_RELEASE_KEY_ALIAS"
@@ -51,7 +51,7 @@ jobs:
       - name: Assemble signed release APK and AAB
         working-directory: native/android
         run: gradle --no-daemon --console=plain --stacktrace assembleRelease bundleRelease
-      - name: Verify release artifacts and signature
+      - name: Verify release artifacts and signing certificate
         shell: bash
         run: |
           set -euo pipefail
@@ -59,22 +59,34 @@ jobs:
           AAB="native/android/app/build/outputs/bundle/release/app-release.aab"
           test -s "$APK"
           test -s "$AAB"
+
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           test -x "$APKSIGNER"
-          "$APKSIGNER" verify --verbose "$APK"
+
+          printf '%s' "$ANGELANEXUS_RELEASE_KEYSTORE_B64" | base64 --decode > /tmp/angelanexus-release.keystore
+          chmod 600 /tmp/angelanexus-release.keystore
+
+          KEYTOOL_OUTPUT="$(keytool -list -v             -keystore /tmp/angelanexus-release.keystore             -storepass "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD"             -alias "$ANGELANEXUS_RELEASE_KEY_ALIAS")"
+          EXPECTED_CERT_SHA256="$(printf '%s\n' "$KEYTOOL_OUTPUT" | awk -F': ' '/Certificate fingerprints:/,/Signature algorithm name:/ {if ($1 ~ /^[[:space:]]*SHA256:/) {print $2; exit}}')"
+          test -n "$EXPECTED_CERT_SHA256"
+
           CERT_OUTPUT="$("$APKSIGNER" verify --print-certs "$APK")"
           printf '%s\n' "$CERT_OUTPUT"
           ACTUAL_CERT_SHA256="$(printf '%s\n' "$CERT_OUTPUT" | awk -F': ' '/certificate SHA-256 digest:/ {print $2; exit}')"
           test -n "$ACTUAL_CERT_SHA256"
-          EXPECTED="${ANGELANEXUS_EXPECTED_CERT_SHA256^^}"
-          ACTUAL="${ACTUAL_CERT_SHA256^^}"
+
+          EXPECTED="$(printf '%s' "$EXPECTED_CERT_SHA256" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
+          ACTUAL="$(printf '%s' "$ACTUAL_CERT_SHA256" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
+
           if [[ "$ACTUAL" != "$EXPECTED" ]]; then
-            echo "ERROR: release APK certificate SHA-256 does not match the production signing certificate."
+            echo "ERROR: release APK certificate does not match the certificate from the configured production keystore."
             echo "Expected: $EXPECTED"
             echo "Actual:   $ACTUAL"
             exit 1
           fi
-          echo "Production signing certificate SHA-256 verified: $ACTUAL"
+
+          echo "Production signing certificate verified against configured release keystore: $ACTUAL"
+          rm -f /tmp/angelanexus-release.keystore
       - name: Upload signed release artifacts
         uses: actions/upload-artifact@v4
         with:
