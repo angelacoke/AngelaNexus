@@ -299,12 +299,15 @@ export function createGfwRuntime(overrides = {}) {
   function evaluate(now) {
     const current = Number.isFinite(Number(now)) ? Number(now) : Date.now();
     if (current < lastNow) {
+      const active = observations.filter((item) => item.independent !== false);
+      const signals = [...new Set(active.map((item) => item.signal))];
+      const evidenceCount = active.reduce((sum, item) => sum + item.count, 0);
       return Object.freeze({
         version: GFW_POLICY_VERSION,
         state: lastState,
         score: 0,
-        evidenceCount: 0,
-        signals: Object.freeze([]),
+        evidenceCount,
+        signals: Object.freeze(signals),
         confidence: 0,
         actions: Object.freeze(["observe", "require-path-revalidation"]),
         clockRollback: true
