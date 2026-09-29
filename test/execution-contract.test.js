@@ -29,6 +29,12 @@ test("confirmed GFW state requires a revalidated execution path", () => {
   assert.equal(contract.gfw.state, "confirmed");
 });
 
+test("GFW revalidation actions require a revalidated execution path", () => {
+  assert.throws(() => createExecutionContract({ ...base, gfw: { state: "suspected", actions: ["require-path-revalidation"] } }), /GFW path revalidation/);
+  const contract = createExecutionContract({ ...base, gfw: { state: "suspected", actions: ["require-path-revalidation"] }, path: { ...base.path, gfwValidated: true } });
+  assert.equal(contract.gfw.state, "suspected");
+});
+
 test("execution contract rejects stale network validation and direct fallback", () => {
   assert.throws(() => createExecutionContract({ ...base, path: { validated: true, networkGeneration: 5, validatedGeneration: 4 } }), /stale network path/);
   assert.throws(() => createExecutionContract({ ...base, security: { ...base.security, directFallback: true } }), /direct fallback/);
