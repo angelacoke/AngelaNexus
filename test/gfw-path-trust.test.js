@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createGfwRuntime, GfwSignals } from "../src/core/gfw-policy.js";
 import { createPathTrustSession, PathTrustStates } from "../src/core/path-trust.js";
-import { bindGfwPathTrust } from "../src/core/gfw-path-trust.js";
+import { bindGfwPathTrust, createGfwPathTrustRuntime } from "../src/core/gfw-path-trust.js";
 import { createExecutionController, ExecutionStates } from "../src/core/execution-controller.js";
 import { Kernels } from "../src/core/model.js";
 
@@ -187,4 +187,26 @@ test("GFW clock rollback propagates through path trust into a running execution 
   assert.equal(controller.state, ExecutionStates.FAILED);
   assert.match(controller.snapshot().failure, /gfw-path-revalidation-required/);
   unsubscribeGfw();
+});
+
+
+test("canonical GFW runtime assembly binds evidence to a path-trust session", () => {
+  const runtime = createGfwPathTrustRuntime();
+  assert.ok(runtime.gfw);
+  assert.ok(runtime.pathTrust);
+  runtime.pathTrust.establish({
+    networkId: "assembly-network",
+    networkGeneration: 1,
+    routeId: "assembly-route",
+    dnsPathId: "assembly-dns",
+    destinationId: "assembly-destination",
+    transport: "tls",
+    certificateId: "assembly-cert",
+    bootstrapId: "assembly-bootstrap"
+  });
+
+  runtime.gfw.observe({ signal: GfwSignals.TCP_RESET }, 100000);
+
+  assert.equal(runtime.pathTrust.snapshot().invalidated, true);
+  runtime.unsubscribe();
 });
