@@ -21,6 +21,7 @@ export const PlatformCapabilities = Object.freeze({
   NATIVE_ROUTE: "native-route",
   BYPASS_TUN: "bypass-tun",
   ROUTE_INTEGRITY: "route-integrity",
+  CONFIG_IMPORT: "config-import",
 });
 
 const CAPABILITY_METHODS = Object.freeze({
@@ -37,6 +38,7 @@ const CAPABILITY_METHODS = Object.freeze({
   [PlatformCapabilities.NATIVE_ROUTE]: Object.freeze(["validateNativeRoute"]),
   [PlatformCapabilities.BYPASS_TUN]: Object.freeze(["setTunBypass"]),
   [PlatformCapabilities.ROUTE_INTEGRITY]: Object.freeze(["validateRouteIntegrity"]),
+  [PlatformCapabilities.CONFIG_IMPORT]: Object.freeze(["importConfiguration"]),
 });
 
 function validateCapabilityMethods(implementation, capabilities) {
