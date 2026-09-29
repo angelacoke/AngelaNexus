@@ -1,4 +1,3 @@
-
 import { PlatformCapabilities } from "./contract.js";
 import { createPlatformBridge } from "./bridge.js";
 import { DirectTransitActions, evaluateDirectTransit, createDirectTransitSessionState } from "../core/direct-transit.js";
@@ -34,6 +33,7 @@ export function createPlatformRuntime(implementation, runtime) {
   let killSwitchEnabled = false;
   let started = false;
   let networkGeneration = 0;
+  let networkState = null;
   let directTransitState = createDirectTransitSessionState({ networkGeneration });
 
   async function enableKillSwitch(options = {}) {
@@ -56,13 +56,31 @@ export function createPlatformRuntime(implementation, runtime) {
 
   async function handleNetworkState(state) {
     networkGeneration += 1;
-    directTransitState = createDirectTransitSessionState({ networkGeneration, validatedNetworkGeneration: directTransitState.validatedNetworkGeneration });
+    networkState = state;
+    directTransitState = createDirectTransitSessionState({
+      networkGeneration,
+      validatedNetworkGeneration: directTransitState.validatedNetworkGeneration
+    });
     if (!killSwitchEnabled) return;
-    if (!isSafeNetworkState(state)) {
-      await bridge.enableNetworkBlock("kill-switch-network-state");
-      return;
+    await bridge.enableNetworkBlock("kill-switch-network-change");
+  }
+
+  async function confirmNetworkRevalidated(generation = networkGeneration) {
+    if (!killSwitchEnabled) {
+      return Object.freeze({ ok: false, reason: "kill-switch-not-active" });
     }
-    await bridge.disableNetworkBlock("kill-switch-network-restored");
+    if (!Number.isInteger(generation) || generation !== networkGeneration) {
+      return Object.freeze({ ok: false, reason: "network-generation-mismatch", networkGeneration });
+    }
+    if (!isSafeNetworkState(networkState || bridge.getNetworkState())) {
+      return Object.freeze({ ok: false, reason: "network-state-not-safe", networkGeneration });
+    }
+    if (directTransitState.revalidationRequired !== false &&
+        directTransitState.validatedNetworkGeneration !== networkGeneration) {
+      return Object.freeze({ ok: false, reason: "path-revalidation-required", networkGeneration });
+    }
+    await bridge.disableNetworkBlock("kill-switch-network-revalidated");
+    return Object.freeze({ ok: true, networkGeneration });
   }
 
   async function validateDirectTransit(options = {}) {
@@ -87,7 +105,11 @@ export function createPlatformRuntime(implementation, runtime) {
       return Object.freeze({ action: DirectTransitActions.FAIL_CLOSED, reasons: Object.freeze(["native-path-establishment-failed"]) });
     }
     if (result.action === DirectTransitActions.NATIVE) {
-      directTransitState = Object.freeze({ ...directTransitState, validatedNetworkGeneration: networkGeneration, revalidationRequired: false });
+      directTransitState = Object.freeze({
+        ...directTransitState,
+        validatedNetworkGeneration: networkGeneration,
+        revalidationRequired: false
+      });
     }
     return result;
   }
@@ -104,6 +126,7 @@ export function createPlatformRuntime(implementation, runtime) {
         if (security.killSwitch === true) {
           const state = bridge.getNetworkState();
           await handleNetworkState(state);
+          await confirmNetworkRevalidated(networkGeneration);
           unsubscribe = await bridge.subscribeNetworkState(handleNetworkState);
         } else if (directTransitRequirements(bridge.capabilities).length === 0) {
           unsubscribe = await bridge.subscribeNetworkState(handleNetworkState);
@@ -150,6 +173,7 @@ export function createPlatformRuntime(implementation, runtime) {
       });
     },
     async validateDirectTransit(options = {}) { return validateDirectTransit(options); },
+    async confirmNetworkRevalidated(generation) { return confirmNetworkRevalidated(generation); },
     getDirectTransitState() { return directTransitState; },
     getNetworkState() { return bridge.getNetworkState(); },
   });
