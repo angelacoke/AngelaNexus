@@ -121,7 +121,10 @@ export function createPlatformRuntime(implementation, runtime) {
         await bridge.start();
         networkState = bridge.getNetworkState();
         if (security.killSwitch === true) {
-          await bridge.disableNetworkBlock("kill-switch-network-initialized");
+          directTransitState = createDirectTransitSessionState({
+            networkGeneration,
+            validatedNetworkGeneration: null
+          });
           unsubscribe = await bridge.subscribeNetworkState(handleNetworkState);
         } else if (directTransitRequirements(bridge.capabilities).length === 0) {
           unsubscribe = await bridge.subscribeNetworkState(handleNetworkState);
