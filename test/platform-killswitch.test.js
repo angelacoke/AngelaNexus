@@ -45,7 +45,7 @@ test("kill switch requires TUN, network monitor and network block capabilities",
   assert.deepEqual(fake.events, []);
 });
 
-test("kill switch blocks before TUN and releases only on a safe network state", async () => {
+test("kill switch remains armed until initial path validation and explicit release", async () => {
   const fake = fakePlatform();
   const runtime = createPlatformRuntime(fake.platform, fakeKernel());
 
@@ -54,9 +54,25 @@ test("kill switch blocks before TUN and releases only on a safe network state", 
     "block:on:kill-switch-start",
     "tun:start",
     "platform:start",
-    "block:off:kill-switch-network-initialized",
+    "network:subscribe",
   ]);
+  assert.ok(!fake.events.includes("block:off:kill-switch-network-initialized"));
+  const premature = await runtime.confirmNetworkRevalidated(0);
+  assert.equal(premature.ok, false);
+  assert.equal(premature.reason, "network-path-revalidation-required");
 
+  await runtime.stop();
+  assert.ok(fake.events.includes("block:on:kill-switch-stop"));
+  assert.ok(fake.events.includes("tun:stop"));
+  assert.ok(fake.events.includes("block:off:kill-switch-stop"));
+  assert.equal(fake.events.at(-1), "platform:stop");
+});
+
+test("kill switch releases only after a safe network state is explicitly revalidated", async () => {
+  const fake = fakePlatform();
+  const runtime = createPlatformRuntime(fake.platform, fakeKernel());
+
+  await runtime.start({ security: { killSwitch: true } });
   await fake.emit({ online: false, captivePortal: false });
   assert.equal(fake.events.at(-1), "block:on:kill-switch-network-change");
 
@@ -70,9 +86,6 @@ test("kill switch blocks before TUN and releases only on a safe network state", 
   assert.equal(fake.events.at(-1), "block:off:kill-switch-network-revalidated");
 
   await runtime.stop();
-  assert.ok(fake.events.includes("block:on:kill-switch-stop"));
-  assert.ok(fake.events.includes("tun:stop"));
-  assert.equal(fake.events.at(-1), "platform:stop");
 });
 
 test("captive portal is treated as unsafe while kill switch is active", async () => {
