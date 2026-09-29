@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">AngelaNexus app icon</title>
+  <desc id="desc">AngelaNexus four-quadrant cross mark.</desc>
+  <rect width="1024" height="1024" rx="192" fill="#fff"/>
+  <g transform="translate(226 226)">
+    <rect x="0" y="0" width="230" height="230" fill="#0878c9"/>
+    <rect x="342" y="0" width="230" height="230" fill="#29b34d"/>
+    <rect x="0" y="342" width="230" height="230" fill="#ff9700"/>
+    <rect x="342" y="342" width="230" height="230" fill="#df2038"/>
+    <rect x="262" y="0" width="48" height="572" fill="#000"/>
+    <rect x="0" y="262" width="572" height="48" fill="#000"/>
+  </g>
+</svg>
