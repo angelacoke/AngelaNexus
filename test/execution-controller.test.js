@@ -235,6 +235,27 @@ test("execution controller fails closed after reload failure and stops the kerne
 });
 
 
+test("execution controller fails closed when reload invalidates the network path", async () => {
+  let stopped = 0;
+  const controller = createExecutionController({
+    executionFactory: async () => ({
+      configPath: "/tmp/nexus-test/config.json",
+      async start() {},
+      async stop() { stopped += 1; },
+      async reload() {},
+      async status() { return { running: true }; },
+      async logs() {}
+    }),
+    pathRevalidator: async () => ({ validated: true, networkGeneration: 2 })
+  });
+  await controller.prepare({ ...request, path: { validated: true, networkGeneration: 1 } });
+  await controller.start();
+  await assert.rejects(controller.reload(), /execution path changed after reload/);
+  assert.equal(stopped, 1);
+  assert.equal(controller.state, ExecutionStates.FAILED);
+  assert.match(controller.snapshot().failure, /execution path changed after reload/);
+});
+
 test("execution controller records security evidence when a session is invalidated", async () => {
   const events = [];
   let stopped = 0;
