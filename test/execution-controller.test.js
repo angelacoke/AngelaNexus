@@ -240,6 +240,79 @@ test("execution controller remains failed closed when invalidation unsubscribe f
   assert.match(controller.snapshot().failure, /gfw-path-revalidation-required/);
 });
 
+test("execution controller does not let a stale start failure stop a new session", async () => {
+  let startGate;
+  const gate = new Promise(resolve => { startGate = resolve; });
+  let starts = 0;
+  let stops = 0;
+  const executions = [];
+  const controller = createExecutionController({
+    executionFactory: async () => {
+      const id = ++starts;
+      const execution = {
+        configPath: "/tmp/nexus-test/stale-start.json",
+        async start() { if (id === 1) await gate; },
+        async stop() { stops += 1; },
+        async reload() {},
+        async status() { return { running: true }; },
+        async logs() { return []; }
+      };
+      executions.push(execution);
+      return execution;
+    },
+    pathRevalidator: async path => path
+  });
+
+  await controller.prepare(request);
+  const firstStart = controller.start();
+  await controller.stop();
+  await controller.prepare(request);
+  await controller.start();
+  assert.equal(controller.state, ExecutionStates.RUNNING);
+
+  startGate();
+  await assert.rejects(firstStart);
+  assert.equal(controller.state, ExecutionStates.RUNNING);
+  assert.equal(stops, 1);
+  await controller.stop();
+});
+
+test("execution controller does not let a stale reload failure stop a new session", async () => {
+  let reloadGate;
+  const gate = new Promise(resolve => { reloadGate = resolve; });
+  let created = 0;
+  let stops = 0;
+  const controller = createExecutionController({
+    executionFactory: async () => {
+      const id = ++created;
+      return {
+        configPath: "/tmp/nexus-test/stale-reload.json",
+        async start() {},
+        async stop() { stops += 1; },
+        async reload() { if (id === 1) await gate; },
+        async status() { return { running: true }; },
+        async logs() { return []; }
+      };
+    },
+    pathRevalidator: async path => path
+  });
+
+  await controller.prepare(request);
+  await controller.start();
+  const firstReload = controller.reload();
+
+  await controller.stop();
+  await controller.prepare(request);
+  await controller.start();
+  assert.equal(controller.state, ExecutionStates.RUNNING);
+
+  reloadGate();
+  await assert.rejects(firstReload);
+  assert.equal(controller.state, ExecutionStates.RUNNING);
+  assert.equal(stops, 1);
+  await controller.stop();
+});
+
 test("execution controller ignores stale invalidation callbacks after a new session is prepared", async () => {
   const listeners = [];
   let stoppedFirst = 0;
