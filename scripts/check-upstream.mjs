@@ -2,6 +2,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { UpstreamKernelRegistry } from "../src/core/kernel-registry.js";
 import { createKernelUpdateCandidate } from "../src/core/kernel-update-manager.js";
+import { selectReleaseChannels, summarizeRelease } from "../src/core/upstream-release.js";
 
 const args = process.argv.slice(2);
 const propose = args.includes("--propose");
@@ -20,14 +21,22 @@ async function github(url) {
   return response.json();
 }
 
-async function getLatest(entry) {
-  const release = await github(`https://api.github.com/repos/${entry.repository}/releases/latest`);
+async function getReleaseChannels(entry) {
+  const releases = await github(
+    `https://api.github.com/repos/${entry.repository}/releases?per_page=100&page=1`
+  );
+  if (!Array.isArray(releases)) {
+    throw new Error(entry.repository + ": upstream releases endpoint returned no release list");
+  }
+
+  const channels = selectReleaseChannels(releases);
+  if (!channels.stable) {
+    throw new Error(entry.repository + ": no published stable release found");
+  }
+
   return {
-    tag: String(release.tag_name || "").replace(/^v/, ""),
-    publishedAt: release.published_at || release.created_at || null,
-    prerelease: release.prerelease === true,
-    htmlUrl: release.html_url || null,
-    body: String(release.body || "")
+    stable: summarizeRelease(channels.stable),
+    preview: summarizeRelease(channels.preview)
   };
 }
 
@@ -89,7 +98,8 @@ let registrySource = null;
 if (propose) registrySource = await readFile(new URL("../src/core/kernel-registry.js", import.meta.url), "utf8");
 
 for (const [kernel, entry] of Object.entries(UpstreamKernelRegistry)) {
-  const release = await getLatest(entry);
+  const channels = await getReleaseChannels(entry);
+  const release = channels.stable;
   const comparison = await compareRelease(entry, entry.stable, release.tag);
   if (comparison.truncated) {
     throw new Error(kernel + ": upstream comparison exceeded pagination safety bound; refusing incomplete impact analysis");
@@ -99,12 +109,7 @@ for (const [kernel, entry] of Object.entries(UpstreamKernelRegistry)) {
     kernel,
     configuredVersion: entry.stable,
     upstreamVersion: release.tag,
-    release: {
-      tag: release.tag,
-      publishedAt: release.publishedAt,
-      prerelease: release.prerelease,
-      body: release.body
-    },
+    release,
     changedFiles
   });
   const reportCandidate = verifyPipeline && candidate.state === "current"
@@ -113,7 +118,8 @@ for (const [kernel, entry] of Object.entries(UpstreamKernelRegistry)) {
   const item = {
     ...reportCandidate,
     releaseUrl: release.htmlUrl,
-    releaseNotes: release.body.slice(0, 4000)
+    releaseNotes: release.body.slice(0, 4000),
+    previewRelease: channels.preview
   };
   report.kernels.push(item);
 
@@ -123,7 +129,8 @@ for (const [kernel, entry] of Object.entries(UpstreamKernelRegistry)) {
   }
   if (candidate.state === "candidate") report.updateAvailable = true;
 
-  console.log(`${kernel}: configured=${entry.stable} upstream=${release.tag} state=${candidate.state} risk=${candidate.risk}`);
+  const previewText = channels.preview ? ` preview=${channels.preview.tag}` : "";
+  console.log(`${kernel}: configured=${entry.stable} stable=${release.tag}${previewText} state=${candidate.state} risk=${candidate.risk}`);
 }
 
 if (propose && report.registryChanged) {
