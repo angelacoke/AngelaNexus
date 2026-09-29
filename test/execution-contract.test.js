@@ -25,14 +25,18 @@ test("execution contract freezes system decision and execution gates", () => {
 
 test("confirmed GFW state requires a revalidated execution path", () => {
   assert.throws(() => createExecutionContract({ ...base, gfw: { state: "confirmed" } }), /GFW path revalidation/);
-  const contract = createExecutionContract({ ...base, gfw: { state: "confirmed" }, path: { ...base.path, gfwValidated: true } });
+  const contract = createExecutionContract({ ...base, gfw: { state: "confirmed" }, path: { ...base.path, gfwValidated: true, gfwValidatedGeneration: 4 } });
   assert.equal(contract.gfw.state, "confirmed");
 });
 
 test("GFW revalidation actions require a revalidated execution path", () => {
   assert.throws(() => createExecutionContract({ ...base, gfw: { state: "suspected", actions: ["require-path-revalidation"] } }), /GFW path revalidation/);
-  const contract = createExecutionContract({ ...base, gfw: { state: "suspected", actions: ["require-path-revalidation"] }, path: { ...base.path, gfwValidated: true } });
+  const contract = createExecutionContract({ ...base, gfw: { state: "suspected", actions: ["require-path-revalidation"] }, path: { ...base.path, gfwValidated: true, gfwValidatedGeneration: 4 } });
   assert.equal(contract.gfw.state, "suspected");
+});
+
+test("GFW path validation is bound to the current network generation", () => {
+  assert.throws(() => createExecutionContract({ ...base, gfw: { state: "confirmed" }, path: { ...base.path, gfwValidated: true, gfwValidatedGeneration: 3 } }), /stale GFW path validation/);
 });
 
 test("execution contract rejects stale network validation and direct fallback", () => {
