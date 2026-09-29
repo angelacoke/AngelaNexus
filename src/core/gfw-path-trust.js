@@ -1,4 +1,5 @@
-import { GfwStates } from "./gfw-policy.js";
+import { createGfwRuntime, GfwStates } from "./gfw-policy.js";
+import { createPathTrustSession } from "./path-trust.js";
 
 function cloneSignals(value) {
   return Array.isArray(value) ? [...value] : [];
@@ -39,5 +40,26 @@ export function bindGfwPathTrust(gfwRuntime, pathTrustSession) {
       signals: Object.freeze(signals),
       actions: Object.freeze(actions)
     });
+  });
+}
+
+
+/**
+ * Canonical kernel-neutral GFW runtime assembly.
+ *
+ * Creates the bounded GFW evidence runtime and binds its invalidation
+ * lifecycle to the supplied path-trust session. This keeps the security
+ * integration explicit while preventing individual callers from forgetting
+ * the GFW -> path-trust binding.
+ */
+export function createGfwPathTrustRuntime({ policy = {}, pathTrustSession } = {}) {
+  const session = pathTrustSession || createPathTrustSession();
+  const gfw = createGfwRuntime(policy);
+  const unsubscribe = bindGfwPathTrust(gfw, session);
+
+  return Object.freeze({
+    gfw,
+    pathTrust: session,
+    unsubscribe
   });
 }
