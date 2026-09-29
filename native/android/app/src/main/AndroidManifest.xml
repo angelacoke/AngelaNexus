@@ -2,7 +2,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:allowBackup="false"
+        android:icon="@drawable/angelanexus_logo"
         android:label="AngelaNexus"
+        android:roundIcon="@drawable/angelanexus_logo"
         android:supportsRtl="true"
         android:theme="@style/Theme.AngelaNexus">
         <activity
