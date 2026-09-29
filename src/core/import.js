@@ -16,7 +16,17 @@ function safeMetadata(input, detection, documentKind) {
     confidence: detection.confidence
   };
   if (input && typeof input === "object" && typeof input.name === "string") {
-    metadata.sourceName = input.name.trim() || null;
+    const name = input.name.trim();
+    if (/^https?:\/\//i.test(name)) {
+      try {
+        const url = new URL(name);
+        metadata.sourceName = url.origin + url.pathname;
+      } catch {
+        metadata.sourceName = "remote-subscription";
+      }
+    } else {
+      metadata.sourceName = name || null;
+    }
   }
   return metadata;
 }
