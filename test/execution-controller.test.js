@@ -213,6 +213,33 @@ test("execution controller ignores invalidation before the session is running", 
   await controller.stop();
 });
 
+test("execution controller remains failed closed when invalidation unsubscribe fails", async () => {
+  let listener = null;
+  let stopped = 0;
+  const controller = createExecutionController({
+    executionFactory: async () => ({
+      configPath: "/tmp/nexus-test/config.json",
+      async start() {},
+      async stop() { stopped += 1; },
+      async reload() {},
+      async status() { return { running: true }; },
+      async logs() {}
+    }),
+    pathRevalidator: async path => path,
+    sessionInvalidationSource: async callback => {
+      listener = callback;
+      return async () => { throw new Error("unsubscribe failed"); };
+    }
+  });
+
+  await controller.prepare(request);
+  await controller.start();
+  await assert.rejects(listener("gfw-path-revalidation-required"), /gfw-path-revalidation-required/);
+  assert.equal(stopped, 1);
+  assert.equal(controller.state, ExecutionStates.FAILED);
+  assert.match(controller.snapshot().failure, /gfw-path-revalidation-required/);
+});
+
 test("execution controller ignores stale invalidation callbacks after a new session is prepared", async () => {
   const listeners = [];
   let stoppedFirst = 0;
