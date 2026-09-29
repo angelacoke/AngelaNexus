@@ -18,7 +18,7 @@ test("adapter lookup rejects unknown kernels", () => {
 
 test("version-aware compiled validation reports the pinned upstream baseline", async () => {
   const { validateCompiledConfig } = await import("../src/core/compiled-config-validation.js");
-  const result = validateCompiledConfig({ outbounds: [] }, Kernels.SING_BOX);
+  const result = validateCompiledConfig({ outbounds: [{ type: "block", tag: "Nexus-Blackhole" }], route: { final: "Nexus-Blackhole" } }, Kernels.SING_BOX);
   assert.equal(result.ok, true);
   assert.equal(result.version, "1.14.2");
 });
@@ -33,7 +33,8 @@ test("sing-box Hysteria requires current auth and TLS fields", async () => {
       server_port: 443,
       auth_str: "secret",
       tls: {}
-    }]
+    }],
+    route: { final: "h" }
   }, Kernels.SING_BOX);
   assert.equal(result.ok, true);
 });
