@@ -1,7 +1,7 @@
 import { validateUnifiedCompatibility } from "./compatibility.js";
 import { getKernelSchema } from "./schema-registry.js";
 import { getKernelUpstream } from "./kernel-registry.js";
-import { validateSecurityPolicy } from "./security.js";
+import { validateSystemSecurityPolicy } from "./system-security-policy.js";
 
 function diagnostic(code, severity, message, details = {}) {
   return Object.freeze({ code, severity, message, ...details });
@@ -79,7 +79,7 @@ export function preflightUnifiedConfig(config, kernel = config && config.kernel)
     const upstream = getKernelUpstream(kernel);
     const schema = getKernelSchema(kernel, upstream.stable);
     const compatibility = validateUnifiedCompatibility(config, kernel);
-    const security = validateSecurityPolicy(config);
+    const security = validateSystemSecurityPolicy(config);
 
     for (const item of security.errors) errors.push(diagnostic(item.code, "error", item.message, { key: item.key, value: item.value }));
     errors.push(...validateRoutingTargets(config));
