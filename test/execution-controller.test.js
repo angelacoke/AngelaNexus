@@ -384,6 +384,34 @@ test("execution controller deduplicates concurrent session invalidation", async 
   assert.match(controller.snapshot().failure, /network-generation-changed/);
 });
 
+test("execution controller does not double-stop when reload fails during explicit stop", async () => {
+  let releaseReload;
+  const reloadGate = new Promise(resolve => { releaseReload = resolve; });
+  let stops = 0;
+  const controller = createExecutionController({
+    executionFactory: async () => ({
+      configPath: "/tmp/nexus-test/reload-stop-race.json",
+      async start() {},
+      async stop() { stops += 1; },
+      async reload() { await reloadGate; throw new Error("reload failed"); },
+      async status() { return { running: true }; },
+      async logs() { return []; }
+    }),
+    pathRevalidator: async path => path
+  });
+
+  await controller.prepare(request);
+  await controller.start();
+  const reload = controller.reload();
+  await new Promise(resolve => setImmediate(resolve));
+  const stop = controller.stop();
+  releaseReload();
+  await assert.rejects(reload, /reload failed/);
+  await stop;
+  assert.equal(stops, 1);
+  assert.equal(controller.state, ExecutionStates.IDLE);
+});
+
 test("execution controller fails closed after reload failure and stops the kernel", async () => {
   let stops = 0;
   const controller = createExecutionController({
