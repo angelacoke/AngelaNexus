@@ -34,6 +34,7 @@ export function createPlatformBridge(implementation) {
     async validateNativeRoute(options = {}) { requireCapability(platform, PlatformCapabilities.NATIVE_ROUTE); return platform.validateNativeRoute(options); },
     async setTunBypass(options = {}) { requireCapability(platform, PlatformCapabilities.BYPASS_TUN); return platform.setTunBypass(options); },
     async validateRouteIntegrity(options = {}) { requireCapability(platform, PlatformCapabilities.ROUTE_INTEGRITY); return platform.validateRouteIntegrity(options); },
+    async importConfiguration(input, options = {}) { requireCapability(platform, PlatformCapabilities.CONFIG_IMPORT); return platform.importConfiguration(input, options); },
     getNetworkState() { return platform.getNetworkState(); },
   });
 }
