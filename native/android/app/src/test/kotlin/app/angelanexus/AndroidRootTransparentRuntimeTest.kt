@@ -6,9 +6,14 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class AndroidRootTransparentRuntimeTest {
-    private class FakeExecutor : RootCommandExecutor {
+    private class FakeExecutor(
+        private val failCommand: String? = null,
+    ) : RootCommandExecutor {
         val calls = mutableListOf<String>()
-        override fun execute(command: String) { calls += command }
+        override fun execute(command: String) {
+            calls += command
+            if (command == failCommand) error("simulated command failure")
+        }
     }
 
     private class FakeInspector(
@@ -71,4 +76,18 @@ class AndroidRootTransparentRuntimeTest {
         assertFailsWith<IllegalStateException> { runtime.activate(config(), transaction) }
         assertTrue(runtime.state != AndroidRootTransparentRuntime.State.ACTIVE)
     }
+    @Test
+    fun failed_activation_surfaces_rollback_failure() {
+        val commands = AndroidRootTransparentRules.build(config())
+        val rollbackCommand = commands[1].rollback
+        val executor = FakeExecutor(failCommand = rollbackCommand)
+        val runtime = AndroidRootTransparentRuntime(FakeInspector(false))
+        val transaction = RootTransparentRuleTransaction(executor, commands)
+
+        val error = assertFailsWith<IllegalStateException> { runtime.activate(config(), transaction) }
+
+        assertEquals(AndroidRootTransparentRuntime.State.FAILED, runtime.state)
+        assertTrue(error.suppressedExceptions.any { it.message == "simulated command failure" })
+    }
+
 }
