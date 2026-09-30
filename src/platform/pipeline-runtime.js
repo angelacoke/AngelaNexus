@@ -2,6 +2,7 @@ import { driverFor } from "../kernel/driver-registry.js";
 import { createChainTopology } from "./chain-topology.js";
 import { createChainHealthMonitor } from "./chain-health-monitor.js";
 import { PROBE_TYPES } from "./chain-health.js";
+import { createPipelineLinkPlan } from "./pipeline-linker.js";
 
 function clone(value) {
   return value && typeof value === "object" ? structuredClone(value) : value;
@@ -145,6 +146,10 @@ export function createPipelineRuntime({
     return runtime.reload(config);
   }
 
+  function linkPlan() {
+    return createPipelineLinkPlan(spec);
+  }
+
   function topology() {
     const health = {};
     if (monitor) {
@@ -160,6 +165,7 @@ export function createPipelineRuntime({
     stop,
     status,
     reload,
+    linkPlan,
     topology,
     health: monitor,
     isRunning() { return started; },
