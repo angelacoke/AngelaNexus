@@ -42,9 +42,9 @@ class AndroidRootVerifiedCapabilityProbe(
         "udp dport 443 tproxy to :15001 meta mark set 1"
     )
 
-    override fun dnsInterception(): Boolean = reversibleNftRuleCheck(
-        "udp dport 53 tproxy to :15053 meta mark set 1"
-    )
+    override fun dnsInterception(): Boolean =
+        reversibleNftRuleCheck("udp dport 53 tproxy to :15053 meta mark set 1") &&
+            reversibleNftRuleCheck("tcp dport 53 tproxy to :15053 meta mark set 1")
 
     override fun ipv4PolicyRouting(): Boolean =
         reversiblePolicyRoutingCheck("ip -4")
