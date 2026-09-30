@@ -226,6 +226,28 @@ class RootTransparentRuleTransaction(
         prepared = false
     }
 
+    /**
+     * Rolls back a committed transaction during an explicit runtime stop.
+     * All cleanup commands are attempted even when one fails so partial state
+     * is not left behind unnecessarily. A false result means cleanup must not
+     * be reported as complete.
+     */
+    fun rollbackCommitted(): Boolean {
+        check(committed) { "transaction is not committed" }
+        var success = true
+        commands.asReversed().forEach { command ->
+            if (command.rollback.isNotBlank()) {
+                try {
+                    executor.execute(command.rollback)
+                } catch (_: Throwable) {
+                    success = false
+                }
+            }
+        }
+        if (success) committed = false
+        return success
+    }
+
     private fun rollbackApplied() {
         appliedCommands.asReversed().forEach { command ->
             if (command.rollback.isNotBlank()) runCatching { executor.execute(command.rollback) }
