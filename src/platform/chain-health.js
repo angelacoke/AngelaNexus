@@ -17,13 +17,7 @@ export function evaluateHopHealth({ latencyMs, success, thresholdMs = 500, times
   const latency = finite(latencyMs);
   const ok = success === true && latency !== null;
   const state = !ok ? HEALTH_STATES.DOWN : latency > thresholdMs ? HEALTH_STATES.DEGRADED : HEALTH_STATES.HEALTHY;
-  return Object.freeze({
-    state,
-    latencyMs: latency,
-    success: ok,
-    thresholdMs,
-    timestamp: now(timestamp),
-  });
+  return Object.freeze({ state, latencyMs: latency, success: ok, thresholdMs, timestamp: now(timestamp) });
 }
 
 export function aggregateChainHealth(hops = []) {
@@ -31,16 +25,19 @@ export function aggregateChainHealth(hops = []) {
   const states = list.map((x) => x && x.state);
   const state = states.includes(HEALTH_STATES.DOWN) ? HEALTH_STATES.DOWN :
     states.includes(HEALTH_STATES.DEGRADED) ? HEALTH_STATES.DEGRADED :
-    states.length && states.every((x) => x === HEALTH_STATES.HEALTHY) ? HEALTH_STATES.HEALTHY :
-    HEALTH_STATES.UNKNOWN;
+    states.length && states.every((x) => x === HEALTH_STATES.HEALTHY) ? HEALTH_STATES.HEALTHY : HEALTH_STATES.UNKNOWN;
   return Object.freeze({
     state,
     hops: Object.freeze(list.slice()),
-    bottleneckHopId: list.filter((x) => x && Number.isFinite(x.latencyMs)).sort((a,b) => b.latencyMs - a.latencyMs)[0]?.hopId || null,
+    bottleneckHopId: list.filter((x) => x && Number.isFinite(x.latencyMs)).sort((a, b) => b.latencyMs - a.latencyMs)[0]?.hopId || null,
   });
 }
 
-function elapsedSince(start) {\n  return Date.now() - start;\n}\n\nexport function createHopHealthProbe({ icmp, tcp }) {
+function elapsedSince(start) {
+  return Date.now() - start;
+}
+
+export function createHopHealthProbe({ icmp, tcp }) {
   if (!icmp || typeof icmp.probe !== "function") throw new TypeError("icmp probe implementation is required");
   if (!tcp || typeof tcp.probe !== "function") throw new TypeError("tcp probe implementation is required");
   return Object.freeze({
@@ -50,12 +47,7 @@ function elapsedSince(start) {\n  return Date.now() - start;\n}\n\nexport functi
         ? await icmp.probe(spec.host, spec.timeoutMs)
         : await tcp.probe(spec.host, spec.port, spec.timeoutMs);
       const latencyMs = finite(result && result.latencyMs);
-      return evaluateHopHealth({
-        latencyMs,
-        success: Boolean(result && result.success),
-        thresholdMs: result && result.thresholdMs,
-        timestamp: Date.now(),
-      });
+      return evaluateHopHealth({ latencyMs, success: Boolean(result && result.success), thresholdMs: result && result.thresholdMs, timestamp: Date.now() });
     },
     measureElapsed(start) { return elapsedSince(start); },
   });
