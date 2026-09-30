@@ -50,6 +50,7 @@ class AndroidRootTransparentAdapter(
     interface Backend {
         fun inspect(): Capabilities
         fun createTransaction(config: RootTransparentConfig): RootTransparentRuleTransaction
+        fun createRuntime(): AndroidRootTransparentRuntime
     }
 
     fun inspect(): Capabilities = backend.inspect()
@@ -57,6 +58,19 @@ class AndroidRootTransparentAdapter(
     fun begin(config: RootTransparentConfig): RootTransparentRuleTransaction {
         check(inspect().rootBackendReady) { "root transparent backend is not ready" }
         return backend.createTransaction(config)
+    }
+
+    /**
+     * Activates the verified Root transparent runtime.
+     *
+     * ACTIVE is reached only after the live kernel state has been inspected.
+     * Verification failure is handled by the transaction rollback path.
+     */
+    fun activate(config: RootTransparentConfig): AndroidRootTransparentRuntime {
+        check(inspect().rootBackendReady) { "root transparent backend is not ready" }
+        val runtime = backend.createRuntime()
+        runtime.activate(config, backend.createTransaction(config))
+        return runtime
     }
 }
 
@@ -97,6 +111,11 @@ private class AndroidRootBackend(
             AndroidRootTransparentRules.build(config),
         )
     }
+
+    override fun createRuntime(): AndroidRootTransparentRuntime =
+        AndroidRootTransparentRuntime(
+            AndroidRootTransparentStateInspector(SuRootProbeRunner()),
+        )
 
     private class SuRootCommandExecutor : RootCommandExecutor {
         override fun execute(command: String) {
