@@ -2,10 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   REGION_SELECTION_MODES,
+  RegionIds,
   buildRegionGroups,
   createRegionSelectionGroups,
   createServiceNodeBindings,
-  resolveServiceNode,\n  inferNodeRegion,
+  resolveServiceNode,
+  inferNodeRegion,
 } from "../src/platform/index.js";
 
 const nodes = [
@@ -65,7 +67,6 @@ test("service groups can inherit automatic region selection while individual ser
   assert.equal(resolved.region, "us");
 });
 
-
 test("region detection does not confuse short country codes embedded in ordinary words", () => {
   assert.equal(inferNodeRegion({ name: "Canada Toronto 01" }), "ca");
   assert.equal(inferNodeRegion({ name: "Fast relay gateway" }), "unknown");
@@ -84,4 +85,54 @@ test("service node resolution uses normalized region member identity for health 
   });
   assert.equal(resolved.node.uuid, "node-b");
   assert.equal(resolved.candidates[0].nodeId, "node-b");
+});
+
+test("region catalog covers major countries and popular hosting regions", () => {
+  const expected = [
+    "cn", "hk", "mo", "tw", "jp", "kr", "sg", "my", "th", "vn", "id", "ph",
+    "in", "au", "nz", "us", "ca", "mx", "br", "ar", "cl", "co", "pe",
+    "gb", "ie", "fr", "de", "nl", "be", "ch", "at", "es", "pt", "it",
+    "pl", "cz", "hu", "ro", "gr", "se", "no", "dk", "fi", "ua", "ru",
+    "tr", "ae", "sa", "il", "eg", "za", "ng", "ke", "pk", "bd", "lk", "kz",
+  ];
+  for (const region of expected) assert.ok(RegionIds.includes(region), region);
+});
+
+test("expanded region aliases resolve without creating empty groups", () => {
+  const samples = [
+    ["Malaysia Kuala Lumpur", "my"],
+    ["Thailand Bangkok", "th"],
+    ["Vietnam Ho Chi Minh", "vn"],
+    ["Indonesia Jakarta", "id"],
+    ["Philippines Manila", "ph"],
+    ["India Mumbai", "in"],
+    ["New Zealand Auckland", "nz"],
+    ["Mexico", "mx"],
+    ["Brazil", "br"],
+    ["Argentina", "ar"],
+    ["Chile", "cl"],
+    ["Colombia", "co"],
+    ["Spain Madrid", "es"],
+    ["Italy Milan", "it"],
+    ["Switzerland Zurich", "ch"],
+    ["Poland Warsaw", "pl"],
+    ["Ukraine Kyiv", "ua"],
+    ["Türkiye Istanbul", "tr"],
+    ["United Arab Emirates Dubai", "ae"],
+    ["Saudi Arabia Riyadh", "sa"],
+    ["South Africa Johannesburg", "za"],
+    ["Nigeria Lagos", "ng"],
+    ["Kazakhstan Almaty", "kz"],
+  ];
+
+  for (const [name, region] of samples) {
+    assert.equal(inferNodeRegion({ name }), region);
+  }
+
+  const groups = buildRegionGroups([
+    { id: "jp-1", name: "Japan Tokyo" },
+    { id: "ae-1", name: "United Arab Emirates Dubai" },
+  ]);
+  assert.deepEqual(Object.keys(groups).sort(), ["ae", "jp"]);
+  assert.equal(groups.us, undefined);
 });
