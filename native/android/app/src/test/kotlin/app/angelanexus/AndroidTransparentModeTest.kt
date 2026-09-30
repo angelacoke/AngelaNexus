@@ -10,6 +10,7 @@ class AndroidTransparentModeTest {
         authorized: Boolean = false,
         system: Boolean = true,
         backend: Boolean = false,
+        processIdentity: Boolean = backend,
     ): AndroidRootTransparentAdapter.Capabilities {
         return AndroidRootTransparentAdapter.Capabilities(
             rootAvailable = root,
@@ -21,7 +22,7 @@ class AndroidTransparentModeTest {
             ipv4 = backend,
             ipv6 = backend,
             uidIdentity = backend,
-            processIdentity = backend,
+            processIdentity = processIdentity,
             policyRouting = backend,
             atomicRollback = backend,
         )
@@ -43,6 +44,20 @@ class AndroidTransparentModeTest {
             capabilities(root = true, authorized = true, backend = true),
         )
         assertEquals(AndroidTransparentMode.ROOT, result)
+    }
+
+    @Test
+    fun root_core_readiness_does_not_require_process_identity() {
+        val capabilities = capabilities(
+            root = true,
+            authorized = true,
+            backend = true,
+            processIdentity = false,
+        )
+
+        assertTrue(capabilities.rootBackendReady)
+        assertFalse(capabilities.identityReady)
+        assertEquals(AndroidTransparentMode.ROOT, selectAndroidTransparentMode(AndroidTransparentMode.ROOT, capabilities))
     }
 
     @Test
