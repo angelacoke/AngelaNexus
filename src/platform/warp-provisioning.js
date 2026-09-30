@@ -65,7 +65,12 @@ export async function provisionUserWarpLandingEndpoint({
   if (typeof registration.id !== "string" || !registration.id.trim()) {
     throw new Error("WARP provisioner returned no registration id");
   }
-  if (typeof registration.credentialRef !== "string" || !registration.credentialRef.trim()) {
+  const lifecycleAction = request.action;
+  const requiresCredential = lifecycleAction === WARP_PROVISIONING_ACTIONS.CREATE ||
+    lifecycleAction === WARP_PROVISIONING_ACTIONS.REGENERATE;
+
+  if (requiresCredential &&
+      (typeof registration.credentialRef !== "string" || !registration.credentialRef.trim())) {
     throw new Error("WARP provisioner returned no secure credential reference");
   }
 
@@ -76,8 +81,12 @@ export async function provisionUserWarpLandingEndpoint({
       ? registration.name.trim()
       : "WARP",
     protocol: request.protocol,
-    enabled: true,
-    credentialRef: registration.credentialRef.trim(),
+    enabled: lifecycleAction !== WARP_PROVISIONING_ACTIONS.DISABLE &&
+      lifecycleAction !== WARP_PROVISIONING_ACTIONS.DELETE,
+    lifecycle: lifecycleAction,
+    credentialRef: typeof registration.credentialRef === "string" && registration.credentialRef.trim()
+      ? registration.credentialRef.trim()
+      : null,
     execution: Object.freeze({
       role: "landing-exit",
       scope: "user",
