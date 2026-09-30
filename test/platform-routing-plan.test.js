@@ -112,7 +112,7 @@ test("platform routing decision keeps non-service actions kernel-neutral", () =>
 
 test("platform routing decision does not resolve a node for domestic direct actions", () => {
   const plan = createPlatformRoutingPlan({ nodes });
-  const result = resolvePlatformRoutingDecision(plan, { domain: "abc.com" });
+  const result = resolvePlatformRoutingDecision(plan, { domain: "abchina.com" });
   assert.equal(result.target.type, "route");
   assert.equal(result.target.target, "domestic-direct");
 });
