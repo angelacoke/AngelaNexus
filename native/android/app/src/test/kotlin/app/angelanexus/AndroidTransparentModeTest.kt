@@ -24,6 +24,7 @@ class AndroidTransparentModeTest {
             ipv4 = backend,
             ipv6 = backend,
             uidIdentity = backend,
+            localOutputCapture = backend,
             processIdentity = processIdentity,
             policyRouting = backend,
             atomicRollback = backend,
