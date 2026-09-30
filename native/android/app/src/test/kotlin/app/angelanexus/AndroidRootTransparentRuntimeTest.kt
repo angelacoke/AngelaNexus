@@ -11,7 +11,10 @@ class AndroidRootTransparentRuntimeTest {
         override fun execute(command: String) { calls += command }
     }
 
-    private class FakeInspector(private val verified: Boolean) : RootTransparentStateInspector {
+    private class FakeInspector(
+        private val verified: Boolean,
+        private val clear: Boolean = true,
+    ) : RootTransparentStateInspector {
         override fun tableExists(tableName: String) = verified
         override fun ipv4PolicyRuleExists(mark: Int, routingTable: Int) = verified
         override fun ipv4LocalRouteExists(routingTable: Int) = verified
@@ -20,6 +23,7 @@ class AndroidRootTransparentRuntimeTest {
         override fun interceptRulesExist(tableName: String, interceptPort: Int) = verified
         override fun dnsRulesExist(tableName: String, dnsPort: Int?) = verified
         override fun selfLoopProtectionExists(tableName: String, ipv6: Boolean) = verified
+        override fun isClear(config: RootTransparentConfig) = clear
     }
 
     private fun config() = RootTransparentConfig(
