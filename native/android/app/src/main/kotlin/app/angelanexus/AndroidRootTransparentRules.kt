@@ -73,6 +73,10 @@ object AndroidRootTransparentRules {
         )
         if (config.ipv6) {
             commands += RootCommand(
+                apply = "ip -6 rule add fwmark ${config.mark}/0xffff lookup ${config.routingTable}",
+                rollback = "ip -6 rule del fwmark ${config.mark}/0xffff lookup ${config.routingTable}",
+            )
+            commands += RootCommand(
                 apply = "ip -6 route add local ::/0 dev lo table ${config.routingTable}",
                 rollback = "ip -6 route del local ::/0 dev lo table ${config.routingTable}",
             )
