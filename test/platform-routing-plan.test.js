@@ -108,3 +108,19 @@ test("platform routing decision keeps non-service actions kernel-neutral", () =>
   assert.equal(result.target.type, "route");
   assert.equal(result.target.target, "domestic-direct");
 });
+
+
+test("platform routing decision does not resolve a node for domestic direct actions", () => {
+  const plan = createPlatformRoutingPlan({ nodes });
+  const result = resolvePlatformRoutingDecision(plan, { domain: "abc.com" });
+  assert.equal(result.target.type, "route");
+  assert.equal(result.target.target, "domestic-direct");
+});
+
+test("platform routing decision fails closed when a proxied service has no usable node", () => {
+  const plan = createPlatformRoutingPlan({ nodes: [] });
+  const result = resolvePlatformRoutingDecision(plan, { domain: "chat.openai.com" });
+  assert.equal(result.target.type, "reject");
+  assert.equal(result.target.target, "reject");
+  assert.equal(result.target.reason, "no-usable-service-node");
+});
