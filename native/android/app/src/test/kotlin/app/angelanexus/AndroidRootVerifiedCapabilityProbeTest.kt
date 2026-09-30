@@ -33,6 +33,7 @@ class AndroidRootVerifiedCapabilityProbeTest {
         assertFalse(probe.ipv4PolicyRouting())
         assertFalse(probe.ipv6PolicyRouting())
         assertFalse(probe.uidIdentity())
+        assertFalse(probe.localOutputCapture())
         assertFalse(probe.atomicRollback())
     }
 
@@ -51,6 +52,7 @@ class AndroidRootVerifiedCapabilityProbeTest {
         assertTrue(probe.ipv4PolicyRouting())
         assertTrue(probe.ipv6PolicyRouting())
         assertTrue(probe.uidIdentity())
+        assertTrue(probe.localOutputCapture())
         assertTrue(probe.processIdentity())
         assertTrue(probe.atomicRollback())
         assertTrue(runner.commands.all { it.isNotBlank() })
