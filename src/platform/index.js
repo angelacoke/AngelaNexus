@@ -4,6 +4,11 @@ export {
   createLandingEndpointCatalog,
   resolveLandingEndpoint,
 } from "./landing-endpoints.js";
+export {
+  WARP_PROVISIONING_ACTIONS,
+  createWarpProvisioningRequest,
+  provisionUserWarpLandingEndpoint,
+} from "./warp-provisioning.js";
 
 export {
   PlatformId,
@@ -23,7 +28,11 @@ export {
   CONFIG_IMPORT_ENVELOPE_MAX_BYTES,
 } from "./runtime-import-receiver.js";
 export { createRuntimeImportService } from "./runtime-import-service.js";
-export { createPlatformRoutingPlan, resolvePlatformRoutingDecision } from "./routing-plan.js";
+export {
+  createPlatformRoutingPlan,
+  resolvePlatformRoutingDecision,
+  resolvePlatformLandingDecision,
+} from "./routing-plan.js";
 export {
   RoutingSemantics,
   RoutingCategories,

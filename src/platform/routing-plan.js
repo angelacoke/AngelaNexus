@@ -10,6 +10,11 @@ import {
   createServiceNodeBindings,
   resolveServiceNode,
 } from "./region-routing.js";
+import {
+  LANDING_ENDPOINT_TYPES,
+  createLandingEndpointCatalog,
+  resolveLandingEndpoint,
+} from "./landing-endpoints.js";
 
 function canonicalServiceCatalog() {
   const global = {};
@@ -20,7 +25,52 @@ function canonicalServiceCatalog() {
   return Object.freeze(global);
 }
 
-export function resolvePlatformRoutingDecision(plan, context = {}, { health = {}, preferredRegion = null } = {}) {
+export function resolvePlatformLandingDecision(plan, {
+  preferredId = null,
+  preferredType = null,
+} = {}) {
+  if (!plan || !Array.isArray(plan.landingEndpoints)) {
+    return Object.freeze({
+      target: Object.freeze({
+        type: "reject",
+        target: plan?.policy?.rejectTarget || "reject",
+        reason: "no-landing-endpoints",
+      }),
+    });
+  }
+
+  try {
+    const resolved = resolveLandingEndpoint(plan.landingEndpoints, {
+      preferredId,
+      preferredType,
+    });
+    return Object.freeze({
+      target: Object.freeze({
+        type: "landing",
+        endpoint: resolved.selected,
+        endpointId: resolved.selected.id,
+        endpointType: resolved.selected.type,
+        candidates: resolved.candidates,
+      }),
+    });
+  } catch (error) {
+    return Object.freeze({
+      target: Object.freeze({
+        type: "reject",
+        target: plan.policy.rejectTarget || "reject",
+        reason: "no-usable-landing-endpoint",
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    });
+  }
+}
+
+export function resolvePlatformRoutingDecision(plan, context = {}, {
+  health = {},
+  preferredRegion = null,
+  preferredLandingId = null,
+  preferredLandingType = null,
+} = {}) {
   if (!plan || !plan.policy) throw new Error("routing plan is required");
   const evaluation = evaluateParallelRouting(plan.policy, context);
   const selected = evaluation.selected;
@@ -45,10 +95,9 @@ export function resolvePlatformRoutingDecision(plan, context = {}, { health = {}
   let resolved;
   try {
     resolved = resolveServiceNode(routing.serviceKey, binding, plan.regionGroups, {
-    health,
-    preferredRegion,
-  });
-
+      health,
+      preferredRegion,
+    });
   } catch (error) {
     return Object.freeze({
       evaluation,
@@ -62,17 +111,30 @@ export function resolvePlatformRoutingDecision(plan, context = {}, { health = {}
     });
   }
 
+  const target = {
+    type: "node",
+    target: resolved.node,
+    nodeId: String(resolved.node.id || resolved.node.uuid || resolved.node.name || resolved.node.server || ""),
+    region: resolved.region,
+    serviceKey: routing.serviceKey,
+    selectionMode: resolved.selectionMode,
+    candidates: resolved.candidates,
+  };
+
+  if (preferredLandingId || preferredLandingType) {
+    const landing = resolvePlatformLandingDecision(plan, {
+      preferredId: preferredLandingId,
+      preferredType: preferredLandingType,
+    });
+    if (landing.target.type === "reject") {
+      return Object.freeze({ evaluation, target: landing.target });
+    }
+    target.landing = landing.target;
+  }
+
   return Object.freeze({
     evaluation,
-    target: Object.freeze({
-      type: "node",
-      target: resolved.node,
-      nodeId: String(resolved.node.id || resolved.node.uuid || resolved.node.name || resolved.node.server || ""),
-      region: resolved.region,
-      serviceKey: routing.serviceKey,
-      selectionMode: resolved.selectionMode,
-      candidates: resolved.candidates,
-    }),
+    target: Object.freeze(target),
   });
 }
 
@@ -82,6 +144,7 @@ export function createPlatformRoutingPlan({
   regionOptions = {},
   serviceDefaults = {},
   serviceOverrides = {},
+  landingOptions = {},
 } = {}) {
   const regionGroups = createRegionSelectionGroups(nodes, regionOptions);
   const serviceCatalog = {
@@ -109,13 +172,21 @@ export function createPlatformRoutingPlan({
     ...basePolicy,
     rules: Object.freeze(rules),
   });
+  const landingEndpoints = createLandingEndpointCatalog({
+    nodes,
+    warp: Array.isArray(landingOptions.warp) ? landingOptions.warp : [],
+  });
 
   return Object.freeze({
-    version: 2,
+    version: 3,
     policy,
     regionGroups,
     serviceBindings,
     serviceCatalog: Object.freeze(serviceCatalog),
+    landingEndpoints,
     routingOptions: createRoutingPolicyOptions(routingOptions),
+    landingOptions: Object.freeze({
+      preferredType: landingOptions.preferredType || null,
+    }),
   });
 }

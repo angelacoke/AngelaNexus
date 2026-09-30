@@ -34,6 +34,7 @@ function normalizeWarpEndpoint(endpoint) {
     credentialRef: endpoint.credentialRef ? String(endpoint.credentialRef) : null,
     execution: Object.freeze({
       role: "landing-exit",
+      scope: "user",
       countryAffinity: "not-guaranteed",
     }),
   });
@@ -79,6 +80,9 @@ export function resolveLandingEndpoint(catalog, {
   if (preferredId) {
     const selected = candidates.find((endpoint) => endpoint.id === String(preferredId));
     if (!selected) throw new Error("no usable landing endpoint: " + preferredId);
+    if (selected.type === LANDING_ENDPOINT_TYPES.WARP && !selected.credentialRef) {
+      throw new Error("WARP landing endpoint has no secure credential reference: " + selected.id);
+    }
     return Object.freeze({ selected, candidates: Object.freeze(candidates) });
   }
 
@@ -86,8 +90,13 @@ export function resolveLandingEndpoint(catalog, {
     throw new Error("no usable landing endpoint");
   }
 
+  const selected = candidates[0];
+  if (selected.type === LANDING_ENDPOINT_TYPES.WARP && !selected.credentialRef) {
+    throw new Error("WARP landing endpoint has no secure credential reference: " + selected.id);
+  }
+
   return Object.freeze({
-    selected: candidates[0],
+    selected,
     candidates: Object.freeze(candidates),
   });
 }
