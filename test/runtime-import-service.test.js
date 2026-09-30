@@ -21,7 +21,7 @@ test("runtime import service delegates validated envelopes to the core importer"
 
   assert.deepEqual(result, { accepted: true });
   assert.deepEqual(calls, [{
-    input: { type: "text", content: "vless://example", name: "single-node.txt" },
+    input: "vless://example",
     options: { platform: "android", source: "text", name: "single-node.txt" },
   }]);
 });
