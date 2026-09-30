@@ -105,7 +105,6 @@ export function createChainHealthMonitor({
   }
 
   async function poll() {
-    if (!running) return Object.freeze([]);
     const batch = [...specs.values()];
     const results = await Promise.all(batch.map(pollOne));
     const valid = results.filter(Boolean);
