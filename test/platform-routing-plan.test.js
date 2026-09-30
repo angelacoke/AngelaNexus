@@ -124,3 +124,58 @@ test("platform routing decision fails closed when a proxied service has no usabl
   assert.equal(result.target.target, "reject");
   assert.equal(result.target.reason, "no-usable-service-node");
 });
+
+
+test("platform routing decision enforces the selected entry-relay-landing chain", () => {
+  const plan = createPlatformRoutingPlan({
+    nodes: [
+      { id: "entry-1", name: "US Entry" },
+      { id: "relay-1", name: "US Relay" },
+      { id: "cn-1", name: "CN Direct Node" },
+    ],
+  });
+
+  const result = resolvePlatformRoutingDecision(
+    plan,
+    { domain: "chat.openai.com" },
+    {
+      chain: {
+        entryId: "entry-1",
+        relayId: "relay-1",
+        landingId: "cn-1",
+        landingType: "node",
+      },
+    },
+  );
+
+  assert.equal(result.target.type, "node");
+  assert.equal(result.target.chain.type, "chain");
+  assert.deepEqual(result.target.chain.hops.map((hop) => hop.role || hop.type), [
+    "entry",
+    "relay",
+    "landing-exit",
+  ]);
+  assert.equal(result.target.chain.landing.id, "cn-1");
+});
+
+test("platform routing decision fails closed when a requested chain entry is unavailable", () => {
+  const plan = createPlatformRoutingPlan({
+    nodes: [{ id: "landing-1", name: "US Landing" }],
+  });
+
+  const result = resolvePlatformRoutingDecision(
+    plan,
+    { domain: "chat.openai.com" },
+    {
+      chain: {
+        entryId: "missing-entry",
+        landingId: "landing-1",
+        landingType: "node",
+      },
+    },
+  );
+
+  assert.equal(result.target.type, "reject");
+  assert.equal(result.target.target, "reject");
+  assert.equal(result.target.reason, "no-usable-chain-path");
+});

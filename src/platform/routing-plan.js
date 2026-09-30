@@ -17,6 +17,7 @@ import {
   resolveLandingEndpoint,
 } from "./landing-endpoints.js";
 import { advisePlatformFailure } from "./recovery-advisor.js";
+import { resolvePlatformChainPath } from "./landing-path.js";
 
 function canonicalServiceCatalog() {
   const global = {};
@@ -101,6 +102,7 @@ export function resolvePlatformRoutingDecision(plan, context = {}, {
   preferredRegion = null,
   preferredLandingId = null,
   preferredLandingType = null,
+  chain = null,
 } = {}) {
   if (!plan || !plan.policy) throw new Error("routing plan is required");
   const evaluation = evaluateParallelRouting(plan.policy, context);
@@ -172,6 +174,38 @@ export function resolvePlatformRoutingDecision(plan, context = {}, {
     target.landing = landing.target;
   }
 
+  if (chain) {
+    const chainPath = resolvePlatformChainPath({
+      nodes: plan.nodes || [],
+      landingEndpoints: plan.landingEndpoints,
+      entryId: chain.entryId,
+      relayId: chain.relayId || null,
+      landingId: chain.landingId || preferredLandingId,
+      landingType: chain.landingType || preferredLandingType || null,
+    });
+    if (chainPath.type === "reject") {
+      const advice = advisePlatformFailure({
+        capability: "chain",
+        reason: chainPath.reason,
+        impact: "required-chain-routing-unavailable",
+        details: "当前链式代理路径不可用。",
+        actions: ["recheck", "switch-landing", "reject"],
+      });
+      return Object.freeze({
+        evaluation,
+        target: Object.freeze({
+          type: "reject",
+          target: plan.policy.rejectTarget || "reject",
+          reason: "no-usable-chain-path",
+          error: chainPath.error || chainPath.reason,
+          recovery: advice.recovery,
+          notice: advice.notice,
+        }),
+      });
+    }
+    target.chain = chainPath;
+  }
+
   return Object.freeze({
     evaluation,
     target: Object.freeze(target),
@@ -219,12 +253,13 @@ export function createPlatformRoutingPlan({
   });
 
   return Object.freeze({
-    version: 3,
+    version: 4,
     policy,
     regionGroups,
     serviceBindings,
     serviceCatalog: Object.freeze(serviceCatalog),
     landingEndpoints,
+    nodes: Object.freeze(Array.isArray(nodes) ? nodes : []),
     routingOptions: createRoutingPolicyOptions(routingOptions),
     landingOptions: Object.freeze({
       preferredType: landingOptions.preferredType || null,
