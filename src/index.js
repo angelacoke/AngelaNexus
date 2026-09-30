@@ -1,5 +1,6 @@
 export * from "./core/model.js"; export * from "./core/sniffer.js"; export * from "./core/chain.js"; export * from "./core/chain-compiler.js"; export * from "./core/config.js"; export * from "./core/controller.js"; export * from "./core/network.js"; export * from "./core/security.js"; export * from "./core/bypass.js"; export * from "./core/self-healing.js"; export * from "./core/dns.js"; export * from "./core/lifecycle.js"; export * from "./adapters/index.js";
 export * from "./platform/index.js";
+export * from "./ui/chain-topology-view-model.js";
 export * from "./core/subscription.js";
 export * from "./core/region.js";
 export * from "./core/import-pipeline.js";
