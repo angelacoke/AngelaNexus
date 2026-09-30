@@ -2,12 +2,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   LANDING_ENDPOINT_TYPES,
+  LANDING_ENDPOINT_HEALTH,
   WARP_TUNNEL_PROTOCOLS,
   WARP_PROVISIONING_ACTIONS,
   createLandingEndpointCatalog,
   createWarpProvisioningRequest,
   provisionUserWarpLandingEndpoint,
   resolveLandingEndpoint,
+  evaluateLandingEndpoint,
+  resolveLandingEndpointWithFallback,
   createWarpCredentialReference,
   serializeWarpCredentialReference,
   parseWarpCredentialReference,
@@ -55,7 +58,7 @@ test("WARP without secure credentials fails closed", () => {
 
   assert.throws(
     () => resolveLandingEndpoint(catalog, { preferredId: "warp-unprovisioned" }),
-    /no secure credential reference/,
+    /no usable landing endpoint/,
   );
 });
 
@@ -124,7 +127,6 @@ test("WARP provisioning requires an explicit user scope", () => {
   );
 });
 
-
 test("generated WARP credentials are stored in the user vault and never returned", async () => {
   const records = new Map();
   const credentialVault = {
@@ -189,7 +191,6 @@ test("generated WARP credentials fail closed when no vault is supplied", async (
   );
 });
 
-
 test("WARP credential references round-trip without exposing credential material", () => {
   const reference = createWarpCredentialReference({
     userScopeId: "user/a",
@@ -201,4 +202,61 @@ test("WARP credential references round-trip without exposing credential material
   assert.equal(serialized, "warp-vault-v1:user%2Fa:credential%3A1");
   assert.deepEqual(parsed, reference);
   assert.equal(serialized.includes("secret-material"), false);
+});
+
+test("unavailable WARP produces an actionable platform state", () => {
+  const catalog = createLandingEndpointCatalog({
+    warp: [{
+      id: "warp-down",
+      credentialRef: "secure:warp:down",
+      health: LANDING_ENDPOINT_HEALTH.UNAVAILABLE,
+    }],
+  });
+  const state = evaluateLandingEndpoint(catalog[0], {
+    reachable: false,
+    reason: "WARP tunnel health check failed",
+  });
+
+  assert.equal(state.health, LANDING_ENDPOINT_HEALTH.UNAVAILABLE);
+  assert.equal(state.available, false);
+  assert.equal(state.userActionRequired, true);
+  assert.match(state.reason, /health check failed/);
+});
+
+test("WARP outage may fall back only to another landing endpoint", () => {
+  const catalog = createLandingEndpointCatalog({
+    warp: [{
+      id: "warp-down",
+      credentialRef: "secure:warp:down",
+      health: LANDING_ENDPOINT_HEALTH.UNAVAILABLE,
+    }],
+    nodes: [{
+      id: "vps-landing",
+      health: LANDING_ENDPOINT_HEALTH.AVAILABLE,
+    }],
+  });
+
+  const result = resolveLandingEndpointWithFallback(catalog, {
+    preferredId: "warp-down",
+  });
+
+  assert.equal(result.selected.id, "vps-landing");
+  assert.equal(result.selected.type, LANDING_ENDPOINT_TYPES.NODE);
+  assert.equal(result.fallbackUsed, true);
+  assert.match(result.warning, /no usable landing endpoint/);
+});
+
+test("WARP outage never falls back to direct connection", () => {
+  const catalog = createLandingEndpointCatalog({
+    warp: [{
+      id: "warp-down",
+      credentialRef: "secure:warp:down",
+      health: LANDING_ENDPOINT_HEALTH.UNAVAILABLE,
+    }],
+  });
+
+  assert.throws(
+    () => resolveLandingEndpointWithFallback(catalog, { preferredId: "warp-down" }),
+    /direct connection is not an allowed fallback/,
+  );
 });
