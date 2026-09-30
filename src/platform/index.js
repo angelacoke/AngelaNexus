@@ -29,6 +29,16 @@ export {
   evaluateTransparentProxy,
   createTransparentProxyDecision,
 } from "./transparent-proxy.js";
+export {
+  TRANSPARENT_INGRESS_VERSION,
+  TRANSPARENT_CAPTURE_TYPES,
+  TRANSPARENT_FLOW_STATES,
+  createTransparentNetworkContract,
+  evaluateTransparentNetwork,
+  createCapturedFlow,
+  resolveTransparentFlowPolicy,
+  createTransparentIngressDecision,
+} from "./transparent-network.js";
 
 export {
   PlatformId,
