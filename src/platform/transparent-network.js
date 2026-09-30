@@ -90,6 +90,7 @@ export function evaluateTransparentNetwork(contract, runtime = {}) {
   if (contract.capture.tcp) required.push("tcp");
   if (contract.capture.udp) required.push("udp");
   if (contract.capture.dns) required.push("dns");
+  if (contract.capture.icmp) required.push("icmp");
   if (contract.capture.ipv4) required.push("ipv4");
   if (contract.capture.ipv6) required.push("ipv6");
   const unsupported = required.filter((key) => runtime[key] === false);
@@ -126,11 +127,27 @@ export function evaluateTransparentNetwork(contract, runtime = {}) {
 }
 
 export function createCapturedFlow(flow = {}) {
+  if (
+    flow &&
+    flow.version === 1 &&
+    typeof flow.protocol === "string" &&
+    flow.source &&
+    flow.destination &&
+    flow.identity &&
+    flow.metadata
+  ) {
+    return Object.freeze(flow);
+  }
+
   const protocol = text(flow.protocol).toLowerCase();
   if (!Object.values(TRANSPARENT_CAPTURE_TYPES).includes(protocol)) {
     throw new Error("unsupported captured flow protocol: " + protocol);
   }
-  if (protocol !== TRANSPARENT_CAPTURE_TYPES.DNS && !text(flow.destinationIp) && !text(flow.destinationDomain)) {
+  if (
+    protocol !== TRANSPARENT_CAPTURE_TYPES.DNS &&
+    !text(flow.destinationIp) &&
+    !text(flow.destinationDomain)
+  ) {
     throw new Error("captured flow requires a destination");
   }
   const sourceFamily = familyFromIp(flow.sourceIp);

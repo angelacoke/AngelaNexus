@@ -12,7 +12,7 @@ import {
 
 function activeRuntime(overrides = {}) {
   return {
-    tcp: true, udp: true, dns: true, ipv4: true, ipv6: true,
+    tcp: true, udp: true, dns: true, icmp: true, ipv4: true, ipv6: true,
     permission: true, active: true,
     appIdentity: true, processIdentity: true, uidIdentity: true, domainIdentity: true,
     ...overrides,
@@ -79,10 +79,9 @@ test("T6 loop transparency: internal control and resolver paths never re-enter u
 test("T7 platform transparency: capability boundaries are evaluated by the adapter, not guessed", () => {
   const contract = createTransparentNetworkContract({ enabled: true, icmp: true });
   const evaluation = evaluateTransparentNetwork(contract, activeRuntime({ icmp: false }));
-  assert.equal(evaluation.state, TRANSPARENT_FLOW_STATES.CAPTURED);
-  assert.equal(evaluation.active, true);
-  assert.equal(contract.capture.icmp, true);
-  assert.equal(evaluation.identity.app, true);
+  assert.equal(evaluation.state, TRANSPARENT_FLOW_STATES.REJECTED);
+  assert.equal(evaluation.active, false);
+  assert.deepEqual(evaluation.unsupported, ["icmp"]);
 });
 
 test("explicit app exclusions are represented without creating a hidden direct fallback", () => {
