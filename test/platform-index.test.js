@@ -35,7 +35,7 @@ test("platform index exposes the runtime import receiver contract", async () => 
   });
 
   const result = await receiver.receive(payload, { platform: "android" });
-  assert.deepEqual(result, { accepted: true });
+  assert.deepEqual(result, { result: { accepted: true } });
   assert.deepEqual(received, [{
     input: {
       type: "file",
