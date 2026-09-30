@@ -15,6 +15,7 @@ export {
   CONFIG_IMPORT_ENVELOPE_TYPE,
   CONFIG_IMPORT_ENVELOPE_MAX_BYTES,
 } from "./runtime-import-receiver.js";
+export { createRuntimeImportService } from "./runtime-import-service.js";
 export { inspectPlatformCapabilities } from "./capability-inspector.js";
 export {
   createRuntimeConfigImportTransport,
