@@ -4,3 +4,7 @@ export {
   createKernelRuntimeProvider,
   KERNEL_RUNTIME_MODES,
 } from "./runtime-provider.js";
+export {
+  getKernelRuntimeCapabilities,
+  supportsKernelRuntime,
+} from "./runtime-capabilities.js";
