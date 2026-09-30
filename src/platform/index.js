@@ -1,8 +1,11 @@
 export {
   LANDING_ENDPOINT_TYPES,
   WARP_TUNNEL_PROTOCOLS,
+  LANDING_ENDPOINT_HEALTH,
   createLandingEndpointCatalog,
   resolveLandingEndpoint,
+  evaluateLandingEndpoint,
+  resolveLandingEndpointWithFallback,
 } from "./landing-endpoints.js";
 export {
   WARP_PROVISIONING_ACTIONS,
