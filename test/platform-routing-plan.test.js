@@ -40,6 +40,17 @@ test("platform routing plan binds concrete services to one region group with aut
   const metaAi = plan.policy.rules.find((rule) => rule.policyId === "service:ai:meta-ai");
   assert.ok(openai);
   assert.ok(metaAi);
+  assert.equal(openai.routing.serviceKey, "service:ai:openai");
+  assert.equal(openai.routing.selection.region, "us");
+  assert.equal(openai.routing.selection.mode, "auto");
+  assert.equal(metaAi.routing.serviceKey, "service:ai:meta-ai");
+  assert.deepEqual(metaAi.routing.selection.nodeIds, ["us-1"]);
+
+  const domesticBank = plan.serviceBindings["service:domestic:banking:abc"];
+  assert.ok(domesticBank);
+  const abcRule = plan.policy.rules.find((rule) => rule.policyId === "service:domestic:banking:abc");
+  assert.ok(abcRule);
+  assert.equal(abcRule.routing.serviceKey, "service:domestic:banking:abc");
 
   assert.equal(plan.policy.semantics, RoutingSemantics.PARALLEL);
   assert.equal(plan.policy.defaultAction.target, "secure-proxy");
