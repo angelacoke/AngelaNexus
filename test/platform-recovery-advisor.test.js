@@ -1,10 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  LANDING_ENDPOINT_TYPES,
   PLATFORM_FAILURE_ACTIONS,
+  WARP_TUNNEL_PROTOCOLS,
   advisePlatformFailure,
   createPlatformFailureState,
   createPlatformRecoveryOptions,
+  createPlatformRoutingPlan,
+  resolvePlatformLandingDecision,
 } from "../src/platform/index.js";
 
 test("platform failure produces actionable recovery options", () => {
@@ -54,4 +58,29 @@ test("platform failure defaults to fail-closed recovery", () => {
   assert.equal(result.failure.failClosed, true);
   assert.equal(result.notice.failClosed, true);
   assert.ok(result.notice.options.some((item) => item.action === "reject"));
+});
+
+test("WARP landing failure exposes platform-level recovery choices", () => {
+  const plan = createPlatformRoutingPlan({
+    nodes: [{ id: "us-node", name: "US Node", latencyMs: 20 }],
+    landingOptions: {
+      warp: [{
+        id: "warp-user-a",
+        protocol: WARP_TUNNEL_PROTOCOLS.MASQUE,
+        credentialRef: null,
+      }],
+    },
+  });
+
+  const result = resolvePlatformLandingDecision(plan, {
+    preferredId: "warp-user-a",
+    preferredType: LANDING_ENDPOINT_TYPES.WARP,
+  });
+
+  assert.equal(result.target.type, "reject");
+  assert.equal(result.target.notice.title, "网络能力不可用");
+  assert.equal(result.target.recovery.failure.capability, "warp");
+  assert.ok(result.target.recovery.options.some((item) => item.action === "regenerate"));
+  assert.ok(result.target.recovery.options.some((item) => item.action === "switch-landing"));
+  assert.equal(result.target.recovery.alternatives[0].id, "us-node");
 });

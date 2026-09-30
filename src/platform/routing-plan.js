@@ -15,6 +15,7 @@ import {
   createLandingEndpointCatalog,
   resolveLandingEndpoint,
 } from "./landing-endpoints.js";
+import { advisePlatformFailure } from "./recovery-advisor.js";
 
 function canonicalServiceCatalog() {
   const global = {};
@@ -25,16 +26,30 @@ function canonicalServiceCatalog() {
   return Object.freeze(global);
 }
 
+function landingAlternatives(catalog, preferredId) {
+  return (Array.isArray(catalog) ? catalog : [])
+    .filter((endpoint) => endpoint && endpoint.enabled !== false && endpoint.id !== preferredId)
+    .filter((endpoint) => endpoint.type !== LANDING_ENDPOINT_TYPES.WARP || Boolean(endpoint.credentialRef));
+}
+
 export function resolvePlatformLandingDecision(plan, {
   preferredId = null,
   preferredType = null,
 } = {}) {
   if (!plan || !Array.isArray(plan.landingEndpoints)) {
+    const advice = advisePlatformFailure({
+      capability: "landing",
+      reason: "no-landing-endpoints",
+      impact: "required-landing-unavailable",
+      details: "当前没有可用的落地出口。",
+    });
     return Object.freeze({
       target: Object.freeze({
         type: "reject",
         target: plan?.policy?.rejectTarget || "reject",
         reason: "no-landing-endpoints",
+        recovery: advice.recovery,
+        notice: advice.notice,
       }),
     });
   }
@@ -54,12 +69,27 @@ export function resolvePlatformLandingDecision(plan, {
       }),
     });
   } catch (error) {
+    const isWarp = preferredType === LANDING_ENDPOINT_TYPES.WARP;
+    const advice = advisePlatformFailure({
+      capability: isWarp ? "warp" : "landing",
+      reason: error instanceof Error ? error.message : String(error),
+      impact: "required-landing-unavailable",
+      details: isWarp
+        ? "当前 WARP 落地不可用，请选择可用方案。"
+        : "当前指定的落地出口不可用，请选择可用方案。",
+      actions: isWarp
+        ? ["regenerate", "switch-landing", "recheck", "reject"]
+        : ["switch-landing", "recheck", "retry", "reject"],
+      alternatives: landingAlternatives(plan.landingEndpoints, preferredId),
+    });
     return Object.freeze({
       target: Object.freeze({
         type: "reject",
         target: plan.policy.rejectTarget || "reject",
         reason: "no-usable-landing-endpoint",
         error: error instanceof Error ? error.message : String(error),
+        recovery: advice.recovery,
+        notice: advice.notice,
       }),
     });
   }
@@ -99,6 +129,13 @@ export function resolvePlatformRoutingDecision(plan, context = {}, {
       preferredRegion,
     });
   } catch (error) {
+    const advice = advisePlatformFailure({
+      capability: "service-node",
+      reason: error instanceof Error ? error.message : String(error),
+      impact: "required-service-routing-unavailable",
+      details: "当前服务没有可用的安全代理节点。",
+      actions: ["recheck", "reject"],
+    });
     return Object.freeze({
       evaluation,
       target: Object.freeze({
@@ -107,6 +144,8 @@ export function resolvePlatformRoutingDecision(plan, context = {}, {
         serviceKey: routing.serviceKey,
         reason: "no-usable-service-node",
         error: error instanceof Error ? error.message : String(error),
+        recovery: advice.recovery,
+        notice: advice.notice,
       }),
     });
   }
