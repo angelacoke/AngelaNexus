@@ -80,7 +80,7 @@ test("explicit WARP landing is attached to a routed service without replacing th
 
   const decision = resolvePlatformRoutingDecision(
     plan,
-    { service: "openai" },
+    { domain: "chatgpt.com" },
     { preferredLandingId: "warp-user-a", preferredLandingType: LANDING_ENDPOINT_TYPES.WARP },
   );
 
