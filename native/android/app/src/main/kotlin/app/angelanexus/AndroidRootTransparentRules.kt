@@ -22,11 +22,23 @@ data class RootTransparentConfig(
         require(tableName.matches(Regex("[a-z][a-z0-9_]{0,30}")))
         require(protectedUids.all { it >= 0 })
         require(protectedPorts.all { it in 1..65535 })
-        require(bypassIpv4.all { it.isNotBlank() })
-        require(bypassIpv6.all { it.isNotBlank() })
+        bypassIpv4.forEach { validateBypassCidr(it, ipv4 = true) }
+        bypassIpv6.forEach { validateBypassCidr(it, ipv4 = false) }
     }
 }
 
+    private fun validateBypassCidr(value: String, ipv4: Boolean) {
+        require(value.isNotBlank())
+        val parts = value.split("/")
+        require(parts.size == 2)
+        val address = parts[0]
+        val prefix = parts[1].toIntOrNull() ?: error("invalid CIDR prefix")
+        require(address.matches(Regex("[0-9A-Fa-f:.]+")))
+        require(prefix in if (ipv4) 0..32 else 0..128)
+        val parsed = runCatching { InetAddress.getByName(address) }.getOrNull()
+            ?: error("invalid CIDR address")
+        require(parsed.address.size == if (ipv4) 4 else 16)
+    }
 data class RootCommand(val apply: String, val rollback: String)
 
 interface RootCommandExecutor {
@@ -107,6 +119,10 @@ object AndroidRootTransparentRules {
         if (config.dnsPort != null) {
             commands += RootCommand(
                 "nft add rule inet $table $CHAIN udp dport 53 tproxy to :${config.dnsPort} meta mark set ${config.mark}",
+                "",
+            )
+            commands += RootCommand(
+                "nft add rule inet $table $CHAIN tcp dport 53 tproxy to :${config.dnsPort} meta mark set ${config.mark}",
                 "",
             )
         }
