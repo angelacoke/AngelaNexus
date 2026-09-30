@@ -10,7 +10,7 @@ function node(id, server) {
     id,
     name: id,
     protocol: "vmess",
-    endpoint: { server, port: 443 },
+    server, port: 443,
   });
 }
 
