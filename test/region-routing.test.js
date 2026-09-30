@@ -29,14 +29,20 @@ test("region groups support automatic ranking and manual selection", () => {
       "us-2": { available: true, latencyMs: 40 },
     },
   });
-  assert.deepEqual(auto.us.selection.autoCandidates, ["us-2", "us-1"]);
+  assert.deepEqual(Object.keys(auto).sort(), ["cn", "jp", "us"]);
+  assert.deepEqual(auto.us.selection.auto.candidateNodeIds, ["us-2", "us-1"]);
+  assert.equal(auto.us.selection.auto.preferredNodeId, "us-2");
+  assert.deepEqual(auto.us.selection.manual.selectedNodeIds, []);
 
   const manual = createRegionSelectionGroups(nodes, {
     mode: REGION_SELECTION_MODES.MANUAL,
     manualSelections: { us: ["us-1"] },
   });
-  assert.deepEqual(manual.us.selection.selectedNodeIds, ["us-1"]);
-  assert.equal(manual.jp.selection.selectedNodeIds.length, 0);
+  assert.deepEqual(Object.keys(manual).sort(), ["cn", "jp", "us"]);
+  assert.equal(manual.us.selection.activeMode, REGION_SELECTION_MODES.MANUAL);
+  assert.deepEqual(manual.us.selection.auto.candidateNodeIds, ["us-1", "us-2"]);
+  assert.deepEqual(manual.us.selection.manual.selectedNodeIds, ["us-1"]);
+  assert.equal(manual.jp.selection.manual.selectedNodeIds.length, 0);
 });
 
 test("service groups can inherit automatic region selection while individual services bind to explicit nodes", () => {
