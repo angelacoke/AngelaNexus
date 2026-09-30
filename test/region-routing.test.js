@@ -5,7 +5,7 @@ import {
   buildRegionGroups,
   createRegionSelectionGroups,
   createServiceNodeBindings,
-  resolveServiceNode,
+  resolveServiceNode,\n  inferNodeRegion,
 } from "../src/platform/index.js";
 
 const nodes = [
@@ -63,4 +63,25 @@ test("service groups can inherit automatic region selection while individual ser
   );
   assert.equal(resolved.node.id, "us-1");
   assert.equal(resolved.region, "us");
+});
+
+
+test("region detection does not confuse short country codes embedded in ordinary words", () => {
+  assert.equal(inferNodeRegion({ name: "Canada Toronto 01" }), "ca");
+  assert.equal(inferNodeRegion({ name: "Fast relay gateway" }), "unknown");
+});
+
+test("service node resolution uses normalized region member identity for health ranking", () => {
+  const groups = createRegionSelectionGroups([
+    { uuid: "node-a", name: "US West A" },
+    { uuid: "node-b", name: "US West B" },
+  ]);
+  const bindings = createServiceNodeBindings({ ai: [{ id: "openai" }] }, groups, {
+    overrides: { "service:ai:openai": { region: "us", mode: "auto" } },
+  });
+  const resolved = resolveServiceNode("service:ai:openai", bindings["service:ai:openai"], groups, {
+    health: { "node-a": { available: true, latencyMs: 90 }, "node-b": { available: true, latencyMs: 30 } },
+  });
+  assert.equal(resolved.node.uuid, "node-b");
+  assert.equal(resolved.candidates[0].nodeId, "node-b");
 });
