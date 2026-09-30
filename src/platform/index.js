@@ -16,6 +16,19 @@ export {
   resolvePlatformChainPath,
   isWarpLandingPath,
 } from "./landing-path.js";
+export {
+  CHAIN_SOURCE_TYPES,
+  CHAIN_ROLES,
+  createChainEditorModel,
+  validateChainEditorSelection,
+} from "./chain-editor.js";
+export {
+  TRANSPARENT_PROXY_MODES,
+  TRANSPARENT_PROXY_STATES,
+  createTransparentProxyConfig,
+  evaluateTransparentProxy,
+  createTransparentProxyDecision,
+} from "./transparent-proxy.js";
 
 export {
   PlatformId,
