@@ -8,6 +8,9 @@ import {
   createWarpProvisioningRequest,
   provisionUserWarpLandingEndpoint,
   resolveLandingEndpoint,
+  createWarpCredentialReference,
+  serializeWarpCredentialReference,
+  parseWarpCredentialReference,
 } from "../src/platform/index.js";
 
 test("WARP is represented as an optional landing exit endpoint", () => {
@@ -154,7 +157,7 @@ test("generated WARP credentials are stored in the user vault and never returned
     credentialVault,
   });
 
-  assert.equal(endpoint.credentialRef, "vault:user-a:credential-a");
+  assert.equal(endpoint.credentialRef, "warp-vault-v1:user-a:credential-a");
   assert.equal(endpoint.credential, undefined);
   assert.deepEqual(
     await credentialVault.get({
@@ -184,4 +187,18 @@ test("generated WARP credentials fail closed when no vault is supplied", async (
     }),
     /credential vault is required/,
   );
+});
+
+
+test("WARP credential references round-trip without exposing credential material", () => {
+  const reference = createWarpCredentialReference({
+    userScopeId: "user/a",
+    credentialId: "credential:1",
+  });
+  const serialized = serializeWarpCredentialReference(reference);
+  const parsed = parseWarpCredentialReference(serialized);
+
+  assert.equal(serialized, "warp-vault-v1:user%2Fa:credential%3A1");
+  assert.deepEqual(parsed, reference);
+  assert.equal(serialized.includes("secret-material"), false);
 });

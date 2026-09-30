@@ -1,5 +1,5 @@
 import { WARP_TUNNEL_PROTOCOLS } from "./landing-endpoints.js";
-import { storeWarpCredential } from "./warp-credential-vault.js";
+import { serializeWarpCredentialReference, storeWarpCredential } from "./warp-credential-vault.js";
 
 export const WARP_PROVISIONING_ACTIONS = Object.freeze({
   CREATE: "create",
@@ -67,13 +67,13 @@ async function resolveCredentialReference(request, registration, credentialVault
     ? registration.credentialId.trim()
     : registration.id.trim();
 
-  await storeWarpCredential(credentialVault, {
+  const reference = await storeWarpCredential(credentialVault, {
     userScopeId: request.scope.id,
     credentialId,
     credential: registration.credential,
   });
 
-  return "vault:" + request.scope.id + ":" + credentialId;
+  return serializeWarpCredentialReference(reference);
 }
 
 export async function provisionUserWarpLandingEndpoint({

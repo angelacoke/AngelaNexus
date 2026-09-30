@@ -76,6 +76,8 @@ export {
 export {
   WARP_CREDENTIAL_VAULT_VERSION,
   createWarpCredentialReference,
+  serializeWarpCredentialReference,
+  parseWarpCredentialReference,
   storeWarpCredential,
   loadWarpCredential,
   removeWarpCredential,
