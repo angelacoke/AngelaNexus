@@ -1,1 +1,59 @@
-# Mihomo Android Native Integration Baseline\n\nStatus: verified integration baseline; native runtime is not yet advertised as production-ready.\n\n## Upstream pin\n\n- Upstream: MetaCubeX/mihomo\n- Current verified release: v1.19.31\n- Release commit: ab405ba\n- Release date: 2026-09-14\n- Android arm64-v8a: mihomo-android-arm64-v8-v1.19.31.gz\n  SHA-256: de00bc53ed15163636b48ea7b9e305f14c39248d6bffd9cd04466fee94492f99\n- Android armv7: mihomo-android-armv7-v1.19.31.gz\n  SHA-256: c2658644e44a61136bca28ae8accf0922065c143b57f8c8fc07bbd31997ca5e00\n- Android amd64: mihomo-android-amd64-v1.19.31.gz\n  SHA-256: 6f6ebcb3646d3ece36b48ea7b9e305f14c39248d6bffd9cd04466fee94492f99\n\nThese are official compressed Android executable assets, not hashes for a c-shared JNI library. They must not be substituted for native .so integrity values.\n\n## Integration evidence\n\nThe upstream project publishes Android executables. FlClash independently demonstrates a working Android in-process pattern: its Android core is compiled with Go buildmode=c-shared, while Android owns the JNI boundary and TUN file descriptor. Its implementation also installs Android-specific socket-protect and process-resolution hooks around Mihomo.\n\nAngelaNexus will follow that architecture at the boundary level, but will not copy FlClash source or binary artifacts. FlClash is GPL-3.0.\n\n## License boundary\n\nMihomo is GPL-3.0. AngelaNexus application source remains Apache-2.0 only where compatible with its own files and dependencies. Any distributed Mihomo native runtime, generated binding, or combined work must carry the exact upstream revision and applicable GPL-3.0 notices/source obligations.\n\nThe release pipeline must record:\n1. exact Mihomo revision;\n2. exact bridge source revision;\n3. Go/NDK/toolchain versions;\n4. native ABI list;\n5. SHA-256 for every shipped native artifact;\n6. complete third-party license/notice inventory.\n\nNo prebuilt third-party Mihomo AAR is accepted as an implicit production dependency.\n\n## Current implementation state\n\nThe Kotlin layer currently exposes a backend-neutral MihomoNativeHost contract and delegation wrapper. Those classes are not proof of a working native core.\n\nThe next implementation stage is the first real native bridge:\n1. pin Mihomo source at a verified upstream revision;\n2. add an independently authored Android/cgo bridge;\n3. build libclash.so for supported Android ABIs;\n4. add the minimal C/C++ JNI shim and Kotlin loader;\n5. wire Android VpnService protection and TUN FD ownership;\n6. add bridge ABI/version checks and artifact hashes;\n7. run an Android smoke test proving load -> initialize -> TUN start -> stop;\n8. only then mark Mihomo Android native capability as available.\n\nConfiguration parsing and kernel selection remain in AngelaNexus Core; the Android native bridge must not duplicate that logic.
+# Android Native Runtime Integration Baseline
+
+Status: verified integration baseline; native runtime is not yet advertised as production-ready.
+
+## Verified runtime baseline
+
+- Current verified runtime release: v1.19.31
+- Release commit: ab405ba
+- Release date: 2026-09-14
+- Android arm64-v8a artifact: mihomo-android-arm64-v8-v1.19.31.gz
+  SHA-256: de00bc53ed15163636b48ea7b9e305f14c39248d6bffd9cd04466fee94492f99
+- Android armv7 artifact: mihomo-android-armv7-v1.19.31.gz
+  SHA-256: c2658644e44a61136bca28ae8accf0922065c143b57f8c8fc07bbd31997ca5e00
+- Android amd64 artifact: mihomo-android-amd64-v1.19.31.gz
+  SHA-256: 6f6ebcb3646d3ece36b48ea7b9e305f14c39248d6bffd9cd04466fee94492f99
+
+These are compressed Android executable artifacts, not hashes for a c-shared JNI library. They must not be substituted for native .so integrity values.
+
+## Integration boundary
+
+AngelaNexus uses an independently authored Android native boundary. The application layer owns lifecycle, configuration transport, VPN/TUN ownership, security policy, ABI validation and runtime status. The native runtime owns packet processing and native networking operations.
+
+The Android integration must remain a strict boundary:
+
+1. no configuration parsing duplication in the native bridge;
+2. no kernel-selection logic in the Android bridge;
+3. no implicit runtime fallback;
+4. no unverified native artifact may be loaded;
+5. no native capability may be advertised before an actual smoke test succeeds.
+
+## Integrity and release requirements
+
+The release pipeline must record:
+
+1. exact runtime revision;
+2. exact bridge source revision;
+3. Go/NDK/toolchain versions;
+4. native ABI list;
+5. SHA-256 for every shipped native artifact;
+6. complete release-time license and notice inventory.
+
+No prebuilt external AAR or native library is accepted as an implicit production dependency.
+
+## Current implementation state
+
+The Kotlin layer currently exposes a backend-neutral native-host contract and delegation wrapper. These classes are not proof of a working native core.
+
+The next implementation stage is the first real native bridge:
+
+1. pin the runtime source at a verified revision;
+2. add an independently authored Android/cgo bridge;
+3. build libclash.so for supported Android ABIs;
+4. add the minimal C/C++ JNI shim and Kotlin loader;
+5. wire Android VpnService protection and TUN FD ownership;
+6. add bridge ABI/version checks and artifact hashes;
+7. run an Android smoke test proving load -> initialize -> TUN start -> stop;
+8. only then mark Android native capability as available.
+
+Configuration parsing and kernel selection remain in AngelaNexus Core; the Android native bridge must not duplicate that logic.
