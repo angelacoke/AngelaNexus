@@ -10,6 +10,21 @@ interface RootTransparentStateInspector {
     fun interceptRulesExist(tableName: String, interceptPort: Int): Boolean
     fun dnsRulesExist(tableName: String, dnsPort: Int?): Boolean
     fun selfLoopProtectionExists(tableName: String, ipv6: Boolean): Boolean
+
+    /**
+     * Positive state checks are the single source of truth for cleanup.
+     * A default implementation keeps test/future platform inspectors source-compatible.
+     */
+    fun isClear(config: RootTransparentConfig): Boolean =
+        !tableExists(config.tableName) &&
+            !ipv4PolicyRuleExists(config.mark, config.routingTable) &&
+            !ipv4LocalRouteExists(config.routingTable) &&
+            (!config.ipv6 || !ipv6PolicyRuleExists(config.mark, config.routingTable)) &&
+            (!config.ipv6 || !ipv6LocalRouteExists(config.routingTable)) &&
+            !interceptRulesExist(config.tableName, config.interceptPort) &&
+            (config.dnsPort == null || !dnsRulesExist(config.tableName, config.dnsPort)) &&
+            (!config.selfLoopProtection ||
+                !selfLoopProtectionExists(config.tableName, config.ipv6))
 }
 
 data class RootTransparentVerification(
@@ -31,13 +46,16 @@ data class RootTransparentVerification(
 class AndroidRootTransparentRuntime(
     private val inspector: RootTransparentStateInspector,
 ) {
-    enum class State { IDLE, APPLYING, ACTIVE, FAILED }
+    enum class State { IDLE, APPLYING, ACTIVE, STOPPING, FAILED }
 
     var state: State = State.IDLE
         private set
 
     var lastVerification: RootTransparentVerification? = null
         private set
+
+    private var activeConfig: RootTransparentConfig? = null
+    private var activeTransaction: RootTransparentRuleTransaction? = null
 
     fun activate(config: RootTransparentConfig, transaction: RootTransparentRuleTransaction) {
         check(state == State.IDLE) { "transparent runtime is not idle" }
@@ -47,7 +65,33 @@ class AndroidRootTransparentRuntime(
             transaction.commitVerified {
                 verify(config).also { lastVerification = it }.success
             }
+            activeConfig = config
+            activeTransaction = transaction
             state = State.ACTIVE
+        } catch (error: Throwable) {
+            state = State.FAILED
+            throw error
+        }
+    }
+
+    /**
+     * Removes every rule owned by this runtime and verifies the live kernel state
+     * is clear before reporting IDLE. Cleanup failure remains FAILED.
+     */
+    fun stop() {
+        check(state == State.ACTIVE || state == State.FAILED) {
+            "transparent runtime is not stoppable in state $state"
+        }
+        val config = activeConfig ?: error("transparent runtime has no active configuration")
+        val transaction = activeTransaction ?: error("transparent runtime has no active transaction")
+        state = State.STOPPING
+        try {
+            check(transaction.rollbackCommitted()) { "transparent rule cleanup command failed" }
+            check(inspector.isClear(config)) { "transparent rule cleanup verification failed" }
+            activeConfig = null
+            activeTransaction = null
+            lastVerification = null
+            state = State.IDLE
         } catch (error: Throwable) {
             state = State.FAILED
             throw error
@@ -69,8 +113,12 @@ class AndroidRootTransparentRuntime(
     }
 
     fun reset() {
-        check(state != State.APPLYING) { "cannot reset while applying transparent rules" }
-        state = State.IDLE
+        check(state != State.APPLYING && state != State.STOPPING) {
+            "cannot reset while applying or stopping transparent rules"
+        }
+        check(state == State.IDLE) { "cannot reset an active or failed transparent runtime" }
+        activeConfig = null
+        activeTransaction = null
         lastVerification = null
     }
 }
