@@ -48,6 +48,10 @@ class AndroidRootVerifiedCapabilityProbe(
 
     override fun icmpCapture(): Boolean = false
 
+    override fun localOutputCapture(): Boolean = reversibleNftOutputRuleCheck(
+        "tcp dport 443 meta mark set 1"
+    )
+
     override fun ipv4PolicyRouting(): Boolean =
         reversiblePolicyRoutingCheck("ip -4")
 
@@ -63,6 +67,18 @@ class AndroidRootVerifiedCapabilityProbe(
 
     override fun atomicRollback(): Boolean =
         reversibleNftTransactionCheck()
+
+    private fun reversibleNftOutputRuleCheck(rule: String): Boolean {
+        val command = """
+            set -e
+            table="angelanexus_probe_$"
+            nft add table inet "$table"
+            trap 'nft delete table inet "$table" >/dev/null 2>&1 || true' EXIT
+            nft add chain inet "$table" output { type filter hook output priority -150; policy accept; }
+            nft add rule inet "$table" output $rule
+        """.trimIndent()
+        return runner.run(command).succeeded
+    }
 
     private fun reversibleNftRuleCheck(rule: String): Boolean {
         val command = """
