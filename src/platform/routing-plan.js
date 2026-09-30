@@ -34,10 +34,26 @@ export function createPlatformRoutingPlan({
     defaults: serviceDefaults,
     overrides: serviceOverrides,
   });
-  const policy = createSecureRoutingBaseline({ options: routingOptions });
+  const basePolicy = createSecureRoutingBaseline({ options: routingOptions });
+  const rules = basePolicy.rules.map((rule) => {
+    const binding = serviceBindings[rule.policyId];
+    if (!binding) return rule;
+    return Object.freeze({
+      ...rule,
+      routing: Object.freeze({
+        serviceKey: binding.serviceKey,
+        selection: binding.selection,
+        availableRegions: binding.availableRegions,
+      }),
+    });
+  });
+  const policy = Object.freeze({
+    ...basePolicy,
+    rules: Object.freeze(rules),
+  });
 
   return Object.freeze({
-    version: 1,
+    version: 2,
     policy,
     regionGroups,
     serviceBindings,
