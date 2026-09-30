@@ -1,4 +1,11 @@
 export {
+  LANDING_ENDPOINT_TYPES,
+  WARP_TUNNEL_PROTOCOLS,
+  createLandingEndpointCatalog,
+  resolveLandingEndpoint,
+} from "./landing-endpoints.js";
+
+export {
   PlatformId,
   PlatformCapabilities,
   createPlatformContract,
