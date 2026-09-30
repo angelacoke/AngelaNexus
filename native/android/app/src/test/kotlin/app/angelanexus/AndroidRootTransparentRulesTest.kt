@@ -37,11 +37,19 @@ class AndroidRootTransparentRulesTest {
         assertTrue(apply.any { it.contains("local ::/0 dev lo") })
         assertTrue(apply.any { it.contains("meta skuid 12345 return") })
         assertTrue(apply.any { it.contains("meta skuid 2000 return") })
-        assertTrue(apply.any { it.contains("tcp dport 15053 return") })
+        assertTrue(apply.any { it.contains("udp dport 53 tproxy to :15053 meta mark set 1 return") })
+        assertTrue(apply.any { it.contains("tcp dport 53 tproxy to :15053 meta mark set 1 return") })
         assertTrue(apply.any { it.contains("meta mark 1 return") })
         assertTrue(apply.any { it.contains("dport 15001 return") })
         assertTrue(apply.any { it.contains("ip daddr 127.0.0.0/8 return") })
         assertTrue(apply.any { it.contains("ip6 daddr fc00::/7 return") })
+    }
+
+    @Test
+    fun dns_port_must_not_equal_intercept_port() {
+        assertFailsWith<IllegalArgumentException> {
+            AndroidRootTransparentRules.build(config().copy(dnsPort = config().interceptPort))
+        }
     }
 
     @Test
