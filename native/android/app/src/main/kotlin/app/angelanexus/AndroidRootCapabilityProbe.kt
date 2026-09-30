@@ -12,6 +12,7 @@ interface AndroidRootCapabilityProbe {
     fun icmpCapture(): Boolean
     fun ipv4PolicyRouting(): Boolean
     fun ipv6PolicyRouting(): Boolean
+    fun localOutputCapture(): Boolean
     fun uidIdentity(): Boolean
     fun processIdentity(): Boolean
     fun atomicRollback(): Boolean
@@ -24,6 +25,7 @@ object UnverifiedAndroidRootCapabilityProbe : AndroidRootCapabilityProbe {
     override fun icmpCapture() = false
     override fun ipv4PolicyRouting() = false
     override fun ipv6PolicyRouting() = false
+    override fun localOutputCapture() = false
     override fun uidIdentity() = false
     override fun processIdentity() = false
     override fun atomicRollback() = false
