@@ -9,6 +9,10 @@ export {
   createWarpProvisioningRequest,
   provisionUserWarpLandingEndpoint,
 } from "./warp-provisioning.js";
+export {
+  resolvePlatformChainPath,
+  isWarpLandingPath,
+} from "./landing-path.js";
 
 export {
   PlatformId,
