@@ -106,16 +106,26 @@ function aliasMatches(text, alias) {
 }
 
 export function inferNodeRegion(node) {
+  const explicitValues = [
+    node && node.countryCode,
+    node && node.country,
+    node && node.region,
+  ];
+  for (const value of explicitValues) {
+    if (typeof value !== "string" || !value.trim()) continue;
+    const normalized = value.trim().toLowerCase();
+    if (RegionIds.includes(normalized)) return normalized;
+    for (const region of RegionIds) {
+      const aliases = REGION_ALIASES[region];
+      if (aliases && aliases.some((alias) => aliasMatches(normalized, alias))) return region;
+    }
+  }
+
   const text = textOf(node);
   if (!text) return "unknown";
   for (const region of RegionIds) {
     const aliases = REGION_ALIASES[region];
     if (aliases && aliases.some((alias) => aliasMatches(text, alias))) return region;
-  }
-  const code = node && node.countryCode;
-  if (typeof code === "string" && /^[a-zA-Z]{2}$/.test(code)) {
-    const normalized = code.toLowerCase();
-    if (RegionIds.includes(normalized)) return normalized;
   }
   return "unknown";
 }
@@ -260,6 +270,9 @@ export function resolveServiceNode(serviceKey, binding, regionGroups, { preferre
   }
 
   if (!candidates.length) throw new Error("no available node for service: " + serviceKey);
+  if (binding.selection.mode === REGION_SELECTION_MODES.MANUAL && !binding.selection.nodeIds.length) {
+    throw new Error("manual service selection has no selected node: " + serviceKey);
+  }
 
   const ranked = candidates.sort((a, b) => {
     const ah = health[a.nodeId] || health[a.node.id] || {};
