@@ -23,6 +23,7 @@ class AndroidRootTransparentAdapter(
         val ipv4: Boolean,
         val ipv6: Boolean,
         val uidIdentity: Boolean,
+        val localOutputCapture: Boolean,
         val processIdentity: Boolean,
         val policyRouting: Boolean,
         val atomicRollback: Boolean,
@@ -39,6 +40,7 @@ class AndroidRootTransparentAdapter(
                 tcp && udp && dns &&
                 ipv4 && ipv6 &&
                 uidIdentity &&
+                localOutputCapture &&
                 policyRouting && atomicRollback
 
         val identityReady: Boolean
@@ -81,6 +83,7 @@ private class AndroidRootBackend(
             ipv4 = ipv4PolicyRouting,
             ipv6 = ipv6PolicyRouting,
             uidIdentity = rootAuthorized && capabilityProbe.uidIdentity(),
+            localOutputCapture = rootAuthorized && capabilityProbe.localOutputCapture(),
             processIdentity = rootAuthorized && capabilityProbe.processIdentity(),
             policyRouting = ipv4PolicyRouting && ipv6PolicyRouting,
             atomicRollback = rootAuthorized && capabilityProbe.atomicRollback(),
