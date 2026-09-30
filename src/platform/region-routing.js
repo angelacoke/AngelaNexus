@@ -130,17 +130,28 @@ export function createServiceNodeBindings(serviceCatalog, regionGroups, { defaul
     for (const service of services || []) {
       const serviceKey = "service:" + category + ":" + service.id;
       const configured = overrides[serviceKey] || defaults[serviceKey];
-      const candidates = Array.isArray(configured) ? configured.map(String) : configured ? [String(configured)] : [];
+      const config = configured && typeof configured === "object" && !Array.isArray(configured)
+        ? configured
+        : { nodeIds: configured };
+      const candidates = Array.isArray(config.nodeIds)
+        ? config.nodeIds.map(String)
+        : config.nodeIds ? [String(config.nodeIds)] : [];
+      const region = typeof config.region === "string" && config.region.trim() ? config.region.trim().toLowerCase() : null;
+      const mode = config.mode === REGION_SELECTION_MODES.MANUAL || candidates.length
+        ? REGION_SELECTION_MODES.MANUAL
+        : REGION_SELECTION_MODES.AUTO;
       bindings[serviceKey] = Object.freeze({
         serviceKey,
         category,
         serviceId: service.id,
         selection: Object.freeze({
-          mode: candidates.length ? REGION_SELECTION_MODES.MANUAL : REGION_SELECTION_MODES.AUTO,
+          mode,
+          region,
           nodeIds: Object.freeze(candidates),
         }),
-        availableRegions: Object.freeze(Object.keys(regionGroups || {}).filter((region) =>
-          regionGroups[region].nodes.some((node) => !candidates.length || candidates.includes(node.id))
+        availableRegions: Object.freeze(Object.keys(regionGroups || {}).filter((candidateRegion) =>
+          (!region || candidateRegion === region) &&
+          regionGroups[candidateRegion].nodes.some((node) => !candidates.length || candidates.includes(node.id))
         )),
       });
     }
@@ -152,8 +163,9 @@ export function resolveServiceNode(serviceKey, binding, regionGroups, { preferre
   if (!binding) throw new Error("unknown service node binding: " + serviceKey);
   const candidates = [];
 
+  const targetRegion = preferredRegion || binding.selection.region || null;
   for (const region of Object.keys(regionGroups || {})) {
-    if (preferredRegion && region !== preferredRegion) continue;
+    if (targetRegion && region !== targetRegion) continue;
     for (const member of regionGroups[region].nodes) {
       if (!binding.selection.nodeIds.length || binding.selection.nodeIds.includes(member.id)) {
         candidates.push({ region, node: member.node });
