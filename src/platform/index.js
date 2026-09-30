@@ -16,6 +16,15 @@ export {
   CONFIG_IMPORT_ENVELOPE_MAX_BYTES,
 } from "./runtime-import-receiver.js";
 export { createRuntimeImportService } from "./runtime-import-service.js";
+export {
+  RoutingSemantics,
+  RoutingCategories,
+  GlobalServiceCatalog,
+  DomesticServiceCatalog,
+  evaluateParallelRouting,
+  createSecureRoutingBaseline,
+  compileParallelRoutingForKernel,
+} from "./routing-strategy.js";
 export { inspectPlatformCapabilities } from "./capability-inspector.js";
 export {
   createRuntimeConfigImportTransport,
