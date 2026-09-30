@@ -1,6 +1,6 @@
 # 致谢与鸣谢
 
-AngelaNexus 的设计、实现、验证和长期维护建立在开放标准、开源软件、上游项目、开发工具以及社区公开资料的基础上。项目对以下工作表示感谢。
+AngelaNexus 的设计、实现、验证和长期维护建立在开放标准、开源软件、上游项目、开发工具以及社区公开资料的基础上。项目对相关工作表示感谢。
 
 ## 当前直接使用或已在项目清单中记录的开源组件
 
@@ -20,15 +20,34 @@ AngelaNexus Android 应用使用 AndroidX / Jetpack Compose 相关组件构建�
 - 许可证及版权声明：以对应 AndroidX / Jetpack 发布包随附的许可证和 NOTICE 为准。
 - 发布版本必须保留适用的第三方版权和许可证信息。
 
-## 上游内核与生态项目
+## 内核与生态项目致谢
 
-AngelaNexus 的核心架构面向 Mihomo、sing-box、Xray 等代理内核，并持续以其公开源码、配置规范、API、测试体系和发布信息作为兼容性研究与实现依据。
+AngelaNexus 的兼容性研究、接口设计和实现验证参考了以下公开项目、源码、配置规范、API、测试体系、发布信息以及社区实践。这里仅作为致谢与归属记录；项目自身的技术文档、源代码和架构说明不以这些项目作为叙述主体。
 
-当前仓库中的相关内容不应被理解为已经内置或重新分发这些上游运行时。只有当某一具体上游版本、提交或构建产物实际进入 AngelaNexus 发布物时，才应在发布级第三方清单中记录该精确来源、许可证、版权声明和 NOTICE 要求。
+### Mihomo
 
-- Mihomo：https://github.com/MetaCubeX/mihomo
-- sing-box：https://github.com/SagerNet/sing-box
-- Xray-core：https://github.com/XTLS/Xray-core
+- 项目：https://github.com/MetaCubeX/mihomo
+- 用途：代理内核兼容性研究与 Android 运行时验证参考。
+- 许可证：以对应版本随附的许可证、版权声明和 NOTICE 为准。
+
+### sing-box
+
+- 项目：https://github.com/SagerNet/sing-box
+- 用途：代理内核兼容性研究、配置规范与运行时能力参考。
+- 许可证：以对应版本随附的许可证、版权声明和 NOTICE 为准。
+
+### Xray-core
+
+- 项目：https://github.com/XTLS/Xray-core
+- 用途：代理内核兼容性研究、配置规范与运行时能力参考。
+- 许可证：以对应版本随附的许可证、版权声明和 NOTICE 为准。
+
+### FlClash
+
+- 项目：https://github.com/chen08209/FlClash
+- 用途：Android 原生运行时边界、JNI/TUN 集成方式的工程实践参考。
+- 许可证：GPL-3.0。
+- AngelaNexus 不直接复制其源代码或二进制构建产物。
 
 ## 开源标准与许可证
 
@@ -48,3 +67,4 @@ AngelaNexus 自有代码的许可证政策见 [LICENSE](../LICENSE)、[LICENSE_P
 2. 不因致谢而改变第三方项目原有许可证、版权或商标权利。
 3. 实际随发布物分发的第三方组件，以发布时核验的精确版本、提交、许可证和 NOTICE 为准。
 4. 对未来新增内核、库、SDK、工具链和数据源，在进入正式发布物前完成归属与许可证核验。
+5. 除必要的法律归属、许可证和机器可读依赖元数据外，不在普通技术文档、产品文案和业务代码中加入第三方项目的介绍性内容；相关引用统一归档至本致谢文件。
