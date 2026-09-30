@@ -106,7 +106,7 @@ export function createRoutingPolicyOptions(overrides = {}) {
   for (const policy of RoutingPolicyCatalog) result[policy.id] = overrides[policy.id] === undefined ? policy.defaultEnabled : Boolean(overrides[policy.id]);
   for (const [category, services] of Object.entries(GlobalServiceCatalog)) {
     const categoryPolicy = category === "meta_ai" ? "meta-ai" : category;
-    for (const item of services) { const key = `service:${category}:${item.id}`; result[key] = overrides[key] === undefined ? Boolean(result[categoryPolicy]) : Boolean(overrides[key]); }
+    for (const item of services) { const key = servicePolicyKey(category, item); result[key] = overrides[key] === undefined ? Boolean(result[categoryPolicy]) : Boolean(overrides[key]); }
   }
   for (const [group, services] of Object.entries(DomesticServiceCatalog)) {
     const categoryPolicy = `domestic-${group}`;
@@ -123,7 +123,7 @@ export function evaluateParallelRouting(policy, context = {}) {
   return Object.freeze({ semantics: RoutingSemantics.PARALLEL, matchedRuleIds: Object.freeze(candidates.map((item) => item.rule.id)), candidates: Object.freeze(candidates), selected, action: selected?.action || policy?.defaultAction || { type: "route", target: DEFAULT_PROXY } });
 }
 
-function serviceMatch(item) { const match = { domain_suffix: item.domains }; if (item.packages.length) match.package_name = item.packages; if (item.processNames.length) match.process_name = item.processNames; return match; }
+function servicePolicyKey(category, item) { const canonicalCategory = category === "meta_ai" ? "ai" : category; return `service:${canonicalCategory}:${item.id}`; }\n\nfunction serviceMatch(item) { const match = { domain_suffix: item.domains }; if (item.packages.length) match.package_name = item.packages; if (item.processNames.length) match.process_name = item.processNames; return match; }
 
 export function createSecureRoutingBaseline({ proxyTarget = DEFAULT_PROXY, directTarget = DEFAULT_DIRECT, rejectTarget = DEFAULT_REJECT, options = {} } = {}) {
   const enabled = createRoutingPolicyOptions(options); const rules = []; let id = 0;
@@ -132,7 +132,7 @@ export function createSecureRoutingBaseline({ proxyTarget = DEFAULT_PROXY, direc
   for (const [group, services] of Object.entries(DomesticServiceCatalog)) for (const item of services) { const policyId = `domestic-${group}`; const servicePolicy = `service:domestic:${group}:${item.id}`; if (enabled[servicePolicy]) add(servicePolicy, item.label, serviceMatch(item), { type: "route", target: directTarget }, { category: "domestic", group, serviceId: item.id, serviceLabel: item.label, appWebGranular: true }); }
   add("domestic-domain", "domestic-domain-fallback", { geosite: ["cn"] }, { type: "route", target: directTarget }, { category: "domestic", fallback: true });
   add("domestic-ip", "domestic-ip-fallback", { geoip: ["cn"] }, { type: "route", target: directTarget }, { category: "domestic", fallback: true });
-  for (const [category, services] of Object.entries(GlobalServiceCatalog)) { const categoryPolicy = category === "meta_ai" ? "meta-ai" : category; for (const item of services) { const servicePolicy = `service:${category}:${item.id}`; if (enabled[servicePolicy]) add(servicePolicy, item.label, serviceMatch(item), { type: "route", target: proxyTarget }, { category: categoryPolicy, serviceId: item.id, serviceLabel: item.label, appWebGranular: true }); } }
+  for (const [category, services] of Object.entries(GlobalServiceCatalog)) { const categoryPolicy = category === "meta_ai" ? "meta-ai" : category; for (const item of services) { const servicePolicy = servicePolicyKey(category, item); if (enabled[servicePolicy]) add(servicePolicy, item.label, serviceMatch(item), { type: "route", target: proxyTarget }, { category: categoryPolicy, serviceId: item.id, serviceLabel: item.label, appWebGranular: true }); } }
   add("foreign", "foreign-public-fallback", { rule_set: ["foreign-public"] }, { type: "route", target: proxyTarget }, { category: "foreign", fallback: true });
   return Object.freeze({ version: 4, semantics: RoutingSemantics.PARALLEL, options: enabled, rules: Object.freeze(rules), defaultAction: Object.freeze({ type: "route", target: proxyTarget }), security: Object.freeze({ foreignFailClosed: true, unknownPublicTraffic: "proxy", domainAndIpAreFallbackOnly: true }), rejectTarget });
 }
