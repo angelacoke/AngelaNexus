@@ -111,3 +111,13 @@ export {
 
 export { createNodeProfile, createNodeProfiles } from "./node-profile.js";
 export { createPipelineSpec } from "./pipeline-spec.js";
+
+export {
+  PROBE_TYPES,
+  HEALTH_STATES,
+  createHopProbeSpec,
+  evaluateHopHealth,
+  aggregateChainHealth,
+  createHopHealthProbe,
+} from "./chain-health.js";
+export { createChainTopology } from "./chain-topology.js";
