@@ -64,6 +64,6 @@ test("the same semantic policy compiles for all three kernels", () => {
   for (const kernel of ["mihomo", "sing-box", "xray"]) {
     const compiled = compileParallelRoutingForKernel(policy, kernel);
     assert.equal(compiled.kernel, kernel);
-    assert.equal(compiled.evaluation, "parallel-candidates-then-specificity");
+    assert.equal(compiled.evaluation, "platform-parallel-candidates-then-specificity");
   }
 });
