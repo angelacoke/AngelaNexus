@@ -18,7 +18,6 @@ export {
 } from "./landing-path.js";
 export {
   CHAIN_SOURCE_TYPES,
-  CHAIN_ROLES,
   createChainEditorModel,
   validateChainEditorSelection,
 } from "./chain-editor.js";
