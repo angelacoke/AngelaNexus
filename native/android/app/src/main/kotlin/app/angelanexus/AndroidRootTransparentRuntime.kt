@@ -103,6 +103,22 @@ class AndroidRootTransparentRuntime(
         }
     }
 
+    /**
+     * Performs a live health check without changing kernel state.
+     * A running instance is considered unsafe once any required interception,
+     * routing, DNS, or self-loop protection component disappears.
+     */
+    fun healthCheck(config: RootTransparentConfig): RootTransparentVerification {
+        check(state == State.ACTIVE) { "transparent runtime is not active" }
+        val verification = verify(config)
+        lastVerification = verification
+        if (!verification.success) {
+            state = State.FAILED
+            throw IllegalStateException("transparent runtime health verification failed")
+        }
+        return verification
+    }
+
     fun verify(config: RootTransparentConfig): RootTransparentVerification {
         return RootTransparentVerification(
             table = inspector.tableExists(config.tableName),
