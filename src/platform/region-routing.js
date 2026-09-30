@@ -124,37 +124,55 @@ export function createRegionSelectionGroups(nodes = [], {
   return Object.freeze(result);
 }
 
+function serviceEntries(serviceCatalog) {
+  const entries = [];
+  function visit(value, path) {
+    if (Array.isArray(value)) {
+      for (const service of value) {
+        if (service && typeof service === "object" && typeof service.id === "string") {
+          entries.push({ category: path.join(":"), service });
+        }
+      }
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    for (const [key, child] of Object.entries(value)) visit(child, path.concat(key));
+  }
+  visit(serviceCatalog || {}, []);
+  return entries;
+}
+
 export function createServiceNodeBindings(serviceCatalog, regionGroups, { defaults = {}, overrides = {} } = {}) {
   const bindings = {};
-  for (const [category, services] of Object.entries(serviceCatalog || {})) {
-    for (const service of services || []) {
-      const serviceKey = "service:" + category + ":" + service.id;
-      const configured = overrides[serviceKey] || defaults[serviceKey];
-      const config = configured && typeof configured === "object" && !Array.isArray(configured)
-        ? configured
-        : { nodeIds: configured };
-      const candidates = Array.isArray(config.nodeIds)
-        ? config.nodeIds.map(String)
-        : config.nodeIds ? [String(config.nodeIds)] : [];
-      const region = typeof config.region === "string" && config.region.trim() ? config.region.trim().toLowerCase() : null;
-      const mode = config.mode === REGION_SELECTION_MODES.MANUAL || candidates.length
-        ? REGION_SELECTION_MODES.MANUAL
-        : REGION_SELECTION_MODES.AUTO;
-      bindings[serviceKey] = Object.freeze({
-        serviceKey,
-        category,
-        serviceId: service.id,
-        selection: Object.freeze({
-          mode,
-          region,
-          nodeIds: Object.freeze(candidates),
-        }),
-        availableRegions: Object.freeze(Object.keys(regionGroups || {}).filter((candidateRegion) =>
-          (!region || candidateRegion === region) &&
-          regionGroups[candidateRegion].nodes.some((node) => !candidates.length || candidates.includes(node.id))
-        )),
-      });
-    }
+  for (const entry of serviceEntries(serviceCatalog)) {
+    const category = entry.category;
+    const service = entry.service;
+    const serviceKey = "service:" + category + ":" + service.id;
+    const configured = overrides[serviceKey] !== undefined ? overrides[serviceKey] : defaults[serviceKey];
+    const config = configured && typeof configured === "object" && !Array.isArray(configured)
+      ? configured
+      : { nodeIds: configured };
+    const candidates = Array.isArray(config.nodeIds)
+      ? config.nodeIds.map(String)
+      : config.nodeIds ? [String(config.nodeIds)] : [];
+    const region = typeof config.region === "string" && config.region.trim() ? config.region.trim().toLowerCase() : null;
+    const mode = config.mode === REGION_SELECTION_MODES.MANUAL || candidates.length
+      ? REGION_SELECTION_MODES.MANUAL
+      : REGION_SELECTION_MODES.AUTO;
+    bindings[serviceKey] = Object.freeze({
+      serviceKey,
+      category,
+      serviceId: service.id,
+      selection: Object.freeze({
+        mode,
+        region,
+        nodeIds: Object.freeze(candidates),
+      }),
+      availableRegions: Object.freeze(Object.keys(regionGroups || {}).filter((candidateRegion) =>
+        (!region || candidateRegion === region) &&
+        regionGroups[candidateRegion].nodes.some((node) => !candidates.length || candidates.includes(node.id))
+      )),
+    });
   }
   return Object.freeze(bindings);
 }
