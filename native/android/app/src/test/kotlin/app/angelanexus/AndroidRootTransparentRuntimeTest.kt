@@ -98,7 +98,7 @@ class AndroidRootTransparentRuntimeTest {
             RootTransparentRuleTransaction(FakeExecutor(), AndroidRootTransparentRules.build(config())),
         )
 
-        val verification = runtime.healthCheck(config())
+        val verification = runtime.healthCheck()
 
         assertEquals(AndroidRootTransparentRuntime.State.ACTIVE, runtime.state)
         assertTrue(verification.success)
@@ -114,12 +114,27 @@ class AndroidRootTransparentRuntimeTest {
         )
 
         val error = assertFailsWith<IllegalStateException> {
-            runtime.healthCheck(configWithLostState())
+            runtime.healthCheck()
         }
 
         assertEquals("transparent runtime health verification failed", error.message)
         assertEquals(AndroidRootTransparentRuntime.State.FAILED, runtime.state)
         assertTrue(runtime.lastVerification?.success == false)
+    }
+
+    @Test
+    fun health_check_uses_active_configuration_and_ignores_caller_supplied_state() {
+        val runtime = AndroidRootTransparentRuntime(FakeInspector(true))
+        runtime.activate(
+            config(),
+            RootTransparentRuleTransaction(FakeExecutor(), AndroidRootTransparentRules.build(config())),
+        )
+
+        val verification = runtime.healthCheck()
+
+        assertEquals(config().mark, 1)
+        assertTrue(verification.success)
+        assertEquals(AndroidRootTransparentRuntime.State.ACTIVE, runtime.state)
     }
 
     private fun configWithLostState() = config().copy(mark = 2)
