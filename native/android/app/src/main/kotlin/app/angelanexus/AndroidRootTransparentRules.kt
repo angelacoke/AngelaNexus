@@ -1,5 +1,7 @@
 package app.angelanexus
 
+import java.net.InetAddress
+
 data class RootTransparentConfig(
     val interceptPort: Int,
     val mark: Int,
