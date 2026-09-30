@@ -3,12 +3,15 @@ package app.angelanexus
 import android.content.Context
 
 /**
- * Capability probe and lifecycle boundary for the optional rooted transparent adapter.
+ * Root transparent adapter.
  *
- * Root mode is selectable only when the device exposes the complete network
- * interception contract. Capability probing never installs or mutates network rules.
+ * The platform-neutral transparent contract remains the source of truth.
+ * This adapter only binds a verified Android/Linux interception backend to it.
  */
-class AndroidRootTransparentAdapter(private val context: Context) {
+class AndroidRootTransparentAdapter(
+    private val context: Context,
+    private val backend: Backend = AndroidRootBackend(context),
+) {
     data class Capabilities(
         val rootAvailable: Boolean,
         val rootAuthorized: Boolean,
@@ -24,72 +27,61 @@ class AndroidRootTransparentAdapter(private val context: Context) {
         val atomicRollback: Boolean,
     ) {
         val rootBackendReady: Boolean
-            get() = rootAvailable &&
-                rootAuthorized &&
-                tcp &&
-                udp &&
-                dns &&
-                ipv4 &&
-                ipv6 &&
-                uidIdentity &&
-                processIdentity &&
-                policyRouting &&
-                atomicRollback
+            get() = rootAvailable && rootAuthorized && tcp && udp && dns &&
+                ipv4 && ipv6 && uidIdentity && processIdentity &&
+                policyRouting && atomicRollback
     }
 
-    fun inspect(): Capabilities {
+    interface Backend {
+        fun inspect(): Capabilities
+        fun createTransaction(config: RootTransparentConfig): RootTransparentRuleTransaction
+    }
+
+    fun inspect(): Capabilities = backend.inspect()
+
+    fun begin(config: RootTransparentConfig): RootTransparentRuleTransaction {
+        check(inspect().rootBackendReady) { "root transparent backend is not ready" }
+        return backend.createTransaction(config)
+    }
+}
+
+private class AndroidRootBackend(private val context: Context) : AndroidRootTransparentAdapter.Backend {
+    override fun inspect(): AndroidRootTransparentAdapter.Capabilities {
         val rootAvailable = RootShellProbe.isRootAvailable()
         val rootAuthorized = rootAvailable && RootShellProbe.commandSucceeds("id")
-        val networkTools = rootAuthorized && RootShellProbe.networkToolsAvailable()
+        val nftAvailable = rootAuthorized && RootShellProbe.commandSucceeds("command -v nft")
+        val ipAvailable = rootAuthorized && RootShellProbe.commandSucceeds("command -v ip")
 
-        // The current tree has not yet bound a verified rule-installation backend.
-        // Therefore capability flags remain false until that backend is present.
-        return Capabilities(
+        return AndroidRootTransparentAdapter.Capabilities(
             rootAvailable = rootAvailable,
             rootAuthorized = rootAuthorized,
             systemVpnAvailable = true,
-            tcp = networkTools && false,
-            udp = networkTools && false,
-            dns = networkTools && false,
-            ipv4 = networkTools && false,
-            ipv6 = networkTools && false,
+            tcp = false,
+            udp = false,
+            dns = false,
+            ipv4 = ipAvailable,
+            ipv6 = ipAvailable,
             uidIdentity = false,
             processIdentity = false,
-            policyRouting = networkTools && false,
-            atomicRollback = false,
+            policyRouting = ipAvailable,
+            atomicRollback = nftAvailable && ipAvailable,
         )
     }
 
-    fun begin(): Transaction {
-        check(inspect().rootBackendReady) {
-            "root transparent backend is not ready"
-        }
-        return Transaction()
+    override fun createTransaction(config: RootTransparentConfig): RootTransparentRuleTransaction {
+        check(inspect().rootBackendReady) { "verified root transparent capabilities are required" }
+        return RootTransparentRuleTransaction(
+            SuRootCommandExecutor(),
+            AndroidRootTransparentRules.build(config),
+        )
     }
 
-    inner class Transaction {
-        private var prepared = false
-        private var committed = false
-
-        fun prepare() {
-            check(!prepared && !committed) { "transaction is not reusable" }
-            prepared = true
-        }
-
-        fun commit() {
-            check(prepared && !committed) { "transaction is not prepared" }
-            try {
-                // Rule installation is intentionally delegated to the verified backend.
-                committed = true
-            } catch (error: Throwable) {
-                rollback()
-                throw error
-            }
-        }
-
-        fun rollback() {
-            if (!prepared || committed) return
-            prepared = false
+    private class SuRootCommandExecutor : RootCommandExecutor {
+        override fun execute(command: String) {
+            require(command.isNotBlank())
+            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
+            val exit = process.waitFor()
+            if (exit != 0) throw IllegalStateException("root command failed with exit code $exit")
         }
     }
 
@@ -99,23 +91,13 @@ class AndroidRootTransparentAdapter(private val context: Context) {
             val output = process.inputStream.bufferedReader().use { it.readText() }
             val exit = process.waitFor()
             exit == 0 && output.contains("uid=0")
-        } catch (_: Throwable) {
-            false
-        }
+        } catch (_: Throwable) { false }
 
         fun commandSucceeds(command: String): Boolean = try {
             val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
             process.inputStream.close()
             process.errorStream.close()
             process.waitFor() == 0
-        } catch (_: Throwable) {
-            false
-        }
-
-        fun networkToolsAvailable(): Boolean {
-            val ip = commandSucceeds("command -v ip")
-            val firewall = commandSucceeds("command -v nft") || commandSucceeds("command -v iptables")
-            return ip && firewall
-        }
+        } catch (_: Throwable) { false }
     }
 }

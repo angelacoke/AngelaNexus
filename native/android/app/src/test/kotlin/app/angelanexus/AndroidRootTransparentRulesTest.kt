@@ -14,16 +14,28 @@ class AndroidRootTransparentRulesTest {
         }
     }
 
-    private fun config() = RootTransparentConfig(15001, 1, 100, 12345, 15053, true)
+    private fun config() = RootTransparentConfig(
+        interceptPort = 15001,
+        mark = 1,
+        routingTable = 100,
+        ownerUid = 12345,
+        dnsPort = 15053,
+        ipv6 = true,
+        tableName = "angelanexus_test",
+        bypassIpv4 = listOf("127.0.0.0/8", "10.0.0.0/8"),
+        bypassIpv6 = listOf("::1/128", "fc00::/7"),
+    )
 
     @Test
     fun plan_contains_capture_policy_route_and_loop_protection() {
         val apply = AndroidRootTransparentRules.build(config()).map { it.apply }
         assertTrue(apply.any { it.contains("tproxy to :15001") })
-        assertTrue(apply.any { it.contains("fwmark 1 lookup 100") })
+        assertTrue(apply.any { it.contains("fwmark 1/0xffff lookup 100") })
         assertTrue(apply.any { it.contains("local ::/0 dev lo") })
         assertTrue(apply.any { it.contains("meta skuid 12345 return") })
         assertTrue(apply.any { it.contains("dport 15001 return") })
+        assertTrue(apply.any { it.contains("ip daddr 127.0.0.0/8 return") })
+        assertTrue(apply.any { it.contains("ip6 daddr fc00::/7 return") })
     }
 
     @Test

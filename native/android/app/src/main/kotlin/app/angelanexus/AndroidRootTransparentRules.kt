@@ -7,6 +7,9 @@ data class RootTransparentConfig(
     val ownerUid: Int,
     val dnsPort: Int? = null,
     val ipv6: Boolean = true,
+    val tableName: String = "angelanexus",
+    val bypassIpv4: List<String> = emptyList(),
+    val bypassIpv6: List<String> = emptyList(),
 ) {
     init {
         require(interceptPort in 1..65535)
@@ -14,6 +17,7 @@ data class RootTransparentConfig(
         require(routingTable > 0)
         require(ownerUid >= 0)
         require(dnsPort == null || dnsPort in 1..65535)
+        require(tableName.matches(Regex("[a-z][a-z0-9_]{0,30}")))
     }
 }
 
@@ -24,7 +28,6 @@ interface RootCommandExecutor {
 }
 
 object AndroidRootTransparentRules {
-    private const val TABLE = "angelanexus"
     private const val CHAIN = "prerouting"
     private const val OUTPUT = "output"
     private const val PRIORITY = "-150"
@@ -33,17 +36,17 @@ object AndroidRootTransparentRules {
         val commands = mutableListOf<RootCommand>()
         commands += nftCommands(config)
         commands += RootCommand(
-            "ip rule add fwmark " + config.mark + " lookup " + config.routingTable,
-            "ip rule del fwmark " + config.mark + " lookup " + config.routingTable,
+            "ip rule add fwmark ${config.mark}/0xffff lookup ${config.routingTable}",
+            "ip rule del fwmark ${config.mark}/0xffff lookup ${config.routingTable}",
         )
         commands += RootCommand(
-            "ip route add local 0.0.0.0/0 dev lo table " + config.routingTable,
-            "ip route del local 0.0.0.0/0 dev lo table " + config.routingTable,
+            "ip route add local 0.0.0.0/0 dev lo table ${config.routingTable}",
+            "ip route del local 0.0.0.0/0 dev lo table ${config.routingTable}",
         )
         if (config.ipv6) {
             commands += RootCommand(
-                "ip -6 route add local ::/0 dev lo table " + config.routingTable,
-                "ip -6 route del local ::/0 dev lo table " + config.routingTable,
+                "ip -6 route add local ::/0 dev lo table ${config.routingTable}",
+                "ip -6 route del local ::/0 dev lo table ${config.routingTable}",
             )
         }
         return commands
@@ -51,52 +54,50 @@ object AndroidRootTransparentRules {
 
     private fun nftCommands(config: RootTransparentConfig): List<RootCommand> {
         val commands = mutableListOf<RootCommand>()
+        val table = config.tableName
+        commands += RootCommand("nft add table inet $table", "nft delete table inet $table")
         commands += RootCommand(
-            "nft add table inet " + TABLE,
-            "nft delete table inet " + TABLE,
+            "nft add chain inet $table $CHAIN { type filter hook prerouting priority $PRIORITY; policy accept; }",
+            "nft delete chain inet $table $CHAIN",
         )
         commands += RootCommand(
-            "nft add chain inet " + TABLE + " " + CHAIN +
-                " { type filter hook prerouting priority " + PRIORITY + "; policy accept; }",
-            "nft delete chain inet " + TABLE + " " + CHAIN,
+            "nft add chain inet $table $OUTPUT { type filter hook output priority $PRIORITY; policy accept; }",
+            "nft delete chain inet $table $OUTPUT",
         )
         commands += RootCommand(
-            "nft add chain inet " + TABLE + " " + OUTPUT +
-                " { type filter hook output priority " + PRIORITY + "; policy accept; }",
-            "nft delete chain inet " + TABLE + " " + OUTPUT,
+            "nft add rule inet $table $OUTPUT meta skuid ${config.ownerUid} return",
+            "",
         )
         commands += RootCommand(
-            "nft add rule inet " + TABLE + " " + OUTPUT +
-                " meta skuid " + config.ownerUid + " return",
-            "nft flush chain inet " + TABLE + " " + OUTPUT,
+            "nft add rule inet $table $OUTPUT tcp dport ${config.interceptPort} return",
+            "",
         )
         commands += RootCommand(
-            "nft add rule inet " + TABLE + " " + OUTPUT +
-                " tcp dport " + config.interceptPort + " return",
-            "nft flush chain inet " + TABLE + " " + OUTPUT,
+            "nft add rule inet $table $OUTPUT udp dport ${config.interceptPort} return",
+            "",
         )
-        commands += RootCommand(
-            "nft add rule inet " + TABLE + " " + CHAIN +
-                " tcp dport != " + config.interceptPort +
-                " tproxy to :" + config.interceptPort +
-                " meta mark set " + config.mark,
-            "nft flush chain inet " + TABLE + " " + CHAIN,
-        )
-        commands += RootCommand(
-            "nft add rule inet " + TABLE + " " + CHAIN +
-                " udp dport != " + config.interceptPort +
-                " tproxy to :" + config.interceptPort +
-                " meta mark set " + config.mark,
-            "nft flush chain inet " + TABLE + " " + CHAIN,
-        )
+        config.bypassIpv4.forEach { cidr ->
+            commands += RootCommand("nft add rule inet $table $CHAIN ip daddr $cidr return", "")
+        }
+        if (config.ipv6) {
+            config.bypassIpv6.forEach { cidr ->
+                commands += RootCommand("nft add rule inet $table $CHAIN ip6 daddr $cidr return", "")
+            }
+        }
         if (config.dnsPort != null) {
             commands += RootCommand(
-                "nft add rule inet " + TABLE + " " + CHAIN +
-                    " udp dport 53 tproxy to :" + config.dnsPort +
-                    " meta mark set " + config.mark,
-                "nft flush chain inet " + TABLE + " " + CHAIN,
+                "nft add rule inet $table $CHAIN udp dport 53 tproxy to :${config.dnsPort} meta mark set ${config.mark}",
+                "",
             )
         }
+        commands += RootCommand(
+            "nft add rule inet $table $CHAIN tcp dport != ${config.interceptPort} tproxy to :${config.interceptPort} meta mark set ${config.mark}",
+            "",
+        )
+        commands += RootCommand(
+            "nft add rule inet $table $CHAIN udp dport != ${config.interceptPort} tproxy to :${config.interceptPort} meta mark set ${config.mark}",
+            "",
+        )
         return commands
     }
 }
@@ -124,7 +125,9 @@ class RootTransparentRuleTransaction(
             }
             committed = true
         } catch (error: Throwable) {
-            applied.asReversed().forEach { command -> runCatching { executor.execute(command.rollback) } }
+            applied.asReversed().forEach { command ->
+                if (command.rollback.isNotBlank()) runCatching { executor.execute(command.rollback) }
+            }
             prepared = false
             throw error
         }
@@ -132,7 +135,9 @@ class RootTransparentRuleTransaction(
 
     fun rollback() {
         if (!prepared || committed) return
-        commands.asReversed().forEach { command -> runCatching { executor.execute(command.rollback) } }
+        commands.asReversed().forEach { command ->
+            if (command.rollback.isNotBlank()) runCatching { executor.execute(command.rollback) }
+        }
         prepared = false
     }
 }
