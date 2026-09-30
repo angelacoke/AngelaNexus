@@ -91,7 +91,7 @@ export function createRegionSelectionGroups(nodes = [], {
 
   for (const [region, members] of Object.entries(regions)) {
     const manual = Array.isArray(manualSelections[region]) ? manualSelections[region].map(String) : [];
-    const available = members.filter((member) => manual.length === 0 || manual.includes(member.id));
+    const available = members;
     if (!available.length) continue;
 
     const ranked = [...available].sort((a, b) => {
