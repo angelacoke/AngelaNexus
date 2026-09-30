@@ -13,6 +13,7 @@ class AndroidRootTransparentAdapterTest {
         override fun ipv4PolicyRouting() = true
         override fun ipv6PolicyRouting() = true
         override fun uidIdentity() = true
+        override fun localOutputCapture() = true
         override fun processIdentity() = true
         override fun atomicRollback() = true
     }
@@ -27,6 +28,7 @@ class AndroidRootTransparentAdapterTest {
         assertFalse(probe.ipv4PolicyRouting())
         assertFalse(probe.ipv6PolicyRouting())
         assertFalse(probe.uidIdentity())
+        assertFalse(probe.localOutputCapture())
         assertFalse(probe.processIdentity())
         assertFalse(probe.atomicRollback())
     }
@@ -41,6 +43,7 @@ class AndroidRootTransparentAdapterTest {
         assertTrue(probe.ipv4PolicyRouting())
         assertTrue(probe.ipv6PolicyRouting())
         assertTrue(probe.uidIdentity())
+        assertTrue(probe.localOutputCapture())
         assertTrue(probe.processIdentity())
         assertTrue(probe.atomicRollback())
     }
