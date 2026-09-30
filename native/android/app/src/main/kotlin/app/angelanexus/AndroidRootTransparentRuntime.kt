@@ -69,6 +69,11 @@ class AndroidRootTransparentRuntime(
             activeTransaction = transaction
             state = State.ACTIVE
         } catch (error: Throwable) {
+            if (!inspector.isClear(config)) {
+                error.addSuppressed(
+                    IllegalStateException("transparent rule rollback could not be verified as clear"),
+                )
+            }
             state = State.FAILED
             throw error
         }
