@@ -108,8 +108,9 @@ class AndroidRootTransparentRuntime(
      * A running instance is considered unsafe once any required interception,
      * routing, DNS, or self-loop protection component disappears.
      */
-    fun healthCheck(config: RootTransparentConfig): RootTransparentVerification {
+    fun healthCheck(): RootTransparentVerification {
         check(state == State.ACTIVE) { "transparent runtime is not active" }
+        val config = activeConfig ?: error("transparent runtime has no active configuration")
         val verification = verify(config)
         lastVerification = verification
         if (!verification.success) {
