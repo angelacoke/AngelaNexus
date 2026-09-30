@@ -121,3 +121,5 @@ export {
   createHopHealthProbe,
 } from "./chain-health.js";
 export { createChainTopology } from "./chain-topology.js";
+
+export { createChainHealthMonitor } from "./chain-health-monitor.js";
