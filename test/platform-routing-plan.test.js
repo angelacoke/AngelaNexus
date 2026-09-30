@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   createPlatformRoutingPlan,
   RoutingSemantics,
+  resolvePlatformRoutingDecision,
 } from "../src/platform/index.js";
 
 const nodes = [
@@ -61,4 +62,49 @@ test("platform routing plan keeps unknown public traffic fail-closed to proxy", 
   assert.equal(plan.policy.security.foreignFailClosed, true);
   assert.equal(plan.policy.security.unknownPublicTraffic, "proxy");
   assert.equal(plan.policy.defaultAction.target, "secure-proxy");
+});
+
+
+test("platform routing decision resolves a concrete service to the selected region node", () => {
+  const plan = createPlatformRoutingPlan({
+    nodes,
+    regionOptions: {
+      health: {
+        "us-1": { available: true, latencyMs: 80 },
+        "us-2": { available: true, latencyMs: 40 },
+      },
+    },
+    serviceOverrides: {
+      "service:ai:openai": { region: "us", mode: "auto" },
+      "service:ai:meta-ai": ["us-1"],
+    },
+  });
+
+  const openai = resolvePlatformRoutingDecision(plan, { domain: "chat.openai.com" }, {
+    health: {
+      "us-1": { available: true, latencyMs: 80 },
+      "us-2": { available: true, latencyMs: 40 },
+    },
+  });
+  assert.equal(openai.target.type, "node");
+  assert.equal(openai.target.serviceKey, "service:ai:openai");
+  assert.equal(openai.target.region, "us");
+  assert.equal(openai.target.nodeId, "us-2");
+  assert.equal(openai.target.selectionMode, "auto");
+
+  const metaAi = resolvePlatformRoutingDecision(plan, { domain: "meta.ai" }, {
+    health: {
+      "us-1": { available: true, latencyMs: 80 },
+      "us-2": { available: true, latencyMs: 40 },
+    },
+  });
+  assert.equal(metaAi.target.nodeId, "us-1");
+  assert.equal(metaAi.target.selectionMode, "manual");
+});
+
+test("platform routing decision keeps non-service actions kernel-neutral", () => {
+  const plan = createPlatformRoutingPlan({ nodes });
+  const result = resolvePlatformRoutingDecision(plan, { geoip: ["cn"] });
+  assert.equal(result.target.type, "route");
+  assert.equal(result.target.target, "domestic-direct");
 });
