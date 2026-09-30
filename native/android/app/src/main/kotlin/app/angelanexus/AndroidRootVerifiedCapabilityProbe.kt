@@ -65,11 +65,11 @@ class AndroidRootVerifiedCapabilityProbe(
     private fun reversibleNftRuleCheck(rule: String): Boolean {
         val command = """
             set -e
-            table="angelanexus_probe_\${'$'}\${'$'}"
-            nft add table inet "\${'$'}table"
-            trap 'nft delete table inet "\${'$'}table" >/dev/null 2>&1 || true' EXIT
-            nft add chain inet "\${'$'}table" prerouting { type filter hook prerouting priority -150; policy accept; }
-            nft add rule inet "\${'$'}table" prerouting $rule
+            table="angelanexus_probe_${'$'}${'$'}"
+            nft add table inet "${'$'}table"
+            trap 'nft delete table inet "${'$'}table" >/dev/null 2>&1 || true' EXIT
+            nft add chain inet "${'$'}table" prerouting { type filter hook prerouting priority -150; policy accept; }
+            nft add rule inet "${'$'}table" prerouting $rule
         """.trimIndent()
         return runner.run(command).succeeded
     }
@@ -79,20 +79,22 @@ class AndroidRootVerifiedCapabilityProbe(
             set -e
             ip_cmd="$ipCommand"
             base=51800
-            table=\${'$'}((base + \${'$'}\${'$'} % 1000))
-            while \${'$'}ip_cmd route show table "\${'$'}table" 2>/dev/null | grep -q .; do
-              table=\${'$'}((table + 1))
-              if [ "\${'$'}table" -gt 52799 ]; then exit 2; fi
+            table=${'$'}((base + ${'$'}${'$'} % 1000))
+            mark=$(printf '0x5a%02x' ${'$'}((${'$'}${'$'} % 256)))
+            while ${'$'}ip_cmd route show table "${'$'}table" 2>/dev/null | grep -q . ||
+                  ${'$'}ip_cmd rule show | grep -Eq "fwmark ${'$'}mark/0xffff.*lookup ${'$'}table"; do
+              table=${'$'}((table + 1))
+              mark=$(printf '0x5a%02x' ${'$'}((${'$'}table % 256)))
+              if [ "${'$'}table" -gt 52799 ]; then exit 2; fi
             done
-            mark="0x5a5a"
-            \${'$'}ip_cmd rule add fwmark "\${'$'}mark"/0xffff lookup "\${'$'}table"
-            trap '\${'$'}ip_cmd rule del fwmark "\${'$'}mark"/0xffff lookup "\${'$'}table" >/dev/null 2>&1 || true' EXIT
+            ${'$'}ip_cmd rule add fwmark "${'$'}mark"/0xffff lookup "${'$'}table"
+            trap '${'$'}ip_cmd rule del fwmark "${'$'}mark"/0xffff lookup "${'$'}table" >/dev/null 2>&1 || true' EXIT
             if [ "$ipCommand" = "ip -6" ]; then
-              \${'$'}ip_cmd -6 route add local ::/0 dev lo table "\${'$'}table"
-              \${'$'}ip_cmd -6 route del local ::/0 dev lo table "\${'$'}table"
+              ${'$'}ip_cmd -6 route add local ::/0 dev lo table "${'$'}table"
+              ${'$'}ip_cmd -6 route del local ::/0 dev lo table "${'$'}table"
             else
-              \${'$'}ip_cmd route add local 0.0.0.0/0 dev lo table "\${'$'}table"
-              \${'$'}ip_cmd route del local 0.0.0.0/0 dev lo table "\${'$'}table"
+              ${'$'}ip_cmd route add local 0.0.0.0/0 dev lo table "${'$'}table"
+              ${'$'}ip_cmd route del local 0.0.0.0/0 dev lo table "${'$'}table"
             fi
         """.trimIndent()
         return runner.run(command).succeeded
@@ -101,12 +103,12 @@ class AndroidRootVerifiedCapabilityProbe(
     private fun reversibleNftTransactionCheck(): Boolean {
         val command = """
             set -e
-            table="angelanexus_probe_\${'$'}\${'$'}"
-            nft add table inet "\${'$'}table"
-            trap 'nft delete table inet "\${'$'}table" >/dev/null 2>&1 || true' EXIT
-            nft add chain inet "\${'$'}table" output { type filter hook output priority -150; policy accept; }
-            nft add rule inet "\${'$'}table" output meta mark 0x5a5a return
-            nft delete table inet "\${'$'}table"
+            table="angelanexus_probe_${'$'}${'$'}"
+            nft add table inet "${'$'}table"
+            trap 'nft delete table inet "${'$'}table" >/dev/null 2>&1 || true' EXIT
+            nft add chain inet "${'$'}table" output { type filter hook output priority -150; policy accept; }
+            nft add rule inet "${'$'}table" output meta mark 0x5a5a return
+            nft delete table inet "${'$'}table"
             trap - EXIT
         """.trimIndent()
         return runner.run(command).succeeded
