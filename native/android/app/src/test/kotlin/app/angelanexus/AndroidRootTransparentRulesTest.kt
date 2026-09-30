@@ -22,8 +22,8 @@ class AndroidRootTransparentRulesTest {
         dnsPort = 15053,
         ipv6 = true,
         tableName = "angelanexus_test",
-        bypassIpv4 = listOf("127.0.0.0/8", "10.0.0.0/8"),
-        bypassIpv6 = listOf("::1/128", "fc00::/7"),
+        bypassIpv4 = listOf("10.0.0.0/8"),
+        bypassIpv6 = listOf("fc00::/7"),
         protectedUids = listOf(2000),
         protectedPorts = listOf(15053),
     )
@@ -46,8 +46,17 @@ class AndroidRootTransparentRulesTest {
         assertTrue(apply.any { it.contains("dport 15001 return") })
         assertTrue(apply.any { it.contains("output ip daddr 127.0.0.0/8 return") })
         assertTrue(apply.any { it.contains("ip daddr 127.0.0.0/8 return") })
+        assertTrue(apply.any { it.contains("output ip6 daddr ::1/128 return") })
+        assertTrue(apply.any { it.contains("ip6 daddr ::1/128 return") })
+        assertTrue(apply.any { it.contains("output ip daddr 10.0.0.0/8 return") })
         assertTrue(apply.any { it.contains("output ip6 daddr fc00::/7 return") })
-        assertTrue(apply.any { it.contains("ip6 daddr fc00::/7 return") })
+    }
+
+    @Test
+    fun self_loop_protection_can_be_disabled_explicitly() {
+        val apply = AndroidRootTransparentRules.build(config().copy(selfLoopProtection = false)).map { it.apply }
+        assertTrue(apply.none { it.contains("daddr 127.0.0.0/8 return") })
+        assertTrue(apply.none { it.contains("daddr ::1/128 return") })
     }
 
     @Test
