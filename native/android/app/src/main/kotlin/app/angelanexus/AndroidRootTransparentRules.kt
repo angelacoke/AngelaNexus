@@ -115,13 +115,24 @@ object AndroidRootTransparentRules {
         commands += RootCommand("nft add rule inet $table $OUTPUT udp dport ${config.interceptPort} return", "")
 
         config.bypassIpv4.distinct().forEach { cidr ->
+            commands += RootCommand("nft add rule inet $table $OUTPUT ip daddr $cidr return", "")
             commands += RootCommand("nft add rule inet $table $CHAIN ip daddr $cidr return", "")
         }
         if (config.ipv6) {
             config.bypassIpv6.distinct().forEach { cidr ->
+                commands += RootCommand("nft add rule inet $table $OUTPUT ip6 daddr $cidr return", "")
                 commands += RootCommand("nft add rule inet $table $CHAIN ip6 daddr $cidr return", "")
             }
         }
+
+        commands += RootCommand(
+            "nft add rule inet $table $OUTPUT tcp dport != ${config.interceptPort} meta mark set ${config.mark}",
+            "",
+        )
+        commands += RootCommand(
+            "nft add rule inet $table $OUTPUT udp dport != ${config.interceptPort} meta mark set ${config.mark}",
+            "",
+        )
 
         if (config.dnsPort != null) {
             commands += RootCommand(
