@@ -3,10 +3,12 @@ import {
   DomesticServiceCatalog,
   createRoutingPolicyOptions,
   createSecureRoutingBaseline,
+  evaluateParallelRouting,
 } from "./routing-strategy.js";
 import {
   createRegionSelectionGroups,
   createServiceNodeBindings,
+  resolveServiceNode,
 } from "./region-routing.js";
 
 function canonicalServiceCatalog() {
@@ -16,6 +18,43 @@ function canonicalServiceCatalog() {
     global[target] = [...(global[target] || []), ...services];
   }
   return Object.freeze(global);
+}
+
+export function resolvePlatformRoutingDecision(plan, context = {}, { health = {}, preferredRegion = null } = {}) {
+  if (!plan || !plan.policy) throw new Error("routing plan is required");
+  const evaluation = evaluateParallelRouting(plan.policy, context);
+  const selected = evaluation.selected;
+  if (!selected) {
+    return Object.freeze({
+      evaluation,
+      target: Object.freeze({ type: "route", target: plan.policy.defaultAction.target }),
+    });
+  }
+
+  const routing = selected.routing;
+  if (!routing || !routing.serviceKey) {
+    return Object.freeze({ evaluation, target: selected.action });
+  }
+
+  const binding = plan.serviceBindings[routing.serviceKey];
+  if (!binding) throw new Error("missing service routing binding: " + routing.serviceKey);
+  const resolved = resolveServiceNode(routing.serviceKey, binding, plan.regionGroups, {
+    health,
+    preferredRegion,
+  });
+
+  return Object.freeze({
+    evaluation,
+    target: Object.freeze({
+      type: "node",
+      target: resolved.node,
+      nodeId: String(resolved.node.id || resolved.node.uuid || resolved.node.name || resolved.node.server || ""),
+      region: resolved.region,
+      serviceKey: routing.serviceKey,
+      selectionMode: resolved.selectionMode,
+      candidates: resolved.candidates,
+    }),
+  });
 }
 
 export function createPlatformRoutingPlan({
