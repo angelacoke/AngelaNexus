@@ -90,4 +90,38 @@ class AndroidRootTransparentRuntimeTest {
         assertTrue(error.suppressedExceptions.any { it.message == "simulated command failure" })
     }
 
+    @Test
+    fun health_check_keeps_active_when_live_state_is_intact() {
+        val runtime = AndroidRootTransparentRuntime(FakeInspector(true))
+        runtime.activate(
+            config(),
+            RootTransparentRuleTransaction(FakeExecutor(), AndroidRootTransparentRules.build(config())),
+        )
+
+        val verification = runtime.healthCheck(config())
+
+        assertEquals(AndroidRootTransparentRuntime.State.ACTIVE, runtime.state)
+        assertTrue(verification.success)
+        assertTrue(runtime.lastVerification === verification)
+    }
+
+    @Test
+    fun health_check_fails_closed_when_live_state_is_lost() {
+        val runtime = AndroidRootTransparentRuntime(FakeInspector(true))
+        runtime.activate(
+            config(),
+            RootTransparentRuleTransaction(FakeExecutor(), AndroidRootTransparentRules.build(config())),
+        )
+
+        val error = assertFailsWith<IllegalStateException> {
+            runtime.healthCheck(configWithLostState())
+        }
+
+        assertEquals("transparent runtime health verification failed", error.message)
+        assertEquals(AndroidRootTransparentRuntime.State.FAILED, runtime.state)
+        assertTrue(runtime.lastVerification?.success == false)
+    }
+
+    private fun configWithLostState() = config().copy(mark = 2)
+
 }
