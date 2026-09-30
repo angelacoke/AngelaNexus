@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  RoutingSemantics,
   createRoutingPolicy,
   createRoutingRule,
 } from "../src/core/routing-policy.js";
@@ -9,6 +8,7 @@ import {
   compileParallelRoutingForKernel,
   createSecureRoutingBaseline,
   evaluateParallelRouting,
+  RoutingSemantics,
 } from "../src/platform/routing-strategy.js";
 
 test("parallel routing evaluates all matching rules instead of list order", () => {
