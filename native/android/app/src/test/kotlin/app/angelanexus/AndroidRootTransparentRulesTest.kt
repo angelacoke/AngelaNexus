@@ -41,8 +41,12 @@ class AndroidRootTransparentRulesTest {
         assertTrue(apply.any { it.contains("udp dport 53 tproxy to :15053 meta mark set 1 return") })
         assertTrue(apply.any { it.contains("tcp dport 53 tproxy to :15053 meta mark set 1 return") })
         assertTrue(apply.any { it.contains("meta mark 1 return") })
+        assertTrue(apply.any { it.contains("output tcp dport != 15001 meta mark set 1") })
+        assertTrue(apply.any { it.contains("output udp dport != 15001 meta mark set 1") })
         assertTrue(apply.any { it.contains("dport 15001 return") })
+        assertTrue(apply.any { it.contains("output ip daddr 127.0.0.0/8 return") })
         assertTrue(apply.any { it.contains("ip daddr 127.0.0.0/8 return") })
+        assertTrue(apply.any { it.contains("output ip6 daddr fc00::/7 return") })
         assertTrue(apply.any { it.contains("ip6 daddr fc00::/7 return") })
     }
 
