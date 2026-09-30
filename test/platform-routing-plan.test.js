@@ -1,0 +1,53 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  createPlatformRoutingPlan,
+  RoutingSemantics,
+} from "../src/platform/index.js";
+
+const nodes = [
+  { id: "us-1", name: "US West 01" },
+  { id: "us-2", name: "US West 02" },
+  { id: "jp-1", name: "JP Tokyo 01" },
+  { id: "cn-1", name: "CN Shanghai 01" },
+];
+
+test("platform routing plan binds concrete services to one region group with auto or explicit node selection", () => {
+  const plan = createPlatformRoutingPlan({
+    nodes,
+    regionOptions: {
+      health: {
+        "us-1": { available: true, latencyMs: 80 },
+        "us-2": { available: true, latencyMs: 40 },
+      },
+    },
+    serviceOverrides: {
+      "service:ai:openai": { region: "us", mode: "auto" },
+      "service:ai:meta-ai": ["us-1"],
+    },
+  });
+
+  assert.deepEqual(Object.keys(plan.regionGroups).sort(), ["cn", "jp", "us"]);
+  assert.equal(plan.regionGroups.us.nodes.length, 2);
+  assert.equal(plan.regionGroups.us.selection.auto.preferredNodeId, "us-2");
+  assert.deepEqual(plan.regionGroups.us.selection.manual.selectedNodeIds, []);
+
+  assert.equal(plan.serviceBindings["service:ai:openai"].selection.mode, "auto");
+  assert.equal(plan.serviceBindings["service:ai:openai"].selection.region, "us");
+  assert.equal(plan.serviceBindings["service:ai:meta-ai"].selection.mode, "manual");
+
+  const openai = plan.policy.rules.find((rule) => rule.policyId === "service:ai:openai");
+  const metaAi = plan.policy.rules.find((rule) => rule.policyId === "service:ai:meta-ai");
+  assert.ok(openai);
+  assert.ok(metaAi);
+
+  assert.equal(plan.policy.semantics, RoutingSemantics.PARALLEL);
+  assert.equal(plan.policy.defaultAction.target, "secure-proxy");
+});
+
+test("platform routing plan keeps unknown public traffic fail-closed to proxy", () => {
+  const plan = createPlatformRoutingPlan({ nodes });
+  assert.equal(plan.policy.security.foreignFailClosed, true);
+  assert.equal(plan.policy.security.unknownPublicTraffic, "proxy");
+  assert.equal(plan.policy.defaultAction.target, "secure-proxy");
+});
