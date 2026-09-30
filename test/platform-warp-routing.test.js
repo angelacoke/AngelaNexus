@@ -88,3 +88,32 @@ test("explicit WARP landing is attached to a routed service without replacing th
   assert.equal(decision.target.landing.endpointType, LANDING_ENDPOINT_TYPES.WARP);
   assert.equal(decision.target.landing.endpoint.execution.role, "landing-exit");
 });
+
+
+test("WARP lifecycle disable/delete never requires or exposes a new credential", async () => {
+  const { provisionUserWarpLandingEndpoint, WARP_PROVISIONING_ACTIONS } = await import("../src/platform/index.js");
+
+  const provisioner = {
+    async provision(request) {
+      return { id: "warp-user-a", name: "WARP", credentialRef: null, action: request.action };
+    },
+  };
+
+  const disabled = await provisionUserWarpLandingEndpoint({
+    userScopeId: "user-a",
+    action: WARP_PROVISIONING_ACTIONS.DISABLE,
+    provisioner,
+  });
+  assert.equal(disabled.enabled, false);
+  assert.equal(disabled.lifecycle, WARP_PROVISIONING_ACTIONS.DISABLE);
+  assert.equal(disabled.credentialRef, null);
+
+  const deleted = await provisionUserWarpLandingEndpoint({
+    userScopeId: "user-a",
+    action: WARP_PROVISIONING_ACTIONS.DELETE,
+    provisioner,
+  });
+  assert.equal(deleted.enabled, false);
+  assert.equal(deleted.lifecycle, WARP_PROVISIONING_ACTIONS.DELETE);
+  assert.equal(deleted.credentialRef, null);
+});
