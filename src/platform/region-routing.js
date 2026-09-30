@@ -38,11 +38,34 @@ function textOf(node) {
   ].filter((v) => typeof v === "string").join(" ").trim().toLowerCase();
 }
 
+function aliasMatches(text, alias) {
+  const value = alias.toLowerCase();
+  if (value.length > 2) return text.includes(value);
+  return new RegExp("(^|[^a-z0-9])" + value.replace(/[-\\/\\^$*+?.()|[\\]{}]/g, "\\\\function textOf(node) {
+  return [
+    node && node.name, node && node.label, node && node.server, node && node.address,
+    node && node.host, node && node.region, node && node.country,
+    node && node.countryCode, node && node.location,
+  ].filter((v) => typeof v === "string").join(" ").trim().toLowerCase();
+}
+
 export function inferNodeRegion(node) {
   const text = textOf(node);
   if (!text) return "unknown";
   for (const [region, aliases] of Object.entries(REGION_ALIASES)) {
     if (aliases.some((alias) => text.includes(alias.toLowerCase()))) return region;
+  }
+  return typeof (node && node.countryCode) === "string" && node.countryCode.length === 2
+    ? node.countryCode.toLowerCase()
+    : "unknown";
+}") + "([^a-z0-9]|$)", "i").test(text);
+}
+
+export function inferNodeRegion(node) {
+  const text = textOf(node);
+  if (!text) return "unknown";
+  for (const [region, aliases] of Object.entries(REGION_ALIASES)) {
+    if (aliases.some((alias) => aliasMatches(text, alias))) return region;
   }
   return typeof (node && node.countryCode) === "string" && node.countryCode.length === 2
     ? node.countryCode.toLowerCase()
@@ -186,7 +209,7 @@ export function resolveServiceNode(serviceKey, binding, regionGroups, { preferre
     if (targetRegion && region !== targetRegion) continue;
     for (const member of regionGroups[region].nodes) {
       if (!binding.selection.nodeIds.length || binding.selection.nodeIds.includes(member.id)) {
-        candidates.push({ region, node: member.node });
+        candidates.push({ region, nodeId: member.id, node: member.node });
       }
     }
   }
@@ -194,8 +217,8 @@ export function resolveServiceNode(serviceKey, binding, regionGroups, { preferre
   if (!candidates.length) throw new Error("no available node for service: " + serviceKey);
 
   const ranked = candidates.sort((a, b) => {
-    const ah = health[a.node.id] || {};
-    const bh = health[b.node.id] || {};
+    const ah = health[a.nodeId] || health[a.node.id] || {};
+    const bh = health[b.nodeId] || health[b.node.id] || {};
     const failed = (ah.available === false ? 1 : 0) - (bh.available === false ? 1 : 0);
     if (failed !== 0) return failed;
     const al = Number.isFinite(Number(ah.latencyMs)) ? Number(ah.latencyMs) : Number.POSITIVE_INFINITY;
@@ -210,7 +233,7 @@ export function resolveServiceNode(serviceKey, binding, regionGroups, { preferre
     selectionMode: binding.selection.mode,
     candidates: Object.freeze(ranked.map((item) => Object.freeze({
       region: item.region,
-      nodeId: nodeId(item.node, 0),
+      nodeId: item.nodeId,
     }))),
   });
 }
