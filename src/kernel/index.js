@@ -8,3 +8,14 @@ export {
   getKernelRuntimeCapabilities,
   supportsKernelRuntime,
 } from "./runtime-capabilities.js";
+
+export {
+  KernelDriverCapabilities,
+  createKernelDriver,
+  hasKernelDriverCapability,
+} from "./driver-contract.js";
+export {
+  kernelDrivers,
+  driverFor,
+  describeKernelDrivers,
+} from "./driver-registry.js";
