@@ -56,6 +56,17 @@ class AndroidRootVerifiedCapabilityProbeTest {
 
 
     @Test
+    fun dns_capability_checks_udp_and_tcp() {
+        val runner = Runner(RootProbeResult(0))
+        val probe = AndroidRootVerifiedCapabilityProbe(runner)
+
+        assertTrue(probe.dnsInterception())
+
+        assertTrue(runner.commands.any { it.contains("udp dport 53 tproxy") })
+        assertTrue(runner.commands.any { it.contains("tcp dport 53 tproxy") })
+    }
+
+    @Test
     fun ipv6_policy_probe_does_not_duplicate_address_family_flag() {
         val runner = Runner(RootProbeResult(0))
         val probe = AndroidRootVerifiedCapabilityProbe(runner)
