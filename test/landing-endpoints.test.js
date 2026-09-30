@@ -120,3 +120,68 @@ test("WARP provisioning requires an explicit user scope", () => {
     /WARP user scope is required/,
   );
 });
+
+
+test("generated WARP credentials are stored in the user vault and never returned", async () => {
+  const records = new Map();
+  const credentialVault = {
+    async put(reference, credential) {
+      records.set(reference.scope.id + ":" + reference.credentialId, credential);
+    },
+    async get(reference) {
+      return records.get(reference.scope.id + ":" + reference.credentialId);
+    },
+    async remove(reference) {
+      records.delete(reference.scope.id + ":" + reference.credentialId);
+    },
+  };
+
+  const generatedCredential = { registrationToken: "secret-material" };
+  const provisioner = {
+    async provision() {
+      return {
+        id: "warp-generated-a",
+        credentialId: "credential-a",
+        credential: generatedCredential,
+      };
+    },
+  };
+
+  const endpoint = await provisionUserWarpLandingEndpoint({
+    userScopeId: "user-a",
+    action: WARP_PROVISIONING_ACTIONS.CREATE,
+    provisioner,
+    credentialVault,
+  });
+
+  assert.equal(endpoint.credentialRef, "vault:user-a:credential-a");
+  assert.equal(endpoint.credential, undefined);
+  assert.deepEqual(
+    await credentialVault.get({
+      version: 1,
+      scope: { type: "user", id: "user-a" },
+      credentialId: "credential-a",
+    }),
+    generatedCredential,
+  );
+});
+
+test("generated WARP credentials fail closed when no vault is supplied", async () => {
+  const provisioner = {
+    async provision() {
+      return {
+        id: "warp-generated-a",
+        credential: { registrationToken: "secret-material" },
+      };
+    },
+  };
+
+  await assert.rejects(
+    provisionUserWarpLandingEndpoint({
+      userScopeId: "user-a",
+      action: WARP_PROVISIONING_ACTIONS.CREATE,
+      provisioner,
+    }),
+    /credential vault is required/,
+  );
+});

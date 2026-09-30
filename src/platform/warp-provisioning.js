@@ -1,4 +1,5 @@
 import { WARP_TUNNEL_PROTOCOLS } from "./landing-endpoints.js";
+import { storeWarpCredential } from "./warp-credential-vault.js";
 
 export const WARP_PROVISIONING_ACTIONS = Object.freeze({
   CREATE: "create",
@@ -49,11 +50,38 @@ export function createWarpProvisioningRequest({
   });
 }
 
+async function resolveCredentialReference(request, registration, credentialVault) {
+  if (typeof registration.credentialRef === "string" && registration.credentialRef.trim()) {
+    return registration.credentialRef.trim();
+  }
+
+  if (registration.credential === undefined || registration.credential === null) {
+    return null;
+  }
+
+  if (!credentialVault) {
+    throw new Error("WARP credential vault is required for generated credential material");
+  }
+
+  const credentialId = typeof registration.credentialId === "string" && registration.credentialId.trim()
+    ? registration.credentialId.trim()
+    : registration.id.trim();
+
+  await storeWarpCredential(credentialVault, {
+    userScopeId: request.scope.id,
+    credentialId,
+    credential: registration.credential,
+  });
+
+  return "vault:" + request.scope.id + ":" + credentialId;
+}
+
 export async function provisionUserWarpLandingEndpoint({
   userScopeId,
   protocol = WARP_TUNNEL_PROTOCOLS.MASQUE,
   action = WARP_PROVISIONING_ACTIONS.CREATE,
   provisioner,
+  credentialVault = null,
 } = {}) {
   const request = createWarpProvisioningRequest({ userScopeId, protocol, action });
   const activeProvisioner = requiredProvisioner(provisioner);
@@ -65,12 +93,14 @@ export async function provisionUserWarpLandingEndpoint({
   if (typeof registration.id !== "string" || !registration.id.trim()) {
     throw new Error("WARP provisioner returned no registration id");
   }
+
   const lifecycleAction = request.action;
   const requiresCredential = lifecycleAction === WARP_PROVISIONING_ACTIONS.CREATE ||
     lifecycleAction === WARP_PROVISIONING_ACTIONS.REGENERATE;
 
-  if (requiresCredential &&
-      (typeof registration.credentialRef !== "string" || !registration.credentialRef.trim())) {
+  const credentialRef = await resolveCredentialReference(request, registration, credentialVault);
+
+  if (requiresCredential && !credentialRef) {
     throw new Error("WARP provisioner returned no secure credential reference");
   }
 
@@ -84,9 +114,7 @@ export async function provisionUserWarpLandingEndpoint({
     enabled: lifecycleAction !== WARP_PROVISIONING_ACTIONS.DISABLE &&
       lifecycleAction !== WARP_PROVISIONING_ACTIONS.DELETE,
     lifecycle: lifecycleAction,
-    credentialRef: typeof registration.credentialRef === "string" && registration.credentialRef.trim()
-      ? registration.credentialRef.trim()
-      : null,
+    credentialRef,
     execution: Object.freeze({
       role: "landing-exit",
       scope: "user",
