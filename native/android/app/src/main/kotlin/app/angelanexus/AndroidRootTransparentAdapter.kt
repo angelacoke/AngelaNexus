@@ -6,7 +6,7 @@ import android.content.Context
  * Root transparent adapter.
  *
  * The platform-neutral transparent contract remains the source of truth.
- * This adapter only binds a verified Android/Linux interception backend to it.
+ * This adapter only binds verified Android/Linux interception capabilities.
  */
 class AndroidRootTransparentAdapter(
     private val context: Context,
@@ -27,10 +27,22 @@ class AndroidRootTransparentAdapter(
         val policyRouting: Boolean,
         val atomicRollback: Boolean,
     ) {
+        /**
+         * Core interception readiness.
+         *
+         * ICMP and process identity are exposed as independent capabilities:
+         * neither is falsely promoted to "supported" merely to unlock the
+         * otherwise verified TCP/UDP/DNS transparent backend.
+         */
         val rootBackendReady: Boolean
-            get() = rootAvailable && rootAuthorized && tcp && udp && dns && icmp &&
-                ipv4 && ipv6 && uidIdentity && processIdentity &&
+            get() = rootAvailable && rootAuthorized &&
+                tcp && udp && dns &&
+                ipv4 && ipv6 &&
+                uidIdentity &&
                 policyRouting && atomicRollback
+
+        val identityReady: Boolean
+            get() = uidIdentity && processIdentity
     }
 
     interface Backend {
