@@ -14,6 +14,7 @@ data class RootTransparentConfig(
     val bypassIpv6: List<String> = emptyList(),
     val protectedUids: List<Int> = emptyList(),
     val protectedPorts: List<Int> = emptyList(),
+    val selfLoopProtection: Boolean = true,
 ) {
     init {
         require(interceptPort in 1..65535)
@@ -30,18 +31,19 @@ data class RootTransparentConfig(
     }
 }
 
-    private fun validateBypassCidr(value: String, ipv4: Boolean) {
-        require(value.isNotBlank())
-        val parts = value.split("/")
-        require(parts.size == 2)
-        val address = parts[0]
-        val prefix = parts[1].toIntOrNull() ?: error("invalid CIDR prefix")
-        require(address.matches(Regex("[0-9A-Fa-f:.]+")))
-        require(prefix in if (ipv4) 0..32 else 0..128)
-        val parsed = runCatching { InetAddress.getByName(address) }.getOrNull()
-            ?: error("invalid CIDR address")
-        require(parsed.address.size == if (ipv4) 4 else 16)
-    }
+private fun validateBypassCidr(value: String, ipv4: Boolean) {
+    require(value.isNotBlank())
+    val parts = value.split("/")
+    require(parts.size == 2)
+    val address = parts[0]
+    val prefix = parts[1].toIntOrNull() ?: error("invalid CIDR prefix")
+    require(address.matches(Regex("[0-9A-Fa-f:.]+")))
+    require(prefix in if (ipv4) 0..32 else 0..128)
+    val parsed = runCatching { InetAddress.getByName(address) }.getOrNull()
+        ?: error("invalid CIDR address")
+    require(parsed.address.size == if (ipv4) 4 else 16)
+}
+
 data class RootCommand(val apply: String, val rollback: String)
 
 interface RootCommandExecutor {
@@ -113,6 +115,15 @@ object AndroidRootTransparentRules {
         commands += RootCommand("nft add rule inet $table $OUTPUT meta mark ${config.mark} return", "")
         commands += RootCommand("nft add rule inet $table $OUTPUT tcp dport ${config.interceptPort} return", "")
         commands += RootCommand("nft add rule inet $table $OUTPUT udp dport ${config.interceptPort} return", "")
+
+        if (config.selfLoopProtection) {
+            commands += RootCommand("nft add rule inet $table $OUTPUT ip daddr 127.0.0.0/8 return", "")
+            commands += RootCommand("nft add rule inet $table $CHAIN ip daddr 127.0.0.0/8 return", "")
+            if (config.ipv6) {
+                commands += RootCommand("nft add rule inet $table $OUTPUT ip6 daddr ::1/128 return", "")
+                commands += RootCommand("nft add rule inet $table $CHAIN ip6 daddr ::1/128 return", "")
+            }
+        }
 
         config.bypassIpv4.distinct().forEach { cidr ->
             commands += RootCommand("nft add rule inet $table $OUTPUT ip daddr $cidr return", "")
