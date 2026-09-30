@@ -4,12 +4,6 @@ export const CHAIN_SOURCE_TYPES = Object.freeze({
   POLICY_GROUP: "policy-group",
 });
 
-export const CHAIN_ROLES = Object.freeze({
-  ENTRY: "entry",
-  RELAY: "relay",
-  EXIT: "exit",
-});
-
 function text(value) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -38,13 +32,22 @@ function resolveSource(source, catalog) {
   return Object.freeze({ ...normalized, source: found });
 }
 
+function normalizeHop(hop, index, catalog) {
+  if (!hop || typeof hop !== "object") throw new TypeError("chain hop " + index + " is invalid");
+  const source = hop.source || hop;
+  return Object.freeze({
+    index,
+    id: text(hop.id) || "hop-" + (index + 1),
+    source: resolveSource(source, catalog),
+    kernel: text(hop.kernel) || null,
+  });
+}
+
 export function createChainEditorModel({
   nodes = [],
   subscriptions = [],
   policyGroups = [],
-  entry = null,
-  relay = null,
-  exit = null,
+  hops = [],
 } = {}) {
   const catalog = {
     [CHAIN_SOURCE_TYPES.NODE]: nodes,
@@ -52,47 +55,61 @@ export function createChainEditorModel({
     [CHAIN_SOURCE_TYPES.POLICY_GROUP]: policyGroups,
   };
 
-  const selections = Object.freeze({
-    entry: entry ? resolveSource(entry, catalog) : null,
-    relay: relay ? resolveSource(relay, catalog) : null,
-    exit: exit ? resolveSource(exit, catalog) : null,
-  });
-
-  if (!selections.entry || !selections.exit) {
-    throw new Error("chain editor requires an entry and an exit selection");
+  if (!Array.isArray(hops) || hops.length < 2) {
+    throw new Error("chain editor requires at least two ordered hops");
   }
 
-  const roles = [
-    Object.freeze({ role: CHAIN_ROLES.ENTRY, selection: selections.entry }),
-  ];
-  if (selections.relay) roles.push(Object.freeze({ role: CHAIN_ROLES.RELAY, selection: selections.relay }));
-  roles.push(Object.freeze({ role: CHAIN_ROLES.EXIT, selection: selections.exit }));
+  const normalizedHops = hops.map((hop, index) => normalizeHop(hop, index, catalog));
+  const seen = new Set();
+  for (const hop of normalizedHops) {
+    const key = hop.source.type + ":" + hop.source.id;
+    if (seen.has(key)) throw new Error("chain source cannot be reused in the same pipeline: " + key);
+    seen.add(key);
+  }
 
   return Object.freeze({
-    version: 1,
+    version: 2,
     sourceCatalog: Object.freeze({
       nodes: Object.freeze(nodes.filter(Boolean)),
       subscriptions: Object.freeze(subscriptions.filter(Boolean)),
       policyGroups: Object.freeze(policyGroups.filter(Boolean)),
     }),
-    selections,
+    hops: Object.freeze(normalizedHops),
     visual: Object.freeze({
       direction: "left-to-right",
-      roles: Object.freeze(roles),
-      edges: Object.freeze(roles.slice(0, -1).map((item, index) => Object.freeze({
-        fromRole: item.role,
-        toRole: roles[index + 1].role,
+      nodes: Object.freeze(normalizedHops.map((hop) => Object.freeze({
+        id: hop.id,
+        index: hop.index,
+        sourceType: hop.source.type,
+        sourceId: hop.source.id,
+        label: hop.source.label,
+        kernel: hop.kernel,
+      }))),
+      edges: Object.freeze(normalizedHops.slice(0, -1).map((hop, index) => Object.freeze({
+        from: hop.id,
+        to: normalizedHops[index + 1].id,
       }))),
     }),
   });
 }
 
 export function validateChainEditorSelection(model) {
-  if (!model || !model.selections) return Object.freeze({ valid: false, reason: "missing-chain-editor-model" });
-  const { entry, relay, exit } = model.selections;
-  if (!entry || !exit) return Object.freeze({ valid: false, reason: "entry-and-exit-required" });
-  if (entry.id === exit.id && entry.type === exit.type) return Object.freeze({ valid: false, reason: "entry-and-exit-must-differ" });
-  if (relay && relay.id === entry.id && relay.type === entry.type) return Object.freeze({ valid: false, reason: "relay-cannot-equal-entry" });
-  if (relay && relay.id === exit.id && relay.type === exit.type) return Object.freeze({ valid: false, reason: "relay-cannot-equal-exit" });
+  if (!model || !Array.isArray(model.hops)) {
+    return Object.freeze({ valid: false, reason: "missing-chain-editor-hops" });
+  }
+  if (model.hops.length < 2) {
+    return Object.freeze({ valid: false, reason: "at-least-two-hops-required" });
+  }
+
+  const ids = new Set();
+  for (const hop of model.hops) {
+    if (!hop || !hop.id || !hop.source) {
+      return Object.freeze({ valid: false, reason: "invalid-chain-hop" });
+    }
+    if (ids.has(hop.id)) {
+      return Object.freeze({ valid: false, reason: "duplicate-hop-id" });
+    }
+    ids.add(hop.id);
+  }
   return Object.freeze({ valid: true });
 }
