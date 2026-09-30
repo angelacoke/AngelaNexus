@@ -136,3 +136,29 @@ test("expanded region aliases resolve without creating empty groups", () => {
   assert.deepEqual(Object.keys(groups).sort(), ["ae", "jp"]);
   assert.equal(groups.us, undefined);
 });
+
+
+test("explicit country metadata takes priority over ambiguous node-name text", () => {
+  const region = inferNodeRegion({
+    id: "node-1",
+    name: "CA1-US",
+    countryCode: "US",
+  });
+  assert.equal(region, "us");
+});
+
+test("manual service selection never silently falls back to automatic nodes", () => {
+  const groups = createRegionSelectionGroups([
+    { id: "us-1", name: "US 1" },
+  ]);
+  const bindings = createServiceNodeBindings(
+    { ai: [{ id: "openai", domains: ["openai.com"], packages: [], processNames: [] }] },
+    groups,
+    { overrides: { "service:ai:openai": { mode: "manual", region: "us" } } },
+  );
+
+  assert.throws(
+    () => resolveServiceNode("service:ai:openai", bindings["service:ai:openai"], groups),
+    /manual service selection has no selected node/,
+  );
+});
