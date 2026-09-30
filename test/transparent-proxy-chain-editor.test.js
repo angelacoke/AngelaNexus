@@ -37,27 +37,41 @@ test("transparent proxy cannot disable fail-closed protection", () => {
   assert.throws(() => createTransparentProxyConfig({ failClosed: false }), /fail-closed/);
 });
 
-test("chain editor exposes node, subscription and policy-group selections", () => {
+test("chain editor uses ordered generic hops rather than fixed entry relay exit roles", () => {
   const model = createChainEditorModel({
-    nodes: [{ id: "entry-node", label: "入口节点" }, { id: "exit-node", label: "出口节点" }],
+    nodes: [{ id: "node-a", label: "节点 A" }, { id: "node-b", label: "节点 B" }],
     subscriptions: [{ id: "sub-a", label: "订阅 A" }],
     policyGroups: [{ id: "policy-us", label: "美国策略组" }],
-    entry: { id: "entry-node", type: CHAIN_SOURCE_TYPES.NODE },
-    relay: { id: "sub-a", type: CHAIN_SOURCE_TYPES.SUBSCRIPTION },
-    exit: { id: "policy-us", type: CHAIN_SOURCE_TYPES.POLICY_GROUP },
+    hops: [
+      { id: "hop-a", source: { id: "node-a", type: CHAIN_SOURCE_TYPES.NODE }, kernel: "sing-box" },
+      { id: "hop-b", source: { id: "sub-a", type: CHAIN_SOURCE_TYPES.SUBSCRIPTION }, kernel: "xray" },
+      { id: "hop-c", source: { id: "policy-us", type: CHAIN_SOURCE_TYPES.POLICY_GROUP }, kernel: "mihomo" },
+    ],
   });
-  assert.equal(model.visual.roles.length, 3);
-  assert.deepEqual(model.visual.edges.map((edge) => [edge.fromRole, edge.toRole]), [
-    ["entry", "relay"], ["relay", "exit"],
+  assert.equal(model.hops.length, 3);
+  assert.deepEqual(model.visual.edges.map((edge) => [edge.from, edge.to]), [
+    ["hop-a", "hop-b"], ["hop-b", "hop-c"],
   ]);
+  assert.equal("entry" in model, false);
+  assert.equal("relay" in model, false);
+  assert.equal("exit" in model, false);
   assert.equal(validateChainEditorSelection(model).valid, true);
 });
 
-test("chain editor rejects identical endpoints", () => {
-  const model = createChainEditorModel({
+test("chain editor rejects fewer than two hops", () => {
+  assert.throws(() => createChainEditorModel({
     nodes: [{ id: "same", label: "节点" }],
-    entry: { id: "same", type: CHAIN_SOURCE_TYPES.NODE },
-    exit: { id: "same", type: CHAIN_SOURCE_TYPES.NODE },
-  });
+    hops: [{ id: "only", source: { id: "same", type: CHAIN_SOURCE_TYPES.NODE } }],
+  }), /at least two ordered hops/);
+});
+
+test("chain editor rejects duplicate hop ids", () => {
+  const model = {
+    hops: [
+      { id: "same", source: { id: "a" } },
+      { id: "same", source: { id: "b" } },
+    ],
+  };
   assert.equal(validateChainEditorSelection(model).valid, false);
+  assert.equal(validateChainEditorSelection(model).reason, "duplicate-hop-id");
 });
