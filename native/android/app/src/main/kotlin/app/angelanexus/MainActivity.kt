@@ -28,9 +28,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             AngelaNexusTheme(darkTheme = isSystemInDarkTheme()) {
-                Surface(color = MaterialTheme.colorScheme.background) {
-                    AngelaNexusRoot()
-                }
+                Surface(color = MaterialTheme.colorScheme.background) { AngelaNexusRoot() }
             }
         }
     }
@@ -43,26 +41,22 @@ private fun AngelaNexusRoot() {
     val scope = rememberCoroutineScope()
     val importPort = remember { PendingConfigImportPort() }
     val importCoordinator = remember { ConfigImportCoordinator(importPort) }
+    val rootAdapter = remember { AndroidRootTransparentAdapter(context) }
+    val rootCapabilities = remember { rootAdapter.inspect() }
+    var selectedMode by remember { mutableStateOf(AndroidTransparentMode.AUTO) }
     var status by remember { mutableStateOf("ready") }
 
-    val documentLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
+    val documentLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) {
             status = "ready"
             return@rememberLauncherForActivityResult
         }
-
         status = "importing-config"
         scope.launch {
             runCatching {
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 context.contentResolver.openInputStream(uri)?.use { stream ->
-                    val name = uri.lastPathSegment
-                    importCoordinator.importLocalFile(stream, name)
+                    importCoordinator.importLocalFile(stream, uri.lastPathSegment)
                 } ?: throw IllegalStateException("selected configuration cannot be opened")
             }.fold(
                 onSuccess = { status = "config-staged" },
@@ -71,35 +65,50 @@ private fun AngelaNexusRoot() {
         }
     }
 
-    val vpnLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
+    val vpnLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
-            context.startService(Intent(context, app.angelanexus.AngelaNexusVpnService::class.java))
+            context.startService(Intent(context, AngelaNexusVpnService::class.java))
             status = "vpn-boundary-started"
+        }
+    }
+
+    fun startSelectedMode() {
+        val mode = selectAndroidTransparentMode(selectedMode, rootCapabilities)
+        if (mode == null) {
+            status = "transparent-mode-unavailable"
+            return
+        }
+        when (mode) {
+            AndroidTransparentMode.ROOT -> {
+                status = "root-mode-backend-pending"
+            }
+            AndroidTransparentMode.SYSTEM -> {
+                val intent = VpnService.prepare(context)
+                if (intent == null) {
+                    context.startService(Intent(context, AngelaNexusVpnService::class.java))
+                    status = "vpn-boundary-started"
+                } else {
+                    vpnLauncher.launch(intent)
+                }
+            }
+            AndroidTransparentMode.AUTO -> error("auto mode must resolve before startup")
         }
     }
 
     AngelaNexusApp(
         darkTheme = darkTheme,
+        transparentMode = selectedMode,
+        rootAvailable = rootCapabilities.rootAvailable && rootCapabilities.rootAuthorized,
+        onTransparentModeChange = { selectedMode = it },
         onImportConfig = {
             status = "selecting-config"
             documentLauncher.launch(arrayOf("*/*"))
         },
-        onStartVpn = {
-            val intent = VpnService.prepare(context)
-            if (intent == null) {
-                context.startService(Intent(context, app.angelanexus.AngelaNexusVpnService::class.java))
-                status = "vpn-boundary-started"
-            } else {
-                vpnLauncher.launch(intent)
-            }
-        }
+        onStartVpn = ::startSelectedMode
     )
 
     if (LocalInspectionMode.current) {
-        @Suppress("UNUSED_VARIABLE")
-        val previewStatus = status
+        @Suppress("UNUSED_VARIABLE") val previewStatus = status
     }
 }
 
@@ -109,6 +118,9 @@ private fun AngelaNexusPreview() {
     AngelaNexusTheme(darkTheme = false, dynamicColor = false) {
         AngelaNexusApp(
             darkTheme = false,
+            transparentMode = AndroidTransparentMode.AUTO,
+            rootAvailable = false,
+            onTransparentModeChange = {},
             onImportConfig = {},
             onStartVpn = {}
         )

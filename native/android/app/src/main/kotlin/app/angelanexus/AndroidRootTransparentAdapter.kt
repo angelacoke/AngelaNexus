@@ -33,15 +33,14 @@ class AndroidRootTransparentAdapter(private val context: Context) {
 
         fun prepare() {
             check(!prepared && !committed) { "transaction is not reusable" }
-            // The interception backend is deliberately isolated from capability detection.
-            // Concrete network-rule installation is supplied by the platform adapter layer.
+            // Concrete interception rules are supplied by a verified backend adapter.
             prepared = true
         }
 
         fun commit() {
             check(prepared && !committed) { "transaction is not prepared" }
             try {
-                // No network rule is installed here until a verified Android backend is bound.
+                // No system rule is installed until a verified backend is bound.
                 committed = true
             } catch (error: Throwable) {
                 rollback()
