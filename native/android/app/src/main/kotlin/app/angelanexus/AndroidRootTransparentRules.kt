@@ -22,6 +22,8 @@ data class RootTransparentConfig(
         require(tableName.matches(Regex("[a-z][a-z0-9_]{0,30}")))
         require(protectedUids.all { it >= 0 })
         require(protectedPorts.all { it in 1..65535 })
+        require(bypassIpv4.all { it.isNotBlank() })
+        require(bypassIpv6.all { it.isNotBlank() })
     }
 }
 
@@ -34,97 +36,86 @@ interface RootCommandExecutor {
 object AndroidRootTransparentRules {
     private const val CHAIN = "prerouting"
     private const val OUTPUT = "output"
-    private const val PRIORITY = "-150"
+    private const val PRIORITY = -150
     private const val TABLE_EXISTS_EXIT = 73
 
     fun build(config: RootTransparentConfig): List<RootCommand> {
         val commands = mutableListOf<RootCommand>()
+
         commands += RootCommand(
-            "nft list table inet \${config.tableName} >/dev/null 2>&1 && exit \$TABLE_EXISTS_EXIT || exit 0",
-            "",
+            apply = "if nft list table inet ${config.tableName} >/dev/null 2>&1; then exit $TABLE_EXISTS_EXIT; fi",
+            rollback = "",
         )
         commands += nftCommands(config)
+
         commands += RootCommand(
-            "ip rule add fwmark \${config.mark}/0xffff lookup \${config.routingTable}",
-            "ip rule del fwmark \${config.mark}/0xffff lookup \${config.routingTable}",
+            apply = "ip rule add fwmark ${config.mark}/0xffff lookup ${config.routingTable}",
+            rollback = "ip rule del fwmark ${config.mark}/0xffff lookup ${config.routingTable}",
         )
         commands += RootCommand(
-            "ip route add local 0.0.0.0/0 dev lo table \${config.routingTable}",
-            "ip route del local 0.0.0.0/0 dev lo table \${config.routingTable}",
+            apply = "ip route add local 0.0.0.0/0 dev lo table ${config.routingTable}",
+            rollback = "ip route del local 0.0.0.0/0 dev lo table ${config.routingTable}",
         )
         if (config.ipv6) {
             commands += RootCommand(
-                "ip -6 route add local ::/0 dev lo table \${config.routingTable}",
-                "ip -6 route del local ::/0 dev lo table \${config.routingTable}",
+                apply = "ip -6 route add local ::/0 dev lo table ${config.routingTable}",
+                rollback = "ip -6 route del local ::/0 dev lo table ${config.routingTable}",
             )
         }
         return commands
     }
 
     private fun nftCommands(config: RootTransparentConfig): List<RootCommand> {
-        val commands = mutableListOf<RootCommand>()
         val table = config.tableName
-        commands += RootCommand("nft add table inet \$table", "nft delete table inet \$table")
+        val commands = mutableListOf<RootCommand>()
+
         commands += RootCommand(
-            "nft add chain inet \$table \$CHAIN { type filter hook prerouting priority \$PRIORITY; policy accept; }",
-            "nft delete chain inet \$table \$CHAIN",
+            apply = "nft add table inet $table",
+            rollback = "nft delete table inet $table",
         )
         commands += RootCommand(
-            "nft add chain inet \$table \$OUTPUT { type filter hook output priority \$PRIORITY; policy accept; }",
-            "nft delete chain inet \$table \$OUTPUT",
+            apply = "nft add chain inet $table $CHAIN { type filter hook prerouting priority $PRIORITY; policy accept; }",
+            rollback = "nft delete chain inet $table $CHAIN",
         )
+        commands += RootCommand(
+            apply = "nft add chain inet $table $OUTPUT { type filter hook output priority $PRIORITY; policy accept; }",
+            rollback = "nft delete chain inet $table $OUTPUT",
+        )
+
         config.protectedUids.distinct().forEach { uid ->
-            commands += RootCommand(
-                "nft add rule inet \$table \$OUTPUT meta skuid \$uid return",
-                "",
-            )
+            commands += RootCommand("nft add rule inet $table $OUTPUT meta skuid $uid return", "")
         }
-        commands += RootCommand(
-            "nft add rule inet \$table \$OUTPUT meta skuid \${config.ownerUid} return",
-            "",
-        )
+        commands += RootCommand("nft add rule inet $table $OUTPUT meta skuid ${config.ownerUid} return", "")
+
         config.protectedPorts.distinct().forEach { port ->
-            commands += RootCommand(
-                "nft add rule inet \$table \$OUTPUT tcp dport \$port return",
-                "",
-            )
-            commands += RootCommand(
-                "nft add rule inet \$table \$OUTPUT udp dport \$port return",
-                "",
-            )
+            commands += RootCommand("nft add rule inet $table $OUTPUT tcp dport $port return", "")
+            commands += RootCommand("nft add rule inet $table $OUTPUT udp dport $port return", "")
         }
-        commands += RootCommand(
-            "nft add rule inet \$table \$OUTPUT meta mark \${config.mark} return",
-            "",
-        )
-        commands += RootCommand(
-            "nft add rule inet \$table \$OUTPUT tcp dport \${config.interceptPort} return",
-            "",
-        )
-        commands += RootCommand(
-            "nft add rule inet \$table \$OUTPUT udp dport \${config.interceptPort} return",
-            "",
-        )
-        config.bypassIpv4.forEach { cidr ->
-            commands += RootCommand("nft add rule inet \$table \$CHAIN ip daddr \$cidr return", "")
+        commands += RootCommand("nft add rule inet $table $OUTPUT meta mark ${config.mark} return", "")
+        commands += RootCommand("nft add rule inet $table $OUTPUT tcp dport ${config.interceptPort} return", "")
+        commands += RootCommand("nft add rule inet $table $OUTPUT udp dport ${config.interceptPort} return", "")
+
+        config.bypassIpv4.distinct().forEach { cidr ->
+            commands += RootCommand("nft add rule inet $table $CHAIN ip daddr $cidr return", "")
         }
         if (config.ipv6) {
-            config.bypassIpv6.forEach { cidr ->
-                commands += RootCommand("nft add rule inet \$table \$CHAIN ip6 daddr \$cidr return", "")
+            config.bypassIpv6.distinct().forEach { cidr ->
+                commands += RootCommand("nft add rule inet $table $CHAIN ip6 daddr $cidr return", "")
             }
         }
+
         if (config.dnsPort != null) {
             commands += RootCommand(
-                "nft add rule inet \$table \$CHAIN udp dport 53 tproxy to :\${config.dnsPort} meta mark set \${config.mark}",
+                "nft add rule inet $table $CHAIN udp dport 53 tproxy to :${config.dnsPort} meta mark set ${config.mark}",
                 "",
             )
         }
         commands += RootCommand(
-            "nft add rule inet \$table \$CHAIN tcp dport != \${config.interceptPort} tproxy to :\${config.interceptPort} meta mark set \${config.mark}",
+            "nft add rule inet $table $CHAIN tcp dport != ${config.interceptPort} tproxy to :${config.interceptPort} meta mark set ${config.mark}",
             "",
         )
         commands += RootCommand(
-            "nft add rule inet \$table \$CHAIN udp dport != \${config.interceptPort} tproxy to :\${config.interceptPort} meta mark set \${config.mark}",
+            "nft add rule inet $table $CHAIN udp dport != ${config.interceptPort} tproxy to :${config.interceptPort} meta mark set ${config.mark}",
             "",
         )
         return commands
