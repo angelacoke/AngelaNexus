@@ -47,7 +47,8 @@ class AndroidRootTransparentAdapter(
 
 private class AndroidRootBackend(
     private val context: Context,
-    private val capabilityProbe: AndroidRootCapabilityProbe = UnverifiedAndroidRootCapabilityProbe,
+    private val capabilityProbe: AndroidRootCapabilityProbe =
+        AndroidRootVerifiedCapabilityProbe(SuRootProbeRunner()),
 ) : AndroidRootTransparentAdapter.Backend {
     override fun inspect(): AndroidRootTransparentAdapter.Capabilities {
         val rootAvailable = RootShellProbe.isRootAvailable()
@@ -85,6 +86,21 @@ private class AndroidRootBackend(
             val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
             val exit = process.waitFor()
             if (exit != 0) throw IllegalStateException("root command failed with exit code $exit")
+        }
+    }
+
+    private class SuRootProbeRunner : AndroidRootProbeRunner {
+        override fun run(command: String): RootProbeResult {
+            require(command.isNotBlank())
+            return try {
+                val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
+                val stdout = process.inputStream.bufferedReader().use { it.readText() }
+                val stderr = process.errorStream.bufferedReader().use { it.readText() }
+                val exit = process.waitFor()
+                RootProbeResult(exit, stdout, stderr)
+            } catch (error: Throwable) {
+                RootProbeResult(-1, "", error.message.orEmpty())
+            }
         }
     }
 
