@@ -72,3 +72,11 @@ export {
   createPlatformFailureNotice,
   advisePlatformFailure,
 } from "./recovery-advisor.js";
+
+export {
+  WARP_CREDENTIAL_VAULT_VERSION,
+  createWarpCredentialReference,
+  storeWarpCredential,
+  loadWarpCredential,
+  removeWarpCredential,
+} from "./warp-credential-vault.js";
