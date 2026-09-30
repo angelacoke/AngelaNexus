@@ -65,11 +65,11 @@ class AndroidRootVerifiedCapabilityProbe(
     private fun reversibleNftRuleCheck(rule: String): Boolean {
         val command = """
             set -e
-            table="angelanexus_probe_$$"
-            nft add table inet "$table"
-            trap 'nft delete table inet "$table" >/dev/null 2>&1 || true' EXIT
-            nft add chain inet "$table" prerouting { type filter hook prerouting priority -150; policy accept; }
-            nft add rule inet "$table" prerouting $rule
+            table="angelanexus_probe_\${'$'}\${'$'}"
+            nft add table inet "\${'$'}table"
+            trap 'nft delete table inet "\${'$'}table" >/dev/null 2>&1 || true' EXIT
+            nft add chain inet "\${'$'}table" prerouting { type filter hook prerouting priority -150; policy accept; }
+            nft add rule inet "\${'$'}table" prerouting $rule
         """.trimIndent()
         return runner.run(command).succeeded
     }
@@ -77,21 +77,23 @@ class AndroidRootVerifiedCapabilityProbe(
     private fun reversiblePolicyRoutingCheck(ipCommand: String): Boolean {
         val command = """
             set -e
+            ip_cmd="$ipCommand"
             base=51800
-            table=$((base + $$ % 1000))
-            while ip -4 route show table "$table" | grep -q .; do
-              table=$((table + 1))
-              if [ "$table" -gt 52799 ]; then exit 2; fi
+            table=\${'$'}((base + \${'$'}\${'$'} % 1000))
+            while \${'$'}ip_cmd route show table "\${'$'}table" 2>/dev/null | grep -q .; do
+              table=\${'$'}((table + 1))
+              if [ "\${'$'}table" -gt 52799 ]; then exit 2; fi
             done
             mark="0x5a5a"
-            $ipCommand rule add fwmark "$mark"/0xffff lookup "$table"
-            trap '$ipCommand rule del fwmark "$mark"/0xffff lookup "$table" >/dev/null 2>&1 || true' EXIT
-            $ipCommand route add local 0.0.0.0/0 dev lo table "$table"
+            \${'$'}ip_cmd rule add fwmark "\${'$'}mark"/0xffff lookup "\${'$'}table"
+            trap '\${'$'}ip_cmd rule del fwmark "\${'$'}mark"/0xffff lookup "\${'$'}table" >/dev/null 2>&1 || true' EXIT
             if [ "$ipCommand" = "ip -6" ]; then
-              $ipCommand -6 route add local ::/0 dev lo table "$table"
-              $ipCommand -6 route del local ::/0 dev lo table "$table"
+              \${'$'}ip_cmd -6 route add local ::/0 dev lo table "\${'$'}table"
+              \${'$'}ip_cmd -6 route del local ::/0 dev lo table "\${'$'}table"
+            else
+              \${'$'}ip_cmd route add local 0.0.0.0/0 dev lo table "\${'$'}table"
+              \${'$'}ip_cmd route del local 0.0.0.0/0 dev lo table "\${'$'}table"
             fi
-            $ipCommand route del local 0.0.0.0/0 dev lo table "$table"
         """.trimIndent()
         return runner.run(command).succeeded
     }
@@ -99,12 +101,12 @@ class AndroidRootVerifiedCapabilityProbe(
     private fun reversibleNftTransactionCheck(): Boolean {
         val command = """
             set -e
-            table="angelanexus_probe_$$"
-            nft add table inet "$table"
-            trap 'nft delete table inet "$table" >/dev/null 2>&1 || true' EXIT
-            nft add chain inet "$table" output { type filter hook output priority -150; policy accept; }
-            nft add rule inet "$table" output meta mark 0x5a5a return
-            nft delete table inet "$table"
+            table="angelanexus_probe_\${'$'}\${'$'}"
+            nft add table inet "\${'$'}table"
+            trap 'nft delete table inet "\${'$'}table" >/dev/null 2>&1 || true' EXIT
+            nft add chain inet "\${'$'}table" output { type filter hook output priority -150; policy accept; }
+            nft add rule inet "\${'$'}table" output meta mark 0x5a5a return
+            nft delete table inet "\${'$'}table"
             trap - EXIT
         """.trimIndent()
         return runner.run(command).succeeded
