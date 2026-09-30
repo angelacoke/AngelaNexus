@@ -108,3 +108,6 @@ export {
   loadWarpCredential,
   removeWarpCredential,
 } from "./warp-credential-vault.js";
+
+export { createNodeProfile, createNodeProfiles } from "./node-profile.js";
+export { createPipelineSpec } from "./pipeline-spec.js";
