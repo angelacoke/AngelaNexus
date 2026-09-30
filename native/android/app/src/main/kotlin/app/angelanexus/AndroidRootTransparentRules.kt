@@ -192,8 +192,9 @@ class RootTransparentRuleTransaction(
             committed = true
             appliedCommands.clear()
         } catch (error: Throwable) {
-            rollbackApplied()
+            val rollbackError = rollbackApplied()
             prepared = false
+            if (rollbackError != null) error.addSuppressed(rollbackError)
             throw error
         }
     }
@@ -214,8 +215,9 @@ class RootTransparentRuleTransaction(
             committed = true
             appliedCommands.clear()
         } catch (error: Throwable) {
-            rollbackApplied()
+            val rollbackError = rollbackApplied()
             prepared = false
+            if (rollbackError != null) error.addSuppressed(rollbackError)
             throw error
         }
     }
@@ -248,10 +250,18 @@ class RootTransparentRuleTransaction(
         return success
     }
 
-    private fun rollbackApplied() {
+    private fun rollbackApplied(): Throwable? {
+        var firstError: Throwable? = null
         appliedCommands.asReversed().forEach { command ->
-            if (command.rollback.isNotBlank()) runCatching { executor.execute(command.rollback) }
+            if (command.rollback.isNotBlank()) {
+                try {
+                    executor.execute(command.rollback)
+                } catch (error: Throwable) {
+                    if (firstError == null) firstError = error
+                }
+            }
         }
         appliedCommands.clear()
+        return firstError
     }
 }
