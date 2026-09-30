@@ -45,26 +45,29 @@ class AndroidRootTransparentAdapter(
     }
 }
 
-private class AndroidRootBackend(private val context: Context) : AndroidRootTransparentAdapter.Backend {
+private class AndroidRootBackend(
+    private val context: Context,
+    private val capabilityProbe: AndroidRootCapabilityProbe = UnverifiedAndroidRootCapabilityProbe,
+) : AndroidRootTransparentAdapter.Backend {
     override fun inspect(): AndroidRootTransparentAdapter.Capabilities {
         val rootAvailable = RootShellProbe.isRootAvailable()
         val rootAuthorized = rootAvailable && RootShellProbe.commandSucceeds("id")
-        val nftAvailable = rootAuthorized && RootShellProbe.commandSucceeds("command -v nft")
-        val ipAvailable = rootAuthorized && RootShellProbe.commandSucceeds("command -v ip")
 
         return AndroidRootTransparentAdapter.Capabilities(
             rootAvailable = rootAvailable,
             rootAuthorized = rootAuthorized,
             systemVpnAvailable = true,
-            tcp = false,
-            udp = false,
-            dns = false,
-            ipv4 = ipAvailable,
-            ipv6 = ipAvailable,
-            uidIdentity = false,
-            processIdentity = false,
-            policyRouting = ipAvailable,
-            atomicRollback = nftAvailable && ipAvailable,
+            tcp = rootAuthorized && capabilityProbe.tcpTproxy(),
+            udp = rootAuthorized && capabilityProbe.udpTproxy(),
+            dns = rootAuthorized && capabilityProbe.dnsInterception(),
+            ipv4 = rootAuthorized && capabilityProbe.ipv4PolicyRouting(),
+            ipv6 = rootAuthorized && capabilityProbe.ipv6PolicyRouting(),
+            uidIdentity = rootAuthorized && capabilityProbe.uidIdentity(),
+            processIdentity = rootAuthorized && capabilityProbe.processIdentity(),
+            policyRouting = rootAuthorized &&
+                capabilityProbe.ipv4PolicyRouting() &&
+                capabilityProbe.ipv6PolicyRouting(),
+            atomicRollback = rootAuthorized && capabilityProbe.atomicRollback(),
         )
     }
 
@@ -91,13 +94,17 @@ private class AndroidRootBackend(private val context: Context) : AndroidRootTran
             val output = process.inputStream.bufferedReader().use { it.readText() }
             val exit = process.waitFor()
             exit == 0 && output.contains("uid=0")
-        } catch (_: Throwable) { false }
+        } catch (_: Throwable) {
+            false
+        }
 
         fun commandSucceeds(command: String): Boolean = try {
             val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
             process.inputStream.close()
             process.errorStream.close()
             process.waitFor() == 0
-        } catch (_: Throwable) { false }
+        } catch (_: Throwable) {
+            false
+        }
     }
 }
