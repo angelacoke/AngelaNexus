@@ -54,6 +54,9 @@ private class AndroidRootBackend(
         val rootAvailable = RootShellProbe.isRootAvailable()
         val rootAuthorized = rootAvailable && RootShellProbe.commandSucceeds("id")
 
+        val ipv4PolicyRouting = rootAuthorized && capabilityProbe.ipv4PolicyRouting()
+        val ipv6PolicyRouting = rootAuthorized && capabilityProbe.ipv6PolicyRouting()
+
         return AndroidRootTransparentAdapter.Capabilities(
             rootAvailable = rootAvailable,
             rootAuthorized = rootAuthorized,
@@ -61,13 +64,11 @@ private class AndroidRootBackend(
             tcp = rootAuthorized && capabilityProbe.tcpTproxy(),
             udp = rootAuthorized && capabilityProbe.udpTproxy(),
             dns = rootAuthorized && capabilityProbe.dnsInterception(),
-            ipv4 = rootAuthorized && capabilityProbe.ipv4PolicyRouting(),
-            ipv6 = rootAuthorized && capabilityProbe.ipv6PolicyRouting(),
+            ipv4 = ipv4PolicyRouting,
+            ipv6 = ipv6PolicyRouting,
             uidIdentity = rootAuthorized && capabilityProbe.uidIdentity(),
             processIdentity = rootAuthorized && capabilityProbe.processIdentity(),
-            policyRouting = rootAuthorized &&
-                capabilityProbe.ipv4PolicyRouting() &&
-                capabilityProbe.ipv6PolicyRouting(),
+            policyRouting = ipv4PolicyRouting && ipv6PolicyRouting,
             atomicRollback = rootAuthorized && capabilityProbe.atomicRollback(),
         )
     }
