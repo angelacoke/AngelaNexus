@@ -21,6 +21,7 @@ data class RootTransparentConfig(
         require(routingTable > 0)
         require(ownerUid >= 0)
         require(dnsPort == null || dnsPort in 1..65535)
+        require(dnsPort == null || dnsPort != interceptPort)
         require(tableName.matches(Regex("[a-z][a-z0-9_]{0,30}")))
         require(protectedUids.all { it >= 0 })
         require(protectedPorts.all { it in 1..65535 })
@@ -120,11 +121,11 @@ object AndroidRootTransparentRules {
 
         if (config.dnsPort != null) {
             commands += RootCommand(
-                "nft add rule inet $table $CHAIN udp dport 53 tproxy to :${config.dnsPort} meta mark set ${config.mark}",
+                "nft add rule inet $table $CHAIN udp dport 53 tproxy to :${config.dnsPort} meta mark set ${config.mark} return",
                 "",
             )
             commands += RootCommand(
-                "nft add rule inet $table $CHAIN tcp dport 53 tproxy to :${config.dnsPort} meta mark set ${config.mark}",
+                "nft add rule inet $table $CHAIN tcp dport 53 tproxy to :${config.dnsPort} meta mark set ${config.mark} return",
                 "",
             )
         }
