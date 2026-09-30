@@ -117,3 +117,40 @@ test("WARP lifecycle disable/delete never requires or exposes a new credential",
   assert.equal(deleted.lifecycle, WARP_PROVISIONING_ACTIONS.DELETE);
   assert.equal(deleted.credentialRef, null);
 });
+
+
+test("WARP credential vault keeps secrets behind per-user references", async () => {
+  const {
+    storeWarpCredential,
+    loadWarpCredential,
+    removeWarpCredential,
+  } = await import("../src/platform/index.js");
+
+  const records = new Map();
+  const vault = {
+    async put(reference, credential) {
+      records.set(reference.scope.id + ":" + reference.credentialId, credential);
+    },
+    async get(reference) {
+      return records.get(reference.scope.id + ":" + reference.credentialId);
+    },
+    async remove(reference) {
+      records.delete(reference.scope.id + ":" + reference.credentialId);
+    },
+  };
+
+  const secret = { token: "user-secret" };
+  const reference = await storeWarpCredential(vault, {
+    userScopeId: "user-a",
+    credentialId: "warp-credential-a",
+    credential: secret,
+  });
+
+  assert.equal(reference.scope.id, "user-a");
+  assert.equal(reference.credentialId, "warp-credential-a");
+  assert.equal(reference.token, undefined);
+  assert.equal(await loadWarpCredential(vault, reference), secret);
+
+  await removeWarpCredential(vault, reference);
+  assert.equal(await loadWarpCredential(vault, reference), undefined);
+});
