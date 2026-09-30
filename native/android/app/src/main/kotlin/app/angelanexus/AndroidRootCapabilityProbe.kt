@@ -9,6 +9,7 @@ interface AndroidRootCapabilityProbe {
     fun tcpTproxy(): Boolean
     fun udpTproxy(): Boolean
     fun dnsInterception(): Boolean
+    fun icmpCapture(): Boolean
     fun ipv4PolicyRouting(): Boolean
     fun ipv6PolicyRouting(): Boolean
     fun uidIdentity(): Boolean
@@ -20,6 +21,7 @@ object UnverifiedAndroidRootCapabilityProbe : AndroidRootCapabilityProbe {
     override fun tcpTproxy() = false
     override fun udpTproxy() = false
     override fun dnsInterception() = false
+    override fun icmpCapture() = false
     override fun ipv4PolicyRouting() = false
     override fun ipv6PolicyRouting() = false
     override fun uidIdentity() = false

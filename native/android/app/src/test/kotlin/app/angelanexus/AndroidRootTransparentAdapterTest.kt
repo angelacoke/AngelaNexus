@@ -9,6 +9,7 @@ class AndroidRootTransparentAdapterTest {
         override fun tcpTproxy() = true
         override fun udpTproxy() = true
         override fun dnsInterception() = true
+        override fun icmpCapture() = true
         override fun ipv4PolicyRouting() = true
         override fun ipv6PolicyRouting() = true
         override fun uidIdentity() = true
@@ -22,6 +23,7 @@ class AndroidRootTransparentAdapterTest {
         assertFalse(probe.tcpTproxy())
         assertFalse(probe.udpTproxy())
         assertFalse(probe.dnsInterception())
+        assertFalse(probe.icmpCapture())
         assertFalse(probe.ipv4PolicyRouting())
         assertFalse(probe.ipv6PolicyRouting())
         assertFalse(probe.uidIdentity())
@@ -35,6 +37,7 @@ class AndroidRootTransparentAdapterTest {
         assertTrue(probe.tcpTproxy())
         assertTrue(probe.udpTproxy())
         assertTrue(probe.dnsInterception())
+        assertTrue(probe.icmpCapture())
         assertTrue(probe.ipv4PolicyRouting())
         assertTrue(probe.ipv6PolicyRouting())
         assertTrue(probe.uidIdentity())

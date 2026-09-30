@@ -29,6 +29,7 @@ class AndroidRootVerifiedCapabilityProbeTest {
         assertFalse(probe.tcpTproxy())
         assertFalse(probe.udpTproxy())
         assertFalse(probe.dnsInterception())
+        assertFalse(probe.icmpCapture())
         assertFalse(probe.ipv4PolicyRouting())
         assertFalse(probe.ipv6PolicyRouting())
         assertFalse(probe.uidIdentity())
@@ -46,6 +47,7 @@ class AndroidRootVerifiedCapabilityProbeTest {
         assertTrue(probe.tcpTproxy())
         assertTrue(probe.udpTproxy())
         assertTrue(probe.dnsInterception())
+        assertFalse(probe.icmpCapture())
         assertTrue(probe.ipv4PolicyRouting())
         assertTrue(probe.ipv6PolicyRouting())
         assertTrue(probe.uidIdentity())
@@ -53,7 +55,6 @@ class AndroidRootVerifiedCapabilityProbeTest {
         assertTrue(probe.atomicRollback())
         assertTrue(runner.commands.all { it.isNotBlank() })
     }
-
 
     @Test
     fun dns_capability_checks_udp_and_tcp() {

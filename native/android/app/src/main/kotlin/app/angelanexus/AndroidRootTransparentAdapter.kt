@@ -19,6 +19,7 @@ class AndroidRootTransparentAdapter(
         val tcp: Boolean,
         val udp: Boolean,
         val dns: Boolean,
+        val icmp: Boolean,
         val ipv4: Boolean,
         val ipv6: Boolean,
         val uidIdentity: Boolean,
@@ -27,7 +28,7 @@ class AndroidRootTransparentAdapter(
         val atomicRollback: Boolean,
     ) {
         val rootBackendReady: Boolean
-            get() = rootAvailable && rootAuthorized && tcp && udp && dns &&
+            get() = rootAvailable && rootAuthorized && tcp && udp && dns && icmp &&
                 ipv4 && ipv6 && uidIdentity && processIdentity &&
                 policyRouting && atomicRollback
     }
@@ -64,6 +65,7 @@ private class AndroidRootBackend(
             tcp = rootAuthorized && capabilityProbe.tcpTproxy(),
             udp = rootAuthorized && capabilityProbe.udpTproxy(),
             dns = rootAuthorized && capabilityProbe.dnsInterception(),
+            icmp = rootAuthorized && capabilityProbe.icmpCapture(),
             ipv4 = ipv4PolicyRouting,
             ipv6 = ipv6PolicyRouting,
             uidIdentity = rootAuthorized && capabilityProbe.uidIdentity(),
