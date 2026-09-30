@@ -1,7 +1,11 @@
 package app.angelanexus
 
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.EmptyCoroutineContext
+import kotlin.coroutines.startCoroutine
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class SerializedConfigImportPortTest {
     @Test
@@ -21,10 +25,17 @@ class SerializedConfigImportPortTest {
             content = "mixed-port: 7890",
         )
 
-        kotlinx.coroutines.runBlocking {
-            port.importConfiguration(request)
-        }
+        var completed = false
+        var failure: Throwable? = null
+        port.importConfiguration(request).startCoroutine(
+            Continuation(EmptyCoroutineContext) { result ->
+                failure = result.exceptionOrNull()
+                completed = true
+            },
+        )
 
+        assertTrue(completed)
+        failure?.let { throw it }
         assertEquals(
             ConfigImportEnvelope.serialize(request),
             received,
