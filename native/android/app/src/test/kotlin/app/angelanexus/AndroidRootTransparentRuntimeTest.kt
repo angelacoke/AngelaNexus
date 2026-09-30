@@ -17,7 +17,7 @@ class AndroidRootTransparentRuntimeTest {
     }
 
     private class FakeInspector(
-        private val verified: Boolean,
+        var verified: Boolean,
         private val clear: Boolean = true,
     ) : RootTransparentStateInspector {
         override fun tableExists(tableName: String) = verified
@@ -107,11 +107,13 @@ class AndroidRootTransparentRuntimeTest {
 
     @Test
     fun health_check_fails_closed_when_live_state_is_lost() {
-        val runtime = AndroidRootTransparentRuntime(FakeInspector(true))
+        val inspector = FakeInspector(true)
+        val runtime = AndroidRootTransparentRuntime(inspector)
         runtime.activate(
             config(),
             RootTransparentRuleTransaction(FakeExecutor(), AndroidRootTransparentRules.build(config())),
         )
+        inspector.verified = false
 
         val error = assertFailsWith<IllegalStateException> {
             runtime.healthCheck()
@@ -137,6 +139,5 @@ class AndroidRootTransparentRuntimeTest {
         assertEquals(AndroidRootTransparentRuntime.State.ACTIVE, runtime.state)
     }
 
-    private fun configWithLostState() = config().copy(mark = 2)
 
 }
