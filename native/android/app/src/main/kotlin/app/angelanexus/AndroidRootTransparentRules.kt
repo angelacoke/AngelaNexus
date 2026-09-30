@@ -190,6 +190,29 @@ class RootTransparentRuleTransaction(
                 appliedCommands += command
             }
             committed = true
+            appliedCommands.clear()
+        } catch (error: Throwable) {
+            rollbackApplied()
+            prepared = false
+            throw error
+        }
+    }
+
+    /**
+     * Applies the complete rule set and verifies the resulting kernel state
+     * before the transaction becomes committed. Verification failure is a
+     * transaction failure and therefore rolls back the applied commands.
+     */
+    fun commitVerified(verify: () -> Boolean) {
+        check(prepared && !committed) { "transaction is not prepared" }
+        try {
+            for (command in commands) {
+                executor.execute(command.apply)
+                appliedCommands += command
+            }
+            check(verify()) { "transparent rule verification failed" }
+            committed = true
+            appliedCommands.clear()
         } catch (error: Throwable) {
             rollbackApplied()
             prepared = false
