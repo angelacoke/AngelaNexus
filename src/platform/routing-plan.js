@@ -4,6 +4,7 @@ import {
   createRoutingPolicyOptions,
   createSecureRoutingBaseline,
   evaluateParallelRouting,
+  createServiceTargetCatalog,
 } from "./routing-strategy.js";
 import {
   createRegionSelectionGroups,
@@ -183,13 +184,14 @@ export function createPlatformRoutingPlan({
   regionOptions = {},
   serviceDefaults = {},
   serviceOverrides = {},
+  serviceTargetOverrides = {},
   landingOptions = {},
 } = {}) {
   const regionGroups = createRegionSelectionGroups(nodes, regionOptions);
-  const serviceCatalog = {
+  const serviceCatalog = createServiceTargetCatalog({
     ...canonicalServiceCatalog(),
     domestic: DomesticServiceCatalog,
-  };
+  }, serviceTargetOverrides);
   const serviceBindings = createServiceNodeBindings(serviceCatalog, regionGroups, {
     defaults: serviceDefaults,
     overrides: serviceOverrides,

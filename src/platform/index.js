@@ -51,6 +51,7 @@ export {
   createRoutingPolicyOptions,
   createSecureRoutingBaseline,
   compileParallelRoutingForKernel,
+  createServiceTargetCatalog,
 } from "./routing-strategy.js";
 export {
   REGION_SELECTION_MODES,

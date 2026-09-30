@@ -8,6 +8,7 @@ import {
   createServiceNodeBindings,
   resolveServiceNode,
   inferNodeRegion,
+  createServiceTargetCatalog,
 } from "../src/platform/index.js";
 
 const nodes = [
@@ -161,4 +162,24 @@ test("manual service selection never silently falls back to automatic nodes", ()
     () => resolveServiceNode("service:ai:openai", bindings["service:ai:openai"], groups),
     /manual service selection has no selected node/,
   );
+});
+
+
+test("service target overrides add explicit app/process matchers without changing domain targets", () => {
+  const catalog = createServiceTargetCatalog(
+    { ai: [{ id: "openai", domains: ["openai.com"], packages: [], processNames: [] }] },
+    { "service:ai:openai": { packages: ["app.example.client"], processNames: ["example.process"] } },
+  );
+  assert.deepEqual(catalog.ai[0].domains, ["openai.com"]);
+  assert.deepEqual(catalog.ai[0].packages, ["app.example.client"]);
+  assert.deepEqual(catalog.ai[0].processNames, ["example.process"]);
+});
+
+test("service target catalog does not invent identifiers when overrides are absent", () => {
+  const catalog = createServiceTargetCatalog(
+    { ai: [{ id: "openai", domains: ["openai.com"], packages: [], processNames: [] }] },
+    {},
+  );
+  assert.deepEqual(catalog.ai[0].packages, []);
+  assert.deepEqual(catalog.ai[0].processNames, []);
 });

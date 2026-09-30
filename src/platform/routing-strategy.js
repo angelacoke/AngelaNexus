@@ -125,6 +125,36 @@ export function evaluateParallelRouting(policy, context = {}) {
 
 function servicePolicyKey(category, item) { const canonicalCategory = category === "meta_ai" ? "ai" : category; return `service:${canonicalCategory}:${item.id}`; }
 
+function normalizeServiceTargetList(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  if (value === undefined || value === null || value === "") return [];
+  return [String(value).trim()].filter(Boolean);
+}
+
+export function createServiceTargetCatalog(serviceCatalog, overrides = {}) {
+  const clone = (value, path) => {
+    if (Array.isArray(value)) return Object.freeze(value.map((item) => {
+      if (!item || typeof item !== "object" || typeof item.id !== "string") return item;
+      const category = path.join(":") === "meta_ai" ? "ai" : path.join(":");
+      const serviceKey = "service:" + category + ":" + item.id;
+      const configured = overrides[serviceKey] || overrides[item.id];
+      if (!configured || typeof configured !== "object") return item;
+      const packages = normalizeServiceTargetList(configured.packages);
+      const processNames = normalizeServiceTargetList(configured.processNames);
+      return Object.freeze({
+        ...item,
+        packages: Object.freeze(packages.length ? packages : item.packages),
+        processNames: Object.freeze(processNames.length ? processNames : item.processNames),
+      });
+    }));
+    if (!value || typeof value !== "object") return value;
+    const result = {};
+    for (const [key, child] of Object.entries(value)) result[key] = clone(child, path.concat(key));
+    return Object.freeze(result);
+  };
+  return clone(serviceCatalog || {}, []);
+}
+
 function serviceMatch(item) { const match = { domain_suffix: item.domains }; if (item.packages.length) match.package_name = item.packages; if (item.processNames.length) match.process_name = item.processNames; return match; }
 
 export function createSecureRoutingBaseline({ proxyTarget = DEFAULT_PROXY, directTarget = DEFAULT_DIRECT, rejectTarget = DEFAULT_REJECT, options = {} } = {}) {
