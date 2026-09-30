@@ -40,7 +40,7 @@ export function aggregateChainHealth(hops = []) {
   });
 }
 
-export function createHopHealthProbe({ icmp, tcp }) {
+function elapsedSince(start) {\n  return Date.now() - start;\n}\n\nexport function createHopHealthProbe({ icmp, tcp }) {
   if (!icmp || typeof icmp.probe !== "function") throw new TypeError("icmp probe implementation is required");
   if (!tcp || typeof tcp.probe !== "function") throw new TypeError("tcp probe implementation is required");
   return Object.freeze({
@@ -57,6 +57,6 @@ export function createHopHealthProbe({ icmp, tcp }) {
         timestamp: Date.now(),
       });
     },
-    measureElapsed(start = started) { return Date.now() - start; },
+    measureElapsed(start) { return elapsedSince(start); },
   });
 }
