@@ -16,7 +16,7 @@ export {
   CONFIG_IMPORT_ENVELOPE_MAX_BYTES,
 } from "./runtime-import-receiver.js";
 export { createRuntimeImportService } from "./runtime-import-service.js";
-export { createPlatformRoutingPlan } from "./routing-plan.js";
+export { createPlatformRoutingPlan, resolvePlatformRoutingDecision } from "./routing-plan.js";
 export {
   RoutingSemantics,
   RoutingCategories,
