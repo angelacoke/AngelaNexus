@@ -19,12 +19,24 @@ export { createRuntimeImportService } from "./runtime-import-service.js";
 export {
   RoutingSemantics,
   RoutingCategories,
+  RoutingPolicyCatalog,
   GlobalServiceCatalog,
   DomesticServiceCatalog,
+  DomesticServiceGroups,
   evaluateParallelRouting,
+  createRoutingPolicyOptions,
   createSecureRoutingBaseline,
   compileParallelRoutingForKernel,
 } from "./routing-strategy.js";
+export {
+  REGION_SELECTION_MODES,
+  RegionIds,
+  inferNodeRegion,
+  buildRegionGroups,
+  createRegionSelectionGroups,
+  createServiceNodeBindings,
+  resolveServiceNode,
+} from "./region-routing.js";
 export { inspectPlatformCapabilities } from "./capability-inspector.js";
 export {
   createRuntimeConfigImportTransport,
