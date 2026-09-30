@@ -3,6 +3,8 @@ package app.angelanexus
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class AndroidTransparentModeTest {
     private fun capabilities(
