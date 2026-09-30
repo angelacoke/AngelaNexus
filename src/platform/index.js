@@ -64,5 +64,11 @@ export {
   serializeConfigImportRequest,
   RUNTIME_IMPORT_MAX_BYTES,
 } from "./runtime-import.js";
-
 export { createPlatformRuntime } from "./runtime.js";
+export {
+  PLATFORM_FAILURE_ACTIONS,
+  createPlatformFailureState,
+  createPlatformRecoveryOptions,
+  createPlatformFailureNotice,
+  advisePlatformFailure,
+} from "./recovery-advisor.js";
