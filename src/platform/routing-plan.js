@@ -36,12 +36,31 @@ export function resolvePlatformRoutingDecision(plan, context = {}, { health = {}
     return Object.freeze({ evaluation, target: selected.action });
   }
 
+  if (selected.action?.type !== "route" || selected.action.target !== "secure-proxy") {
+    return Object.freeze({ evaluation, target: selected.action });
+  }
+
   const binding = plan.serviceBindings[routing.serviceKey];
   if (!binding) throw new Error("missing service routing binding: " + routing.serviceKey);
-  const resolved = resolveServiceNode(routing.serviceKey, binding, plan.regionGroups, {
+  let resolved;
+  try {
+    resolved = resolveServiceNode(routing.serviceKey, binding, plan.regionGroups, {
     health,
     preferredRegion,
   });
+
+  } catch (error) {
+    return Object.freeze({
+      evaluation,
+      target: Object.freeze({
+        type: "reject",
+        target: plan.policy.rejectTarget || "reject",
+        serviceKey: routing.serviceKey,
+        reason: "no-usable-service-node",
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    });
+  }
 
   return Object.freeze({
     evaluation,
