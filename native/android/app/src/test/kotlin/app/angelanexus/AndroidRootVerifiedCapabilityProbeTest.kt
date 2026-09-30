@@ -54,6 +54,19 @@ class AndroidRootVerifiedCapabilityProbeTest {
         assertTrue(runner.commands.all { it.isNotBlank() })
     }
 
+
+    @Test
+    fun ipv6_policy_probe_does_not_duplicate_address_family_flag() {
+        val runner = Runner(RootProbeResult(0))
+        val probe = AndroidRootVerifiedCapabilityProbe(runner)
+
+        assertTrue(probe.ipv6PolicyRouting())
+
+        val command = runner.commands.single()
+        assertTrue(command.contains("route add local ::/0 dev lo table"))
+        assertFalse(command.contains("ip -6 -6"))
+    }
+
     @Test
     fun process_identity_is_not_inferred_from_uid_or_nft_support() {
         val runner = Runner(RootProbeResult(0))
