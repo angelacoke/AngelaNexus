@@ -79,7 +79,7 @@ class AndroidRootTransparentRuntime(
      * is clear before reporting IDLE. Cleanup failure remains FAILED.
      */
     fun stop() {
-        check(state == State.ACTIVE || state == State.FAILED) {
+        check(state == State.ACTIVE) {
             "transparent runtime is not stoppable in state $state"
         }
         val config = activeConfig ?: error("transparent runtime has no active configuration")
