@@ -104,14 +104,19 @@ export function createRegionSelectionGroups(nodes = [], {
       return al - bl;
     });
 
+    const validManual = manual.filter((id) => available.some((n) => n.id === id));
     result[region] = Object.freeze({
       region,
-      mode,
-      nodes: Object.freeze(available),
+      nodes: Object.freeze(members),
       selection: Object.freeze({
-        mode,
-        selectedNodeIds: Object.freeze(manual.filter((id) => available.some((n) => n.id === id))),
-        autoCandidates: Object.freeze(ranked.map((n) => n.id)),
+        activeMode: mode,
+        auto: Object.freeze({
+          candidateNodeIds: Object.freeze(ranked.map((n) => n.id)),
+          preferredNodeId: ranked[0].id,
+        }),
+        manual: Object.freeze({
+          selectedNodeIds: Object.freeze(validManual),
+        }),
       }),
     });
   }
