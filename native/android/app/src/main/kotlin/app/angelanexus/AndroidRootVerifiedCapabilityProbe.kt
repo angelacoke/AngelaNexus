@@ -90,8 +90,8 @@ class AndroidRootVerifiedCapabilityProbe(
             ${'$'}ip_cmd rule add fwmark "${'$'}mark"/0xffff lookup "${'$'}table"
             trap '${'$'}ip_cmd rule del fwmark "${'$'}mark"/0xffff lookup "${'$'}table" >/dev/null 2>&1 || true' EXIT
             if [ "$ipCommand" = "ip -6" ]; then
-              ${'$'}ip_cmd -6 route add local ::/0 dev lo table "${'$'}table"
-              ${'$'}ip_cmd -6 route del local ::/0 dev lo table "${'$'}table"
+              ${'$'}ip_cmd route add local ::/0 dev lo table "${'$'}table"
+              ${'$'}ip_cmd route del local ::/0 dev lo table "${'$'}table"
             else
               ${'$'}ip_cmd route add local 0.0.0.0/0 dev lo table "${'$'}table"
               ${'$'}ip_cmd route del local 0.0.0.0/0 dev lo table "${'$'}table"
