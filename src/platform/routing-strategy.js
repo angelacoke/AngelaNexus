@@ -123,7 +123,9 @@ export function evaluateParallelRouting(policy, context = {}) {
   return Object.freeze({ semantics: RoutingSemantics.PARALLEL, matchedRuleIds: Object.freeze(candidates.map((item) => item.rule.id)), candidates: Object.freeze(candidates), selected, action: selected?.action || policy?.defaultAction || { type: "route", target: DEFAULT_PROXY } });
 }
 
-function servicePolicyKey(category, item) { const canonicalCategory = category === "meta_ai" ? "ai" : category; return `service:${canonicalCategory}:${item.id}`; }\n\nfunction serviceMatch(item) { const match = { domain_suffix: item.domains }; if (item.packages.length) match.package_name = item.packages; if (item.processNames.length) match.process_name = item.processNames; return match; }
+function servicePolicyKey(category, item) { const canonicalCategory = category === "meta_ai" ? "ai" : category; return `service:${canonicalCategory}:${item.id}`; }
+
+function serviceMatch(item) { const match = { domain_suffix: item.domains }; if (item.packages.length) match.package_name = item.packages; if (item.processNames.length) match.process_name = item.processNames; return match; }
 
 export function createSecureRoutingBaseline({ proxyTarget = DEFAULT_PROXY, directTarget = DEFAULT_DIRECT, rejectTarget = DEFAULT_REJECT, options = {} } = {}) {
   const enabled = createRoutingPolicyOptions(options); const rules = []; let id = 0;
