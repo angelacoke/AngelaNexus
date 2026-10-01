@@ -13,6 +13,10 @@ function baseConfig(profileFeatures) {
     chains: [
       { id: "chain-a", mode: "node->node", hops: [{ id: "n1" }, { id: "n2" }] },
     ],
+    groups: [
+      { id: "auto", name: "Auto", type: "select", members: ["n1", "n2"] },
+      { id: "global", name: "Global", type: "select", members: ["n1", "n2"] },
+    ],
     routing: {
       rules: [
         { id: "chain-rule", name: "Chain Rule", match: { domain_suffix: ["example.com"] }, action: { type: "chain", target: "chain-a" } },
