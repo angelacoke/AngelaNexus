@@ -180,7 +180,14 @@ export function compileUnifiedConfig(config, kernel = config && config.kernel) {
     throw error;
   }
   const compatibility = preflight.compatibility;
-  const featureInput = profileFeatureState(config);\n  const featureState = featureInput\n    ? createProfileCustomization({\n      groups: groupList(config.groups),\n      chains: chainList(config.chains),\n      ...featureInput,\n    })\n    : undefined;
+  const featureInput = profileFeatureState(config);
+  const featureState = featureInput
+    ? createProfileCustomization({
+      groups: groupList(config.groups),
+      chains: chainList(config.chains),
+      ...featureInput,
+    })
+    : undefined;
   const resolvedChains = resolveConfiguredChains(config, featureState);
   const compilableGroups = groupsForKernel(config);
   const compiledGroups = compileGroups(compilableGroups, kernel, config.nodes, config.states, featureState);
@@ -203,6 +210,7 @@ export function compileUnifiedConfig(config, kernel = config && config.kernel) {
     compatibility,
     preflight,
     groups: [...compiledGroups.targetMap.entries()].map(([id, target]) => ({ id, target })),
-    chains: [...resolvedChains.values()].map((chain) => ({ id: chain.id, mode: chain.mode, hops: chain.hops.map((node) => node.id) })),\n    profileFeatures: featureState ? clone(featureState) : undefined,
+    chains: [...resolvedChains.values()].map((chain) => ({ id: chain.id, mode: chain.mode, hops: chain.hops.map((node) => node.id) })),
+    profileFeatures: featureState ? clone(featureState) : undefined,
   };
 }
