@@ -2,6 +2,7 @@ import { adapterFor } from "../adapters/index.js";
 import { AdapterCapabilities, hasAdapterCapability } from "../adapters/contract.js";
 import { compileGroups } from "./group-compiler.js";
 import { resolveChain } from "./chain-resolution.js";
+import { resolveProfileChain } from "./profile-customization.js";
 import { validateUnifiedCompatibility } from "./compatibility.js";
 import { preflightUnifiedConfig } from "./compile-preflight.js";
 import { validateCompiledConfig } from "./compiled-config-validation.js";
@@ -23,6 +24,14 @@ function groupList(groups) {
   if (Array.isArray(groups)) return groups.filter((group) => group && group.id);
   if (groups && typeof groups === "object") return Object.values(groups).filter((group) => group && group.id);
   return [];
+}
+function profileFeatureState(config) {
+  if (!config || typeof config !== "object") return undefined;
+  if (config.profileFeatures && typeof config.profileFeatures === "object") return config.profileFeatures;
+  if (config.profile && typeof config.profile === "object" && config.profile.features && typeof config.profile.features === "object") {
+    return config.profile.features;
+  }
+  return undefined;
 }
 function groupIdsUsedByChains(chains, groups) {
   const byId = new Map(groupList(groups).map((group) => [String(group.id).trim(), group]));
@@ -78,9 +87,13 @@ function groupsForKernel(config) {
   return definitions.filter((group) => !chainGroups.has(String(group.id).trim()) || routedGroups.has(String(group.id).trim()));
 }
 function chainMode(chain) { return typeof chain?.mode === "string" && chain.mode.trim() ? chain.mode : "node->node"; }
-function resolveConfiguredChains(config) {
+function resolveConfiguredChains(config, featureState) {
   const resolved = new Map();
   for (const chain of chainList(config.chains)) {
+    if (featureState) {
+      const selected = resolveProfileChain(chain, featureState);
+      if (!selected) continue;
+    }
     const id = String(chain.id).trim();
     const resolvedChain = resolveChain(chainHops(chain), { nodes: config.nodes, groups: config.groups, states: config.states, maxDepth: chain.maxDepth });
     if (!resolvedChain.ok) throw new Error("chain " + id + " cannot be safely compiled: " + resolvedChain.error);
@@ -142,9 +155,10 @@ export function compileUnifiedConfig(config, kernel = config && config.kernel) {
     throw error;
   }
   const compatibility = preflight.compatibility;
-  const resolvedChains = resolveConfiguredChains(config);
+  const featureState = profileFeatureState(config);
+  const resolvedChains = resolveConfiguredChains(config, featureState);
   const compilableGroups = groupsForKernel(config);
-  const compiledGroups = compileGroups(compilableGroups, kernel, config.nodes, config.states);
+  const compiledGroups = compileGroups(compilableGroups, kernel, config.nodes, config.states, featureState);
   const nodeTargets = nodeTargetMap(config);
   const kernelConfig = {
     ...config,
