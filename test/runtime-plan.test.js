@@ -39,7 +39,7 @@ function node(overrides = {}) {
   };
 }
 
-test("runtime plan remains backend-neutral before backend selection", () => {
+test("runtime plan exposes explainable driver-selection failure when no backend is available", () => {
   const result = createRuntimePlan(node(), {
     protocolAdapters: [protocol],
     transportAdapters: [],
@@ -47,7 +47,8 @@ test("runtime plan remains backend-neutral before backend selection", () => {
   });
   assert.equal(result.ok, false);
   assert.equal(result.status, "unsupported");
-  assert.equal(result.reason, "no execution backend can execute this plan with required capabilities");
+  assert.equal(result.driverSelection.status, "unsupported");
+  assert.match(result.reason, /No available driver/i);
   assert.equal(result.plan.kind, "runtime-plan");
   assert.equal(result.plan.protocol.id, "vless");
   assert.equal(result.plan.transport, null);
@@ -66,6 +67,7 @@ test("runtime plan separates protocol and transport selection", () => {
   assert.equal(result.ok, true);
   assert.equal(result.plan.protocol.id, "vless");
   assert.equal(result.plan.transport.id, "tcp");
+  assert.equal(result.driverSelection.selected.id, "test-backend");
 });
 
 test("unsupported transport fails closed without backend execution", () => {
@@ -116,7 +118,6 @@ test("authorization can reject a valid runtime plan before execution", () => {
   assert.equal(result.backend, "test-backend");
 });
 
-
 test("capability negotiation reports missing capabilities without guessing", () => {
   assert.deepEqual(missingCapabilities(["stream"], ["stream", "datagram"]), ["datagram"]);
   assert.equal(satisfiesCapabilities(["stream", "datagram"], ["stream"]), true);
@@ -153,7 +154,8 @@ test("runtime plan selects only a backend satisfying required capabilities", () 
   });
   assert.equal(result.ok, false);
   assert.equal(result.status, "unsupported");
-  assert.equal(result.reason, "no execution backend can execute this plan with required capabilities");
+  assert.equal(result.driverSelection.status, "unsupported");
+  assert.match(result.reason, /No available driver/i);
 });
 
 test("runtime plan fails closed when transport capabilities are required but no transport exists", () => {
@@ -165,7 +167,6 @@ test("runtime plan fails closed when transport capabilities are required but no 
   assert.equal(result.status, "unsupported");
   assert.deepEqual(result.missingCapabilities, ["stream"]);
 });
-
 
 test("runtime plan uses built-in protocol and transport registries when not overridden", () => {
   const result = createRuntimePlan(
