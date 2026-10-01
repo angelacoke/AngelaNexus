@@ -8,6 +8,13 @@
 
 AngelaNexus is the unified cross-platform proxy-system project for Mihomo, sing-box, and Xray adapters.
 
+## Documentation languages
+
+- **English (primary):** [`docs/README.md`](docs/README.md)
+- **简体中文：** [`docs/zh-CN/README.md`](docs/zh-CN/README.md)
+
+English is the normative documentation language. Chinese documentation mirrors the same architecture and product semantics.
+
 ## Constitutional architecture
 
 The project's architecture, implementation, verification, and maintenance are governed by the **[AngelaNexus 底层宪级纲领](docs/ANGELANEXUS_CONSTITUTION.md)** (AN-Constitution v1.0). It establishes Platform First, parallel execution backends, canonical data models, protocol/transport separation, user control, parallel rule semantics, security boundaries, cross-platform isolation, evidence-based verification, and staged migration toward backend independence.
