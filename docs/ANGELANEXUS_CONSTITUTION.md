@@ -2,7 +2,7 @@
 
 **项目：AngelaNexus**  
 **定位：智能网络代理平台**  
-**纲领版本：AN-Constitution v1.1**
+**纲领版本：AN-Constitution v1.2**
 
 > 本文件是 AngelaNexus 后续架构设计、代码实现、测试验证、CI、发布与维护的底层宪级约束。任何后续实现均不得违反本纲领；如发现现有实现与本纲领冲突，应优先修复架构冲突，再继续推进后续开发。
 
@@ -1027,4 +1027,367 @@ AngelaNexus 的三内核调度模型正式定义为：
 - 是否可以通过测试和事实依据验证
 
 通过后方可进入代码实现。
+
+
+## 第二十四章：资源效率与能耗控制宪则
+
+### 第四十八条：资源效率属于架构约束，不是后期优化
+
+AngelaNexus 的内存、CPU、唤醒、网络控制流量和电池消耗属于产品级架构约束。
+
+资源效率不得被视为发布前的可选优化，也不得以“功能已经完成”为理由延期处理。
+
+任何新增模块、Driver、后台任务、协议适配、规则系统、DNS 能力、诊断能力和系统集成能力，都必须在设计和实现阶段同时定义资源生命周期与资源成本。
+
+核心目标：
+
+- 高效率
+- 低内存
+- 低 CPU
+- 低后台唤醒
+- 低网络控制开销
+- 低电池消耗
+- 不牺牲安全、正确性和用户控制
+
+### 第四十九条：三内核待命不得等同于三内核常驻
+
+“三内核平行待命”必须解释为平台可探测、可调度，而不是默认让 Mihomo、sing-box、Xray 三个完整运行时长期同时常驻。
+
+平台必须优先采用：
+
+```
+Installed
+    ↓
+Available
+    ↓
+Ready
+    ↓
+Active
+    ↓
+Idle
+    ↓
+Suspended
+    ↓
+Released
+```
+
+其中：
+
+- **Installed**：已安装或已包含
+- **Available**：当前可被平台调用
+- **Ready**：已完成必要初始化，可快速接收任务
+- **Active**：正在承担实际 Session
+- **Idle**：暂时无业务但仍保持部分状态
+- **Suspended**：已暂停运行
+- **Released**：释放运行资源，仅保留必要的可恢复信息
+
+除非用户明确选择预热、保活或系统场景确有必要，否则平台不得默认长期维持多个完整 Driver 运行时。
+
+### 第五十条：平台必须避免重复运行时状态
+
+平台是跨 Driver 的统一控制中心，因此以下状态原则上不得由多个层重复长期维护：
+
+- Canonical Config
+- Node Model
+- Policy
+- Match Set
+- Routing Decision
+- DNS Cache
+- Fake-IP State
+- Connection / Session Metadata
+- Health State
+- Resource State
+- Diagnostics State
+- 用户偏好
+
+执行后端保留其协议、传输、握手、连接池等不可避免的原生运行时状态。
+
+平台必须通过明确边界避免重复缓存、重复轮询、重复健康检查和重复统计。
+
+### 第五十一条：后台工作必须事件驱动并具有资源预算
+
+后台任务原则上优先采用：
+
+- Event-driven
+- Timer coalescing
+- Batch processing
+- Adaptive scheduling
+- Bounded concurrency
+- Connection reuse
+- Cache reuse
+
+禁止无必要的：
+
+- Busy loop
+- 高频固定轮询
+- 重复 DNS 查询
+- 重复健康检查
+- 重复建立连接
+- 无界并发
+- 无意义后台日志
+- 无业务价值的持续唤醒
+
+每项后台任务必须能够说明：
+
+- 触发条件
+- 执行频率或自适应策略
+- 并发上限
+- 单次资源成本
+- 失败后的重试策略
+- 空闲时行为
+- 系统休眠时行为
+- 低电量时行为
+- 停止条件
+
+### 第五十二条：必须建立内存预算和生命周期预算
+
+平台必须同时关注：
+
+- Steady-state Memory
+- Peak Memory
+- Driver Memory
+- Cache Memory
+- Buffer Memory
+- Rule / Config Memory
+- Diagnostics / Log Memory
+- Temporary Allocation
+
+不得只观察启动瞬间内存。
+
+每个主要模块必须明确：
+
+```
+Allocation
+   ↓
+Lifetime
+   ↓
+Reuse
+   ↓
+Release
+```
+
+能够复用的缓冲区、连接、解析结果和缓存不得无理由重复分配。
+
+缓存必须具有：
+
+- 上限
+- 生命周期
+- 淘汰策略
+- 失效策略
+- 可观测性
+
+不得通过无限缓存换取表面性能。
+
+### 第五十三条：CPU 使用必须以有效工作为中心
+
+CPU 优化必须优先减少无效工作，而不是仅通过降低功能频率获得表面指标。
+
+优先方向：
+
+- 减少重复解析
+- 减少重复匹配
+- 减少重复序列化
+- 减少重复 DNS
+- 减少重复连接建立
+- 减少重复状态同步
+- 批量处理可批量处理的事件
+- 采用事件通知替代持续轮询
+
+任何高频路径必须能够通过测试证明其 CPU 成本合理。
+
+### 第五十四条：电池消耗必须纳入系统生命周期
+
+平台必须根据系统和设备状态调整后台行为，并明确区分：
+
+- Foreground
+- Background
+- Idle
+- Screen-off
+- Charging
+- Battery saver / Low battery
+- Network transition
+- System sleep / resume
+
+在不违反用户网络策略和安全边界的前提下，可以降低：
+
+- 后台健康检查频率
+- Driver 保活
+- DNS 主动探测
+- 网络状态重复检测
+- 诊断采样
+- 非必要日志
+- 空闲 Driver 数量
+
+但不得因为省电而关闭或绕过用户明确启用的安全能力。
+
+### 第五十五条：资源优化不得削弱安全边界
+
+资源效率的优先级不得高于安全和正确性。
+
+任何资源优化不得导致：
+
+- DNS 泄露
+- IPv4 绕过
+- IPv6 绕过
+- TUN 绕过
+- Kill Switch 失效
+- 用户规则失效
+- Fail Closed 变为 Fail Open
+- Session 边界失真
+- 凭据保护降低
+- 未授权 Driver 自动切换
+- 用户明确禁止的后台行为继续运行
+
+资源优化的正确顺序为：
+
+```
+Security
+   ↓
+Correctness
+   ↓
+User Policy
+   ↓
+Stability
+   ↓
+Efficiency
+   ↓
+Power Optimization
+```
+
+### 第五十六条：网络控制流量也属于资源成本
+
+平台必须控制非业务流量产生的资源开销，包括：
+
+- DNS 查询
+- Health Check
+- Keepalive
+- Driver IPC
+- Capability Probe
+- Metrics
+- Diagnostics
+- Update Check
+- Background Synchronization
+
+能够共享、合并、缓存或事件触发的操作，不得无理由重复执行。
+
+### 第五十七条：资源模式必须可解释、可验证
+
+平台可以提供资源策略，例如：
+
+- Balanced
+- Performance
+- Power Saving
+- User Defined
+
+但任何模式都必须明确说明其影响范围。
+
+资源模式不得静默修改用户明确设置的：
+
+- 路由策略
+- DNS 策略
+- 防泄露策略
+- 节点选择限制
+- Driver 选择限制
+- 故障转移策略
+- 安全策略
+
+系统可以优化实现方式，但不得借资源模式偷偷改变网络语义。
+
+### 第五十八条：所有资源优化必须以实测为依据
+
+资源优化不得仅凭代码阅读或主观判断宣布完成。
+
+至少应建立可重复的基准指标：
+
+- CPU 使用率
+- RSS / PSS
+- Peak Memory
+- Allocation Rate
+- Wakeups
+- Battery Drain
+- Network Control Overhead
+- DNS Query Rate
+- Active Connection Count
+- Active Driver Count
+- Startup Latency
+- Resume Latency
+- Throughput
+- Error / Retry Rate
+
+测试必须区分：
+
+- Foreground
+- Background
+- Idle
+- Heavy Traffic
+- Large Rule Set
+- Large Node Set
+- Network Transition
+- Sleep / Resume
+- Low Battery
+- Multi-Driver Capability Matching
+
+优化前后必须能够比较，并保留回归依据。
+
+### 第五十九条：资源回归属于发布阻断条件
+
+如果新增功能导致资源指标出现未经解释且未获批准的明显回归，不得仅因为功能测试通过而视为完成。
+
+资源回归必须：
+
+```
+Detect
+ ↓
+Measure
+ ↓
+Identify
+ ↓
+Fix / Justify
+ ↓
+Re-measure
+ ↓
+Pass
+```
+
+无法解释或无法接受的资源回归必须阻止进入下一阶段。
+
+### 第六十条：每个新模块必须通过资源审计
+
+进入下一实现类别前，必须回答：
+
+1. 该模块何时启动？
+2. 何时保持运行？
+3. 何时进入 Idle？
+4. 何时 Suspend？
+5. 何时 Release？
+6. 占用多少内存？
+7. CPU 高频路径是什么？
+8. 是否存在后台唤醒？
+9. 是否产生额外网络控制流量？
+10. 系统休眠时如何处理？
+11. 低电量时如何处理？
+12. 是否与其他模块重复维护状态？
+13. 如何测试资源成本？
+14. 如何检测资源回归？
+15. 是否可能影响安全或用户网络策略？
+
+没有明确答案，不得进入下一实现阶段。
+
+### 第六十一条：跨平台资源控制必须保持统一语义
+
+Android、iOS、Windows、macOS、Linux 可以使用不同的系统生命周期 API 和资源控制机制，但必须映射到统一的平台资源生命周期语义。
+
+平台核心不得因为操作系统差异而产生相互矛盾的资源策略。
+
+系统特有实现必须位于 Platform Abstraction Layer。
+
+### 第六十二条：资源效率的最终定义
+
+AngelaNexus 的资源效率正式定义为：
+
+> **在不降低安全性、正确性、用户控制权、策略完整性和跨平台可靠性的前提下，以最少的持续内存、CPU、后台唤醒、网络控制流量和电池消耗完成既定网络任务；所有资源成本必须可测量、可解释、可回归验证。**
+
+因此：
+
+> **高效率、低内存、低耗能不是 AngelaNexus 的附加优化目标，而是实际用户体验、系统稳定性和长期可维护性的基础架构要求。**
 
