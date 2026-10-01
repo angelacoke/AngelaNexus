@@ -40,13 +40,13 @@ function evaluateDriver(driver, plan, requiredCapabilities) {
   }
 
   try {
-    if (driver?.health?.state === "failed" || driver?.health?.state === "unavailable") {
+    if (["failed", "unavailable", "suspended"].includes(text(driver?.health?.state || driver?.state || "unknown").toLowerCase())) {
       return Object.freeze({
         driver: driver.id,
         eligible: false,
         status: "unavailable",
         missingCapabilities: Object.freeze([]),
-        reason: "driver is not currently executable"
+        reason: "driver is not currently executable in its lifecycle state"
       });
     }
 
