@@ -111,7 +111,12 @@ export function compileGroups(groups, kernel, nodes = [], states, featureState) 
     const record = resolved.active.get(id);
     const type = normalizeType(group);
     if (!record) {
-      if (type === "region" || nestedGroupIds.has(id)) continue;
+      const hasNestedMembers = (Array.isArray(group.members) ? group.members : [])
+        .some((member) => {
+          const memberId = clean(member);
+          return memberId && definitions.some((candidate) => String(candidate.id).trim() === memberId);
+        });
+      if (type === "region" || hasNestedMembers || nestedGroupIds.has(id)) continue;
       throw new Error("group has no usable members: " + group.id);
     }
     const members = record.members;
