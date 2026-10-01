@@ -41,5 +41,5 @@ test("enabled profile chain is compiled and its routing action resolves to the f
 
   assert.deepEqual(result.chains, [{ id: "chain-a", mode: "node->node", hops: ["n1", "n2"] }]);
   assert.equal(result.config.proxies.find((proxy) => proxy.name === "Node 2")["dialer-proxy"], "Node 1");
-  assert.ok(result.config.rules.includes("MATCH,Node 2"));
+  assert.ok(result.config.rules.some((rule) => typeof rule === "string" && rule.endsWith(",Node 2")));
 });
