@@ -45,7 +45,7 @@ const UDP_NATIVE_PROTOCOLS = new Set([
 function literalAddressFamily(value) {
   const address = typeof value === "string" ? value.trim() : "";
   if (!address) return null;
-  if (/^\\d{1,3}(?:\\.\\d{1,3}){3}$/.test(address)) return "ipv4";
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(address)) return "ipv4";
   if (address.includes(":") && /^[0-9a-f:.]+$/i.test(address)) return "ipv6";
   return null;
 }
