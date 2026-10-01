@@ -47,7 +47,7 @@ test("runtime plan remains backend-neutral before backend selection", () => {
   });
   assert.equal(result.ok, false);
   assert.equal(result.status, "unsupported");
-  assert.equal(result.reason, "no execution backend can execute this plan");
+  assert.equal(result.reason, "no execution backend can execute this plan with required capabilities");
   assert.equal(result.plan.kind, "runtime-plan");
   assert.equal(result.plan.protocol.id, "vless");
   assert.equal(result.plan.transport, null);
