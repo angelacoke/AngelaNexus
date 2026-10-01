@@ -155,3 +155,13 @@ test("runtime plan selects only a backend satisfying required capabilities", () 
   assert.equal(result.status, "unsupported");
   assert.equal(result.reason, "no execution backend can execute this plan with required capabilities");
 });
+
+test("runtime plan fails closed when transport capabilities are required but no transport exists", () => {
+  const result = createRuntimePlan(node(), {
+    protocolAdapters: [protocol],
+    requiredTransportCapabilities: ["stream"],
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.status, "unsupported");
+  assert.deepEqual(result.missingCapabilities, ["stream"]);
+});
