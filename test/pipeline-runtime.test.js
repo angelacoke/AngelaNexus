@@ -133,3 +133,21 @@ test("pipeline runtime keeps kernel roles parallel and does not invent entry rel
   assert.ok(prepared.every(x => !("role" in x)));
   assert.ok(prepared.every(x => !("entry" in x) && !("relay" in x) && !("exit" in x)));
 });
+
+
+test("pipeline runtime preparation carries the platform-linked kernel configs", () => {
+  const linkedSpec = createPipelineSpec({
+    id: "prepared-linked-chain",
+    inbound: { host: "127.0.0.1", port: 30000 },
+    hops: [
+      { id: "a", kernel: "sing-box", node: node("a", "a.example"), listen: { host: "127.0.0.1", port: 31001 } },
+      { id: "b", kernel: "xray", node: node("b", "b.example"), listen: { host: "127.0.0.1", port: 31002 } },
+      { id: "c", kernel: "mihomo", node: node("c", "c.example"), listen: { host: "127.0.0.1", port: 31003 } },
+    ],
+  });
+  const runtime = createPipelineRuntime({ spec: linkedSpec });
+  const prepared = runtime.prepare();
+  assert.equal(prepared.length, 3);
+  assert.ok(prepared.every((item) => item.linkedConfig));
+  assert.deepEqual(prepared.map((item) => item.linkedUpstream && item.linkedUpstream.port), [null, 31001, 31002]);
+});
