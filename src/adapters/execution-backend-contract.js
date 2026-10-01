@@ -1,3 +1,5 @@
+import { satisfiesCapabilities } from "./capability-negotiation.js";
+
 export const ExecutionBackendCapabilities = Object.freeze({
   CONFIG_COMPILE: "config-compile",
   STREAM_EXECUTION: "stream-execution",
@@ -34,9 +36,14 @@ export function hasExecutionBackendCapability(backend, capability) {
   return Boolean(backend?.capabilities?.includes(capability));
 }
 
-export function findExecutionBackend(backends, plan) {
+export function findExecutionBackend(backends, plan, requiredCapabilities = []) {
   if (!Array.isArray(backends)) return null;
   return backends.find((backend) => {
-    try { return backend.canExecute(plan) === true; } catch { return false; }
+    try {
+      return satisfiesCapabilities(backend.capabilities, requiredCapabilities)
+        && backend.canExecute(plan) === true;
+    } catch {
+      return false;
+    }
   }) || null;
 }
