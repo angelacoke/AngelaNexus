@@ -47,6 +47,7 @@ export function createPipelineRuntime({
   let started = false;
 
   function prepare() {
+    const linked = spec.inbound ? compileLinkedPipeline(spec, { drivers: driverLookup }) : null;
     for (const hop of spec.hops) {
       if (compiled.has(hop.id)) continue;
       const driver = driverLookup(hop.kernel);
@@ -56,6 +57,9 @@ export function createPipelineRuntime({
         kernel: hop.kernel,
         config: driver.compileNode(hop.node, { security: spec.security }),
         listen: hop.listen,
+        linkedConfig: linked ? linked.hops.find((item) => item.hopId === hop.id)?.config || null : null,
+        linkedIngress: linked ? linked.hops.find((item) => item.hopId === hop.id)?.ingress || null : null,
+        linkedUpstream: linked ? linked.hops.find((item) => item.hopId === hop.id)?.upstream || null : null,
       }));
     }
     return Object.freeze([...compiled.values()]);
