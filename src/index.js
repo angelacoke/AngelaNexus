@@ -4,6 +4,7 @@ export * from "./ui/chain-topology-view-model.js";
 export * from "./ui/localization.js";
 export * from "./ui/locale-state.js";
 export * from "./ui/translations.js";
+export * from "./ui/semantic-localization.js";
 export * from "./core/subscription.js";
 export * from "./core/region.js";
 export * from "./core/import-pipeline.js";
