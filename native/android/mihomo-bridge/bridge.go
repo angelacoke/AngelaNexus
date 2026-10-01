@@ -158,4 +158,3 @@ func freeCString(value *C.char) {
     if value != nil { C.free(unsafe.Pointer(value)) }
 }
 
-var _ = json.Valid
