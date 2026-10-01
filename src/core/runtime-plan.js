@@ -2,7 +2,7 @@ import { NodeProtocols, normalizeNode } from "./model.js";
 import { findProtocolAdapter } from "../adapters/protocol-contract.js";
 import { findTransportAdapter } from "../adapters/transport-contract.js";
 import { findExecutionBackend } from "../adapters/execution-backend-contract.js";
-import { missingCapabilities } from "../adapters/capability-negotiation.js";
+import { missingCapabilities, normalizeCapabilities } from "../adapters/capability-negotiation.js";
 
 function clone(value) { return value === undefined ? undefined : structuredClone(value); }
 
@@ -44,7 +44,7 @@ export function createRuntimePlan(nodeInput, options = {}) {
     };
   }
 
-  const requiredProtocolCapabilities = options.requiredProtocolCapabilities || [];
+  const requiredProtocolCapabilities = normalizeCapabilities(options.requiredProtocolCapabilities);
   const missingProtocolCapabilities = capabilityFailure(protocolAdapter, requiredProtocolCapabilities);
   if (missingProtocolCapabilities) {
     return {
@@ -78,8 +78,8 @@ export function createRuntimePlan(nodeInput, options = {}) {
     };
   }
 
-  const requiredTransportCapabilities = options.requiredTransportCapabilities || [];
-  if (transportAdapter) {
+  const requiredTransportCapabilities = normalizeCapabilities(options.requiredTransportCapabilities);
+  if (requiredTransportCapabilities.length && !transportAdapter) {\n    return {\n      ok: false,\n      node,\n      protocol,\n      transport,\n      protocolAdapter: protocolAdapter.protocol,\n      status: "unsupported",\n      reason: "required transport capabilities cannot be satisfied without a transport adapter",\n      missingCapabilities: requiredTransportCapabilities,\n      backend: null,\n    };\n  }\n\n  if (transportAdapter) {
     const missingTransportCapabilities = capabilityFailure(transportAdapter, requiredTransportCapabilities);
     if (missingTransportCapabilities) {
       return {
@@ -99,7 +99,7 @@ export function createRuntimePlan(nodeInput, options = {}) {
 
   const descriptor = protocolAdapter.describe(node);
   const transportDescriptor = transportAdapter ? transportAdapter.describe(node.transport) : null;
-  const requiredBackendCapabilities = options.requiredBackendCapabilities || [];
+  const requiredBackendCapabilities = normalizeCapabilities(options.requiredBackendCapabilities);
   const plan = Object.freeze({
     kind: "runtime-plan",
     version: 1,
