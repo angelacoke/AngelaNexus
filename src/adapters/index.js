@@ -33,3 +33,5 @@ export const adapters = Object.freeze({
 export function adapterFor(kernel) {
   return adapters[kernel] || null;
 }
+
+export { builtinProtocolAdapters, builtinProtocolAdapterFor } from "./protocol-registry.js";

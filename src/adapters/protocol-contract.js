@@ -1,6 +1,7 @@
 import { NodeProtocols } from "../core/model.js";
 
 export const ProtocolCapabilities = Object.freeze({
+  IDENTIFY: "protocol-identify",
   NODE_PARSE: "node-parse",
   NODE_NORMALIZE: "node-normalize",
   STREAM_OPEN: "stream-open",
