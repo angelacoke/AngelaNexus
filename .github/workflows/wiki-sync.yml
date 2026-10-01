@@ -20,27 +20,18 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Create Wiki installation token
-        id: wiki-token
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: ${{ vars.ANGELANEXUS_WIKI_APP_CLIENT_ID }}
-          private-key: ${{ secrets.ANGELANEXUS_WIKI_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: AngelaNexus.wiki
-          permission-contents: write
-
       - name: Verify Wiki repository access
         env:
-          WIKI_TOKEN: ${{ steps.wiki-token.outputs.token }}
+          WIKI_TOKEN: ${{ secrets.ANGELANEXUS_WIKI_TOKEN }}
         run: |
           set -euo pipefail
+          test -n "${WIKI_TOKEN}"
           git -c http.extraheader="AUTHORIZATION: bearer ${WIKI_TOKEN}" \
             ls-remote "https://github.com/${GITHUB_REPOSITORY_OWNER}/AngelaNexus.wiki.git" HEAD
 
       - name: Clone Wiki
         env:
-          WIKI_TOKEN: ${{ steps.wiki-token.outputs.token }}
+          WIKI_TOKEN: ${{ secrets.ANGELANEXUS_WIKI_TOKEN }}
         run: |
           set -euo pipefail
           rm -rf wiki
@@ -54,7 +45,7 @@ jobs:
 
       - name: Commit and push Wiki changes
         env:
-          WIKI_TOKEN: ${{ steps.wiki-token.outputs.token }}
+          WIKI_TOKEN: ${{ secrets.ANGELANEXUS_WIKI_TOKEN }}
         run: |
           set -euo pipefail
           cd wiki
@@ -74,6 +65,8 @@ jobs:
           git -c http.extraheader="AUTHORIZATION: bearer ${WIKI_TOKEN}" push origin "HEAD:${branch}"
 
       - name: Verify synchronized Wiki state
+        env:
+          WIKI_TOKEN: ${{ secrets.ANGELANEXUS_WIKI_TOKEN }}
         run: |
           set -euo pipefail
           cd wiki
