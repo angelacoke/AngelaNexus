@@ -2,12 +2,14 @@ package app.angelanexus
 
 class MihomoJniNativeHost(
     private val loader: MihomoNativeLibraryLoader,
+    private val loadJniLibrary: (String) -> Unit = System::loadLibrary,
 ) : MihomoNativeHost {
     private var loaded = false
 
     private fun ensureLoaded() {
         if (!loaded) {
             loader.load().getOrThrow()
+            loadJniLibrary("mihomo-jni")
             loaded = true
         }
     }
