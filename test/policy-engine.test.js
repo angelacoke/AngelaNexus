@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { resolveRoutingPolicy, resolveRoutingDecision } from "../src/core/policy-engine.js";
 
-test("policy engine selects the first matching rule by order", () => {
+test("policy engine resolves the complete Match Set without rule-order priority", () => {
   const result = resolveRoutingPolicy({
     rules: [
       { id: "intl", name: "International", order: 20, match: { geoip: ["!CN"] }, action: { type: "route", target: "Proxy" } },
@@ -10,9 +10,11 @@ test("policy engine selects the first matching rule by order", () => {
     ],
     defaultAction: { type: "reject" }
   }, { domain: "www.example.com", geoip: "US" });
-  assert.equal(result.ok, true);
-  assert.equal(result.action.target, "US");
-  assert.equal(result.rule.id, "us");
+
+  assert.equal(result.ok, false);
+  assert.equal(result.conflict, true);
+  assert.equal(result.action.type, "reject");
+  assert.equal(result.matches.length, 2);
 });
 
 test("policy engine supports domain keyword matching", () => {
