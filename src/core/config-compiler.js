@@ -239,28 +239,66 @@ function routingPrioritySnapshot(routing) {
     .sort((a, b) => a.order - b.order || a.index - b.index);
 }
 
+function routingDomainValues(match) {
+  const values = [];
+  for (const type of ["domain", "domain_suffix"]) {
+    const source = match && match[type];
+    for (const value of Array.isArray(source) ? source : source === undefined ? [] : [source]) {
+      const normalized = String(value || "").trim().toLowerCase().replace(/^\\./, "");
+      if (normalized) values.push({ type, value: normalized });
+    }
+  }
+  return values;
+}
+function domainMatchesDomain(domain, suffix) {
+  const normalizedDomain = String(domain || "").trim().toLowerCase().replace(/^\\./, "");
+  const normalizedSuffix = String(suffix || "").trim().toLowerCase().replace(/^\\./, "");
+  return Boolean(normalizedDomain && normalizedSuffix &&
+    (normalizedDomain === normalizedSuffix || normalizedDomain.endsWith("." + normalizedSuffix)));
+}
+function domainRuleOverlap(left, right) {
+  const leftValues = routingDomainValues(left);
+  const rightValues = routingDomainValues(right);
+  if (!leftValues.length || !rightValues.length) return null;
+  for (const a of leftValues) {
+    for (const b of rightValues) {
+      if (a.type === "domain" && b.type === "domain" && a.value === b.value) return "exact-domain";
+      if (a.type === "domain" && b.type === "domain_suffix" && domainMatchesDomain(a.value, b.value)) return "domain-in-suffix";
+      if (a.type === "domain_suffix" && b.type === "domain" && domainMatchesDomain(b.value, a.value)) return "domain-in-suffix";
+      if (a.type === "domain_suffix" && b.type === "domain_suffix" &&
+          (domainMatchesDomain(a.value, b.value) || domainMatchesDomain(b.value, a.value))) return "suffix-overlap";
+    }
+  }
+  return null;
+}
+function nonDomainMatchFingerprint(match) {
+  const copy = clone(match || {});
+  delete copy.domain;
+  delete copy.domain_suffix;
+  return JSON.stringify(copy);
+}
 function routingConflictDiagnostics(routing) {
   const rules = routing && Array.isArray(routing.rules) ? routing.rules : [];
-  const seen = new Map();
   const conflicts = [];
   const priority = routingPrioritySnapshot(routing);
   const priorityIndex = new Map(priority.map((item, index) => [item.index, index]));
   for (let index = 0; index < rules.length; index += 1) {
     const rule = rules[index];
     if (!rule || typeof rule !== "object" || rule.enabled === false || !rule.match || !rule.action) continue;
-    const fingerprint = JSON.stringify(rule.match);
-    const actionFingerprint = JSON.stringify(rule.action);
-    if (!seen.has(fingerprint)) {
-      seen.set(fingerprint, { index, actionFingerprint, ruleId: rule.id || null });
-      continue;
-    }
-    const first = seen.get(fingerprint);
-    if (first.actionFingerprint !== actionFingerprint) {
+    for (let firstIndex = 0; firstIndex < index; firstIndex += 1) {
+      const first = rules[firstIndex];
+      if (!first || typeof first !== "object" || first.enabled === false || !first.match || !first.action) continue;
+      if (nonDomainMatchFingerprint(first.match) !== nonDomainMatchFingerprint(rule.match)) continue;
+      const relation = domainRuleOverlap(first.match, rule.match);
+      const exactMatch = JSON.stringify(first.match) === JSON.stringify(rule.match);
+      if (!exactMatch && !relation) continue;
+      if (JSON.stringify(first.action) === JSON.stringify(rule.action)) continue;
       conflicts.push({
-        type: "overlapping-match",
-        firstRuleId: first.ruleId,
-        firstRuleIndex: first.index,
-        firstPriority: priorityIndex.get(first.index) ?? null,
+        type: exactMatch ? "overlapping-match" : "semantic-overlap",
+        relation: exactMatch ? "exact-match" : relation,
+        firstRuleId: first.id || null,
+        firstRuleIndex: firstIndex,
+        firstPriority: priorityIndex.get(firstIndex) ?? null,
         ruleId: rule.id || null,
         ruleIndex: index,
         priority: priorityIndex.get(index) ?? null,
