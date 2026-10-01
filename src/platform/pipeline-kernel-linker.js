@@ -1,3 +1,5 @@
+import { driverFor } from "../kernel/driver-registry.js";
+
 function clone(value) {
   return value && typeof value === "object" ? structuredClone(value) : value;
 }
@@ -173,7 +175,7 @@ export function compileLinkedPipeline(spec, { drivers } = {}) {
   const inbound = endpointOf(spec.inbound, "pipeline inbound");
   const driverLookup = typeof drivers === "function"
     ? drivers
-    : (kernel) => (drivers && drivers[kernel]);
+    : (kernel) => (drivers && drivers[kernel]) || driverFor(kernel);
 
   const compiled = [];
   for (let index = 0; index < spec.hops.length; index += 1) {
