@@ -87,130 +87,35 @@ function groupsForKernel(config) {
   return definitions.filter((group) => !chainGroups.has(String(group.id).trim()) || routedGroups.has(String(group.id).trim()));
 }
 function chainMode(chain) { return typeof chain?.mode === "string" && chain.mode.trim() ? chain.mode : "node->node"; }
-function resolveConfiguredChains(config, featureState) {
+function resolveConfiguredChains(config, featureState, inactiveGroupIds = []) {
   const resolved = new Map();
+  const inactiveChains = new Set();
+  const disabledGroups = new Set((Array.isArray(inactiveGroupIds) ? inactiveGroupIds : []).map((id) => String(id).trim()).filter(Boolean));
+  const profileGroups = featureState
+    ? resolveProfileGroups(groupList(config.groups), featureState).map((group) => (
+      disabledGroups.has(String(group.id).trim()) ? { ...group, enabled: false } : group
+    ))
+    : groupList(config.groups);
   for (const chain of chainList(config.chains)) {
     if (featureState) {
       const selected = resolveProfileChain(chain, featureState);
       if (!selected) continue;
     }
     const id = String(chain.id).trim();
-    const resolvedChain = resolveChain(chainHops(chain), { nodes: config.nodes, groups: config.groups, states: config.states, maxDepth: chain.maxDepth });
-    if (!resolvedChain.ok) throw new Error("chain " + id + " cannot be safely compiled: " + resolvedChain.error);
+    const resolvedChain = resolveChain(chainHops(chain), {
+      nodes: config.nodes,
+      groups: profileGroups,
+      states: config.states,
+      maxDepth: chain.maxDepth,
+    });
+    if (!resolvedChain.ok) {
+      if (disabledGroups.size && /chain group (?:is disabled|has no usable member|not found)/.test(resolvedChain.error || "")) {
+        inactiveChains.add(id);
+        continue;
+      }
+      throw new Error("chain " + id + " cannot be safely compiled: " + resolvedChain.error);
+    }
     resolved.set(id, { id, mode: chainMode(chain), hops: resolvedChain.data.hops.map((node) => clone(node)) });
   }
-  return resolved;
-}
-function nodeTargetMap(config) {
-  const map = new Map();
-  for (const node of Array.isArray(config.nodes) ? config.nodes : []) {
-    if (!node || !node.id) continue;
-    map.set(String(node.id).trim(), String(node.name || node.id).trim());
-  }
-  return map;
-}
-function rewriteAction(action, chains, groups, nodes) {
-  if (!action || typeof action !== "object") return action;
-  if (action.type === "chain") {
-    const target = String(action.target || "").trim();
-    const chain = chains.get(target);
-    if (!chain) throw new Error("routing references missing chain: " + target);
-    const finalHop = chain.hops[chain.hops.length - 1];
-    if (!finalHop?.id) throw new Error("routing chain has no final hop: " + target);
-    return { ...clone(action), type: "route", target: nodes.get(finalHop.id) || finalHop.id };
-  }
-  if (action.type === "route") {
-    const target = String(action.target || "").trim();
-    if (!target) throw new Error("routing route action requires target");
-    const resolved = groups.targetMap.get(target) || nodes.get(target);
-    if (!resolved) throw new Error("routing references missing node or group: " + target);
-    return { ...clone(action), target: resolved };
-  }
-  return clone(action);
-}
-function routingForKernel(routing, chains, groups, nodes, featureState) {
-  const source = clone(routing || {});
-  if (!source || typeof source !== "object") return source;
-  const chainEnabled = Boolean(featureState && featureState.chainEnabled);
-  const selectedChainId = featureState && typeof featureState.chainId === "string" ? featureState.chainId.trim() : "";
-  const rewrite = (action) => {
-    if (!action || typeof action !== "object") return action;
-    if (action.type !== "chain") return rewriteAction(action, chains, groups, nodes);
-    const target = String(action.target || "").trim();
-    if (!chains.has(target)) {
-      if (featureState && (!chainEnabled || (selectedChainId && target !== selectedChainId))) return null;
-      return rewriteAction(action, chains, groups, nodes);
-    }
-    return rewriteAction(action, chains, groups, nodes);
-  };
-  if (Array.isArray(source.rules)) {
-    source.rules = source.rules
-      .map((rule) => {
-        if (!rule || !rule.action) return rule;
-        const action = rewrite(rule.action);
-        if (action === null) return null;
-        return { ...rule, action };
-      })
-      .filter(Boolean);
-  }
-  if (source.defaultAction) {
-    const action = rewrite(source.defaultAction);
-    if (action === null) delete source.defaultAction;
-    else source.defaultAction = action;
-  }
-  return source;
-}
-function compileResolvedChains(adapter, compiled, chains) {
-  let output = compiled;
-  for (const chain of chains.values()) output = adapter.compileChain(output, chain);
-  return output;
-}
-export function compileUnifiedConfig(config, kernel = config && config.kernel) {
-  if (!config || typeof config !== "object") throw new TypeError("unified configuration is required");
-  const adapter = adapterFor(kernel);
-  if (!adapter) throw new Error("unsupported kernel: " + kernel);
-  if (!hasAdapterCapability(adapter, AdapterCapabilities.CONFIG_COMPILE)) throw new Error("kernel does not implement config compilation: " + kernel);
-  const preflight = preflightUnifiedConfig(config, kernel);
-  if (!preflight.ok) {
-    const detail = preflight.errors.map((item) => [item.code, item.message].filter(Boolean).join(": ")).filter(Boolean).join("; ");
-    const error = new Error("configuration preflight failed for " + kernel + ": " + detail + "; not safely compilable");
-    error.code = "NEXUS_PREFLIGHT_FAILED";
-    error.diagnostics = preflight.diagnostics;
-    error.preflight = preflight;
-    throw error;
-  }
-  const compatibility = preflight.compatibility;
-  const featureInput = profileFeatureState(config);
-  const featureState = featureInput
-    ? createProfileCustomization({
-      groups: groupList(config.groups),
-      chains: chainList(config.chains),
-      ...featureInput,
-    })
-    : undefined;
-  const resolvedChains = resolveConfiguredChains(config, featureState);
-  const compilableGroups = groupsForKernel(config);
-  const compiledGroups = compileGroups(compilableGroups, kernel, config.nodes, config.states, featureState);
-  const nodeTargets = nodeTargetMap(config);
-  const kernelConfig = {
-    ...config,
-    security: preflight.security.policy,
-    groups: compiledGroups.groups,
-    routing: routingForKernel(config.routing, resolvedChains, compiledGroups, nodeTargets, featureState),
-  };
-  const compiledBase = adapter.compileConfig(kernelConfig);
-  const compiled = resolvedChains.size ? compileResolvedChains(adapter, compiledBase, resolvedChains) : compiledBase;
-  const validation = validateCompiledConfig(compiled, kernel);
-  if (!validation.ok) throw new Error("compiled configuration failed structural validation for " + kernel + ": " + validation.errors.join("; "));
-  return {
-    kernel,
-    status: "compiled",
-    config: compiled,
-    validation,
-    compatibility,
-    preflight,
-    groups: [...compiledGroups.targetMap.entries()].map(([id, target]) => ({ id, target })),
-    chains: [...resolvedChains.values()].map((chain) => ({ id: chain.id, mode: chain.mode, hops: chain.hops.map((node) => node.id) })),
-    profileFeatures: featureState ? clone(featureState) : undefined,
-  };
+  return { resolved, inactive: [...inactiveChains] };
 }
