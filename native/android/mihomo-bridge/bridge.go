@@ -114,7 +114,7 @@ func stopTun() {
 }
 
 //export suspend
-func suspend(suspended C.bool) {
+func suspend(suspended C.uchar) {
     if bool(suspended) {
         tunnel.OnSuspend()
     } else {
