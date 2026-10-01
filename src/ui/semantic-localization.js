@@ -1,17 +1,7 @@
 import { createTranslator } from "./translations.js";
-import { createRuntimeViewModel } from "./semantic-state.js";
+import { UI_RUNTIME_LABEL_KEYS, createRuntimeViewModel } from "./semantic-state.js";
 
-const RUNTIME_KEYS = Object.freeze({
-  idle: "runtime.idle",
-  preparing: "runtime.preparing",
-  validating: "runtime.validating",
-  starting: "runtime.starting",
-  running: "runtime.running",
-  degraded: "runtime.degraded",
-  recovering: "runtime.recovering",
-  stopped: "runtime.stopped",
-  failed: "runtime.failed"
-});
+const RUNTIME_KEYS = UI_RUNTIME_LABEL_KEYS;
 
 export function localizeRuntimeState(runtimeState, locale) {
   const translator = createTranslator(locale);
