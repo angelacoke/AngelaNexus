@@ -14,6 +14,12 @@ class MihomoJniNativeHost(
         }
     }
 
+    override fun applyConfig(configJson: String): String? {
+        require(configJson.isNotBlank()) { "configJson must not be blank" }
+        ensureLoaded()
+        return nativeApplyConfig(configJson)
+    }
+
     override fun startTun(tunFd: Int, stack: String, address: String, dns: String): Boolean {
         require(tunFd >= 0) { "tunFd must be non-negative" }
         ensureLoaded()
@@ -60,6 +66,7 @@ class MihomoJniNativeHost(
         return nativeGetTotalTraffic(onlyStatisticsProxy)
     }
 
+    private external fun nativeApplyConfig(configJson: String): String?
     private external fun nativeStartTun(tunFd: Int, stack: String, address: String, dns: String): Boolean
     private external fun nativeStopTun()
     private external fun nativeUpdateDns(dns: String)
