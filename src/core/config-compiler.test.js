@@ -127,3 +127,23 @@ test("chain depending on a disabled nested group is removed fail-closed", () => 
   assert.deepEqual(result.chains, []);
   assert.equal(result.config.rules.some((rule) => typeof rule === "string" && rule.endsWith(",Node 2")), false);
 });
+
+
+test("compiler reports overlapping routing matches without silently changing user rule order", () => {
+  const config = baseConfig();
+  config.routing.rules = [
+    { id: "rule-a", name: "Rule A", match: { domain_suffix: ["same.example"] }, action: { type: "route", target: "auto" } },
+    { id: "rule-b", name: "Rule B", match: { domain_suffix: ["same.example"] }, action: { type: "route", target: "global" } },
+  ];
+  const result = compileUnifiedConfig(config, Kernels.MIHOMO);
+
+  assert.deepEqual(result.routingConflicts, [{
+    type: "overlapping-match",
+    firstRuleId: "rule-a",
+    firstRuleIndex: 0,
+    ruleId: "rule-b",
+    ruleIndex: 1,
+  }]);
+  assert.ok(result.config.rules.some((rule) => typeof rule === "string" && rule.endsWith(",Auto")));
+  assert.ok(result.config.rules.some((rule) => typeof rule === "string" && rule.endsWith(",Global")));
+});
