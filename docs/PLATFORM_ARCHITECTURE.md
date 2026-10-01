@@ -31,6 +31,7 @@ Platform-neutral Core
    |
 Protocol Adapter Layer
    |-- protocol identification / capability contract
+   |-- explicit capability negotiation
    |-- protocol-neutral runtime descriptors
    |
 Transport Abstraction
@@ -125,7 +126,7 @@ Platform capabilities are not assumed to be identical.
 - Linux integration may use TUN plus routing/iproute2 or firewall facilities.
 - System proxy support is an optional platform capability and is not equivalent to TUN/VPN.
 
-Feature availability must be capability-driven, not hard-coded as if all platforms were identical.
+Feature availability must be capability-driven, not hard-coded as if all platforms were identical. Runtime requirements are negotiated explicitly against protocol, transport and execution-backend capabilities. Missing capabilities fail closed and are surfaced as unsupported rather than silently downgraded.
 
 ## Kernel policy
 

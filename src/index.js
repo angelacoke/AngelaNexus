@@ -41,3 +41,4 @@ export * from "./adapters/protocol-contract.js";
 export * from "./adapters/transport-contract.js";
 export * from "./adapters/execution-backend-contract.js";
 export * from "./core/runtime-plan.js";
+export * from "./adapters/capability-negotiation.js";
