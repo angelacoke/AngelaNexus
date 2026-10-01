@@ -84,7 +84,24 @@ function groupsForKernel(config) {
   const definitions = groupList(config.groups);
   const chainGroups = groupIdsUsedByChains(config.chains, definitions);
   const routedGroups = groupIdsUsedByRouting(config.routing, definitions);
-  return definitions.filter((group) => !chainGroups.has(String(group.id).trim()) || routedGroups.has(String(group.id).trim()));
+  const requiredByRouting = new Set(routedGroups);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const group of definitions) {
+      const id = String(group.id).trim();
+      if (!requiredByRouting.has(id)) continue;
+      for (const member of Array.isArray(group.members) ? group.members : []) {
+        const memberId = String(member || "").trim();
+        if (!memberId || !definitions.some((candidate) => String(candidate.id).trim() === memberId)) continue;
+        if (!requiredByRouting.has(memberId)) {
+          requiredByRouting.add(memberId);
+          changed = true;
+        }
+      }
+    }
+  }
+  return definitions.filter((group) => !chainGroups.has(String(group.id).trim()) || requiredByRouting.has(String(group.id).trim()));
 }
 function chainMode(chain) { return typeof chain?.mode === "string" && chain.mode.trim() ? chain.mode : "node->node"; }
 function resolveConfiguredChains(config, featureState, inactiveGroupIds = []) {
