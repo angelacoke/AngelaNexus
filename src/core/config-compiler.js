@@ -128,11 +128,36 @@ function rewriteAction(action, chains, groups, nodes) {
   }
   return clone(action);
 }
-function routingForKernel(routing, chains, groups, nodes) {
+function routingForKernel(routing, chains, groups, nodes, featureState) {
   const source = clone(routing || {});
   if (!source || typeof source !== "object") return source;
-  if (Array.isArray(source.rules)) source.rules = source.rules.map((rule) => rule && rule.action ? { ...rule, action: rewriteAction(rule.action, chains, groups, nodes) } : rule);
-  if (source.defaultAction) source.defaultAction = rewriteAction(source.defaultAction, chains, groups, nodes);
+  const chainEnabled = Boolean(featureState && featureState.chainEnabled);
+  const selectedChainId = featureState && typeof featureState.chainId === "string" ? featureState.chainId.trim() : "";
+  const rewrite = (action) => {
+    if (!action || typeof action !== "object") return action;
+    if (action.type !== "chain") return rewriteAction(action, chains, groups, nodes);
+    const target = String(action.target || "").trim();
+    if (!chains.has(target)) {
+      if (featureState && (!chainEnabled || (selectedChainId && target !== selectedChainId))) return null;
+      return rewriteAction(action, chains, groups, nodes);
+    }
+    return rewriteAction(action, chains, groups, nodes);
+  };
+  if (Array.isArray(source.rules)) {
+    source.rules = source.rules
+      .map((rule) => {
+        if (!rule || !rule.action) return rule;
+        const action = rewrite(rule.action);
+        if (action === null) return null;
+        return { ...rule, action };
+      })
+      .filter(Boolean);
+  }
+  if (source.defaultAction) {
+    const action = rewrite(source.defaultAction);
+    if (action === null) delete source.defaultAction;
+    else source.defaultAction = action;
+  }
   return source;
 }
 function compileResolvedChains(adapter, compiled, chains) {
@@ -164,7 +189,7 @@ export function compileUnifiedConfig(config, kernel = config && config.kernel) {
     ...config,
     security: preflight.security.policy,
     groups: compiledGroups.groups,
-    routing: routingForKernel(config.routing, resolvedChains, compiledGroups, nodeTargets),
+    routing: routingForKernel(config.routing, resolvedChains, compiledGroups, nodeTargets, featureState),
   };
   const compiledBase = adapter.compileConfig(kernelConfig);
   const compiled = resolvedChains.size ? compileResolvedChains(adapter, compiledBase, resolvedChains) : compiledBase;
