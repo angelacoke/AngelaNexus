@@ -293,16 +293,17 @@ function routingConflictDiagnostics(routing) {
       const exactMatch = JSON.stringify(first.match) === JSON.stringify(rule.match);
       if (!exactMatch && !relation) continue;
       if (JSON.stringify(first.action) === JSON.stringify(rule.action)) continue;
-      conflicts.push({
+      const diagnostic = {
         type: exactMatch ? "overlapping-match" : "semantic-overlap",
-        relation: exactMatch ? "exact-match" : relation,
         firstRuleId: first.id || null,
         firstRuleIndex: firstIndex,
         firstPriority: priorityIndex.get(firstIndex) ?? null,
         ruleId: rule.id || null,
         ruleIndex: index,
         priority: priorityIndex.get(index) ?? null,
-      });
+      };
+      if (!exactMatch) diagnostic.relation = relation;
+      conflicts.push(diagnostic);
     }
   }
   return conflicts;
