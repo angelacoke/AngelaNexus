@@ -21,6 +21,7 @@ class AndroidTransparentModeTest {
             tcp = backend,
             udp = backend,
             dns = backend,
+            icmp = backend,
             ipv4 = backend,
             ipv6 = backend,
             uidIdentity = backend,
