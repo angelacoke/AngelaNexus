@@ -16,13 +16,15 @@ function text(value) {
 }
 
 function list(value) {
-  if (!Array.isArray(value)) return [];
-  return value.map(text).filter(Boolean);
+  if (Array.isArray(value)) return value.map(text).filter(Boolean);
+  const scalar = text(value);
+  return scalar ? [scalar] : [];
 }
 
-function oneOf(actual, expected) {
-  const values = list(expected);
-  return values.length === 0 || values.includes(text(actual));
+function oneOf(actual, expectedValues) {
+  const actualValue = text(actual);
+  const values = list(expectedValues);
+  return Boolean(actualValue && values.length && values.includes(actualValue));
 }
 
 function domainEquals(actual, expected) {
@@ -31,13 +33,13 @@ function domainEquals(actual, expected) {
 
 function domainSuffix(actual, expected) {
   const a = text(actual);
-  const e = text(expected)?.replace(/^\\./, "");
+  const e = text(expected)?.replace(/^\./, "");
   return Boolean(a && e && (a === e || a.endsWith("." + e)));
 }
 
 function parseIPv4(value) {
   const parts = text(value)?.split(".");
-  if (!parts || parts.length !== 4 || parts.some((part) => !/^\\d+$/.test(part))) return null;
+  if (!parts || parts.length !== 4 || parts.some((part) => !/^\d+$/.test(part))) return null;
   const nums = parts.map(Number);
   if (nums.some((part) => part < 0 || part > 255)) return null;
   return nums.reduce((result, part) => result * 256 + part, 0);
@@ -51,11 +53,11 @@ function ipv4InCidr(ip, cidr) {
   if (address === null || base === null || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) return false;
   if (prefix === 0) return true;
   const mask = (0xffffffff << (32 - prefix)) >>> 0;
-  return (address >>> 0 & mask) === (base >>> 0 & mask);
+  return ((address >>> 0) & mask) === ((base >>> 0) & mask);
 }
 
 function hexIPv6(value) {
-  const raw = text(value)?.replace(/^\\[|\\]$/g, "");
+  const raw = text(value)?.replace(/^\[|\]$/g, "");
   if (!raw || raw.includes("%")) return null;
   const halves = raw.split("::");
   if (halves.length > 2) return null;
