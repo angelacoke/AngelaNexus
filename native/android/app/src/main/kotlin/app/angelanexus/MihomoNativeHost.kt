@@ -47,5 +47,5 @@ interface MihomoNativeHost {
     fun getTraffic(onlyStatisticsProxy: Boolean): String
 
     /** Returns total runtime traffic statistics as a native JSON payload. */
-    fun getTotalTraffic(onlyStatisticsProxy: Boolean)
+    fun getTotalTraffic(onlyStatisticsProxy: Boolean): String
 }
