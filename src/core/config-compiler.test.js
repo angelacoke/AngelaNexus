@@ -74,3 +74,56 @@ test("compiler exposes the normalized profile feature state for the UI layer", (
   assert.equal(result.profileFeatures.chainEnabled, true);
   assert.equal(result.profileFeatures.chainId, "chain-a");
 });
+
+
+test("disabled nested group is removed from effective group output without breaking unrelated groups", () => {
+  const config = baseConfig();
+  config.groups = [
+    { id: "child", name: "Child", type: "select", members: ["n1", "n2"] },
+    { id: "parent", name: "Parent", type: "select", members: ["child"] },
+    { id: "global", name: "Global", type: "select", members: ["n1", "n2"] },
+  ];
+  config.routing = {
+    rules: [
+      { id: "parent-route", name: "Parent Route", match: { domain_suffix: ["parent.example"] }, action: { type: "route", target: "parent" } },
+      { id: "global-route", name: "Global Route", match: { domain_suffix: ["global.example"] }, action: { type: "route", target: "global" } },
+    ],
+  };
+  const result = compileUnifiedConfig({
+    ...config,
+    profileFeatures: { disabledGroupIds: ["child"] },
+  }, Kernels.MIHOMO);
+
+  assert.deepEqual(result.inactiveGroups, ["child", "parent"]);
+  assert.equal(result.config.proxy-groups.some((group) => group.name === "Parent"), false);
+  assert.equal(result.config.rules.some((rule) => typeof rule === "string" && rule.endsWith(",Parent")), false);
+  assert.equal(result.config.rules.some((rule) => typeof rule === "string" && rule.endsWith(",Global")), true);
+});
+
+test("chain depending on a disabled nested group is removed fail-closed", () => {
+  const config = baseConfig();
+  config.groups = [
+    { id: "child", name: "Child", type: "select", members: ["n1", "n2"] },
+    { id: "parent", name: "Parent", type: "select", members: ["child"] },
+    { id: "auto", name: "Auto", type: "select", members: ["n1", "n2"] },
+    { id: "global", name: "Global", type: "select", members: ["n1", "n2"] },
+  ];
+  config.chains = [
+    { id: "group-chain", mode: "node->node", hops: [{ group: "parent" }, { id: "n2" }] },
+  ];
+  config.routing = {
+    rules: [
+      { id: "chain-route", name: "Chain Route", match: { domain_suffix: ["chain.example"] }, action: { type: "chain", target: "group-chain" } },
+    ],
+  };
+
+  const result = compileUnifiedConfig({
+    ...config,
+    profileFeatures: { chainEnabled: true, chainId: "group-chain", disabledGroupIds: ["child"] },
+  }, Kernels.MIHOMO);
+
+  assert.deepEqual(result.inactiveGroups, ["child", "parent"]);
+  assert.deepEqual(result.inactiveChains, ["group-chain"]);
+  assert.deepEqual(result.chains, []);
+  assert.equal(result.config.rules.some((rule) => typeof rule === "string" && rule.endsWith(",Node 2")), false);
+});
