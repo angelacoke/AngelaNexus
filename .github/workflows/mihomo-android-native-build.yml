@@ -37,12 +37,12 @@ jobs:
         with:
           go-version: "1.24.8"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install Android NDK
         shell: bash
-        run: sdkmanager "ndk;28.0.13004108"
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "ndk;28.0.13004108"
 
       - name: Fetch pinned Mihomo source
         shell: bash
