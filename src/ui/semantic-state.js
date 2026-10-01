@@ -1,5 +1,3 @@
-import { RUNTIME_KEYS } from "./semantic-localization.js";
-
 export const UiRuntimeStates = Object.freeze({
   IDLE: "idle",
   PREPARING: "preparing",
@@ -13,15 +11,15 @@ export const UiRuntimeStates = Object.freeze({
 });
 
 export const UI_RUNTIME_LABEL_KEYS = Object.freeze({
-  idle: RUNTIME_KEYS.idle,
-  preparing: RUNTIME_KEYS.preparing,
-  validating: RUNTIME_KEYS.validating,
-  starting: RUNTIME_KEYS.starting,
-  running: RUNTIME_KEYS.running,
-  degraded: RUNTIME_KEYS.degraded,
-  recovering: RUNTIME_KEYS.recovering,
-  stopped: RUNTIME_KEYS.stopped,
-  failed: RUNTIME_KEYS.failed
+  idle: "runtime.idle",
+  preparing: "runtime.preparing",
+  validating: "runtime.validating",
+  starting: "runtime.starting",
+  running: "runtime.running",
+  degraded: "runtime.degraded",
+  recovering: "runtime.recovering",
+  stopped: "runtime.stopped",
+  failed: "runtime.failed"
 });
 
 export function toUiRuntimeState(experienceState) {
