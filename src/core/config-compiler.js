@@ -104,6 +104,33 @@ function groupsForKernel(config) {
   return definitions.filter((group) => !chainGroups.has(String(group.id).trim()) || requiredByRouting.has(String(group.id).trim()));
 }
 function chainMode(chain) { return typeof chain?.mode === "string" && chain.mode.trim() ? chain.mode : "node->node"; }
+function effectiveInactiveGroupIds(groups, featureState) {
+  const definitions = resolveProfileGroups(groupList(groups), featureState || {});
+  const byId = new Map(definitions.map((group) => [String(group.id).trim(), group]));
+  const inactive = new Set(
+    definitions
+      .filter((group) => group.enabled === false)
+      .map((group) => String(group.id).trim())
+      .filter(Boolean)
+  );
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const group of definitions) {
+      const id = String(group.id).trim();
+      if (inactive.has(id)) continue;
+      const dependsOnInactive = (Array.isArray(group.members) ? group.members : []).some((member) => {
+        const memberId = String(member || "").trim();
+        return memberId && byId.has(memberId) && inactive.has(memberId);
+      });
+      if (dependsOnInactive) {
+        inactive.add(id);
+        changed = true;
+      }
+    }
+  }
+  return [...inactive];
+}
 function chainDependsOnDisabledGroup(hops, groups, disabledIds, seen = new Set()) {
   const byId = new Map(groupList(groups).map((group) => [String(group.id).trim(), group]));
   function visitHops(items) {
@@ -260,9 +287,13 @@ export function compileUnifiedConfig(config, kernel = config && config.kernel) {
       ...featureInput,
     })
     : undefined;
+  const profileInactiveGroups = effectiveInactiveGroupIds(config.groups, featureState);
   const compilableGroups = groupsForKernel(config);
   const compiledGroups = compileGroups(compilableGroups, kernel, config.nodes, config.states, featureState);
-  const chainState = resolveConfiguredChains(config, featureState, compiledGroups.inactive);
+  const chainState = resolveConfiguredChains(config, featureState, [...new Set([
+    ...profileInactiveGroups,
+    ...(compiledGroups.inactive || []),
+  ])]);
   const resolvedChains = chainState.resolved;
   const inactiveChains = new Set(chainState.inactive);
   const nodeTargets = nodeTargetMap(config);
@@ -287,7 +318,7 @@ export function compileUnifiedConfig(config, kernel = config && config.kernel) {
     groups: [...compiledGroups.targetMap.entries()].map(([id, target]) => ({ id, target })),
     chains: [...resolvedChains.values()].map((chain) => ({ id: chain.id, mode: chain.mode, hops: chain.hops.map((node) => node.id) })),
     inactiveChains: [...inactiveChains],
-    inactiveGroups: [...new Set(compiledGroups.inactive || [])],
+    inactiveGroups: profileInactiveGroups,
     profileFeatures: featureState ? clone(featureState) : undefined,
   };
 }
