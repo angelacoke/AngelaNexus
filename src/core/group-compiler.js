@@ -1,5 +1,6 @@
 import { Kernels } from "./model.js";
 import { isNodeUsable } from "./node-state.js";
+import { resolveProfileGroups } from "./profile-customization.js";
 
 const MIHOMO_TYPES = new Set(["select", "url_test", "fallback", "load_balance", "region"]);
 const SING_BOX_TYPES = new Set(["select", "url_test"]);
@@ -87,8 +88,8 @@ function compileGroupDefinitions(definitions, nodes, states, kernel) {
   }
   return { active, inactive };
 }
-export function compileGroups(groups, kernel, nodes = [], states) {
-  const definitions = groupList(groups);
+export function compileGroups(groups, kernel, nodes = [], states, featureState) {
+  const definitions = resolveProfileGroups(groupList(groups), featureState);
   const output = [];
   const targetMap = new Map();
   const resolved = compileGroupDefinitions(definitions, nodes, states, kernel);
