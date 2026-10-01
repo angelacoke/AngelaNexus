@@ -61,7 +61,7 @@ jobs:
       - name: Build native shared object
         shell: bash
         env:
-          ANDROID_NDK_ROOT: ${{ env.ANDROID_NDK_HOME }}
+          ANDROID_NDK_ROOT: /usr/local/lib/android/sdk/ndk/28.0.13004108
           GOOS: android
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "1"
@@ -69,7 +69,7 @@ jobs:
         working-directory: ${{ runner.temp }}/mihomo
         run: |
           set -euo pipefail
-          NDK="$ANDROID_NDK_ROOT/28.0.13004108/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          NDK="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
           export PATH="$NDK:$PATH"
           export CC="$NDK/${CC}"
           if [ "${GOARCH}" = "arm" ]; then export GOARM=7; fi
