@@ -13,6 +13,9 @@ package app.angelanexus
  * Mihomo native artifact is linked and exercised by the Android build.
  */
 interface MihomoNativeHost {
+    /** Applies an already-normalized Mihomo configuration document. */
+    fun applyConfig(configJson: String): String?
+
     /**
      * Starts Mihomo against an already-established Android TUN descriptor.
      *
