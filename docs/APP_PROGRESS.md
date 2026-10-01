@@ -68,6 +68,19 @@ Implemented in source with regression coverage:
 
 This is an executable control-plane milestone. It does **not** claim that a Mihomo/sing-box/Xray runtime is already embedded or running.
 
+### Android Mihomo native build boundary
+
+Implemented and CI-verified as a build milestone:
+
+- exact upstream core source commit pinned to `ab405bad5beeeac8b003bb01f60f134f6df54471`;
+- Android native shared-library build verification for `arm64-v8a`, `armeabi-v7a` and `x86_64`;
+- Go 1.24.8 and Android NDK 28.0.13004108 pinned in the verification workflow;
+- reproducible `c-shared` build command with version metadata pinned to `v1.19.31`;
+- non-empty ELF shared-object output and SHA-256 emission verified for every ABI;
+- all project CI workflows were green on the resulting commit.
+
+This milestone proves that the pinned native core can be built for the supported Android ABIs. It does **not** claim that the generated library is packaged into the APK or that JNI/TUN traffic execution has been verified on a device.
+
 ### Modern modular UI baseline
 
 Implemented on Android as the first platform surface:
