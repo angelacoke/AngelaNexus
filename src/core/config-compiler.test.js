@@ -15,7 +15,7 @@ function baseConfig(profileFeatures) {
     ],
     routing: {
       rules: [
-        { id: "chain-rule", name: "Chain Rule", action: { type: "chain", target: "chain-a" } },
+        { id: "chain-rule", name: "Chain Rule", match: { domain_suffix: ["example.com"] }, action: { type: "chain", target: "chain-a" } },
       ],
     },
     ...(profileFeatures ? { profileFeatures } : {}),
