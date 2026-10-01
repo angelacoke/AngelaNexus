@@ -58,6 +58,14 @@ jobs:
           git -C "$RUNNER_TEMP/mihomo" checkout --detach "$MIHOMO_COMMIT"
           test "$(git -C "$RUNNER_TEMP/mihomo" rev-parse HEAD)" = "$MIHOMO_COMMIT"
 
+      - name: Add AngelaNexus Android bridge
+        shell: bash
+        working-directory: ${{ runner.temp }}/mihomo
+        run: |
+          set -euo pipefail
+          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge.go" ./angelanexus_android_bridge.go
+          grep -q "func startTUN" ./angelanexus_android_bridge.go
+
       - name: Build native shared object
         shell: bash
         env:
@@ -90,3 +98,4 @@ jobs:
           test -s "$RUNNER_TEMP/libclash-${{ matrix.abi }}.so"
           file "$RUNNER_TEMP/libclash-${{ matrix.abi }}.so"
           sha256sum "$RUNNER_TEMP/libclash-${{ matrix.abi }}.so"
+          nm -D --defined-only "$RUNNER_TEMP/libclash-${{ matrix.abi }}.so" | grep -E "angelaInit|angelaApplyConfig|startTUN|stopTun|suspend|forceGC|getTraffic|getTotalTraffic|freeCString"
