@@ -1,7 +1,6 @@
 package app.angelanexus
 
 import kotlin.test.Test
-import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
@@ -17,11 +16,11 @@ class ConfigImportEnvelopeTest {
 
         val payload = ConfigImportEnvelope.serialize(request)
 
-        assertTrue(payload.contains(""type":"angelanexus.config-import""))
-        assertTrue(payload.contains(""version":1"))
-        assertTrue(payload.contains(""source":"local-file""))
-        assertTrue(payload.contains(""name":"profile.yaml""))
-        assertTrue(payload.contains(""content":"mixed-port: 7890""))
+        assertTrue(payload.contains("\"type\":\"angelanexus.config-import\""))
+        assertTrue(payload.contains("\"version\":1"))
+        assertTrue(payload.contains("\"source\":\"local-file\""))
+        assertTrue(payload.contains("\"name\":\"profile.yaml\""))
+        assertTrue(payload.contains("\"content\":\"mixed-port: 7890\""))
     }
 
     @Test
@@ -35,7 +34,7 @@ class ConfigImportEnvelopeTest {
 
         val payload = ConfigImportEnvelope.serialize(request)
 
-        assertTrue(payload.contains(""name":null"))
+        assertTrue(payload.contains("\"name\":null"))
     }
 
     @Test
@@ -69,7 +68,7 @@ class ConfigImportEnvelopeTest {
                 content = "x",
             )
             assertTrue(
-                ConfigImportEnvelope.serialize(request).contains(""source":"$wireValue""),
+                ConfigImportEnvelope.serialize(request).contains("\"source\":\"$wireValue\""),
             )
         }
     }
