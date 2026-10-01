@@ -29,12 +29,18 @@ test("parallel routing ignores rule order", () => {
 test("parallel routing returns all matching rules when actions agree", () => {
   const policy = {
     rules: [
-      rule("broad", "example.com", "proxy-a", 100),
       {
-        id: "suffix",
-        name: "suffix",
-        order: 0,
+        id: "suffix-a",
+        name: "suffix-a",
+        order: 100,
         match: { domain_suffix: "example.com" },
+        action: { type: "route", target: "proxy-a" }
+      },
+      {
+        id: "suffix-b",
+        name: "suffix-b",
+        order: 0,
+        match: { domain_suffix: ".example.com" },
         action: { type: "route", target: "proxy-a" }
       }
     ]
@@ -43,7 +49,7 @@ test("parallel routing returns all matching rules when actions agree", () => {
   const result = resolveRoutingPolicy(policy, { domain: "mail.example.com" });
   assert.equal(result.ok, true);
   assert.deepEqual(result.action, { type: "route", target: "proxy-a" });
-  assert.equal(result.matches.length, 1);
+  assert.equal(result.matches.length, 2);
 });
 
 test("parallel routing fails closed on conflicting matching actions", () => {
