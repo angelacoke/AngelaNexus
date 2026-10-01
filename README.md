@@ -17,7 +17,23 @@ English is the normative documentation language. Chinese documentation mirrors t
 
 ## Constitutional architecture
 
-The project's architecture, implementation, verification, and maintenance are governed by the **[AngelaNexus 底层宪级纲领](docs/ANGELANEXUS_CONSTITUTION.md)** (AN-Constitution v1.0). It establishes Platform First, parallel execution backends, canonical data models, protocol/transport separation, user control, parallel rule semantics, security boundaries, cross-platform isolation, evidence-based verification, and staged migration toward backend independence.
+The project's architecture, implementation, verification, and maintenance are governed by the **[AngelaNexus 底层宪级纲领](docs/ANGELANEXUS_CONSTITUTION.md)** (AN-Constitution v1.2). The constitution establishes Platform First, unified Intent and Policy semantics, Capability Registry and Driver Scheduler, parallel execution backends, canonical data models, protocol/transport separation, user control, security boundaries, strict resource-efficiency requirements, cross-platform isolation, evidence-based verification, and staged migration toward backend independence.
+
+### Architecture and engineering principles
+
+1. **Architecture:** Unified Intent + Policy + Capability Registry + Driver Scheduler.
+2. **Execution backends:** Mihomo / sing-box / Xray remain parallel, standby-capable execution backends. The platform performs capability negotiation and adapter dispatch without tightly coupling the backends together.
+3. **Intelligence:** Automatically identify configuration, protocol, transport, and capability requirements, then produce an explainable execution plan.
+4. **User control:** Automation reduces operational complexity, while important network behavior remains inspectable, adjustable, and explicitly controllable by the user.
+5. **Security:** Leak prevention, DNS, IPv4/IPv6, TUN, Kill Switch, privilege boundaries, and related security states must have explicit status and verification mechanisms.
+6. **Performance:** Optimize for low latency, high throughput, and bounded concurrency while avoiding redundant parsing, matching, DNS work, connection establishment, and state maintenance.
+7. **Resource efficiency:** Strictly control RAM, CPU, background wakeups, network-control overhead, and battery consumption. Unexplained or unacceptable resource regressions may block release progression.
+8. **Cross-platform:** Android, Windows, macOS, Linux, and iOS share unified core semantics while using appropriate native platform capabilities through isolated adapters.
+9. **Maintainability:** Use unified data models and Driver interfaces so that additional kernels, protocols, and execution backends do not create unnecessary architectural coupling.
+10. **Verifiability:** Important design and implementation decisions must be supported by current upstream evidence, automated tests, measurable benchmarks, and regression verification.
+11. **Long-term evolution:** After each homogeneous implementation stage, review the established constitutional principles before advancing, ensuring local feature work does not diverge from the overall architecture.
+
+These principles are engineering requirements rather than marketing claims. See the constitution for the normative requirements, resource budgets, verification gates, and change-control rules.
 
 ## Product platforms
 
