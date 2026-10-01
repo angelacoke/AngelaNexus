@@ -141,9 +141,28 @@ test("compiler reports overlapping routing matches without silently changing use
     type: "overlapping-match",
     firstRuleId: "rule-a",
     firstRuleIndex: 0,
+    firstPriority: 0,
     ruleId: "rule-b",
     ruleIndex: 1,
+    priority: 1,
   }]);
   assert.ok(result.config.rules.some((rule) => typeof rule === "string" && rule.endsWith(",Auto")));
   assert.ok(result.config.rules.some((rule) => typeof rule === "string" && rule.endsWith(",Global")));
+});
+
+
+test("compiler exposes effective routing priority after explicit rule order normalization", () => {
+  const config = baseConfig();
+  config.routing.rules = [
+    { id: "late", name: "Late", order: 20, match: { domain_suffix: ["late.example"] }, action: { type: "route", target: "auto" } },
+    { id: "early", name: "Early", order: 10, match: { domain_suffix: ["early.example"] }, action: { type: "route", target: "global" } },
+    { id: "tie", name: "Tie", order: 10, match: { domain_suffix: ["tie.example"] }, action: { type: "route", target: "auto" } },
+  ];
+  const result = compileUnifiedConfig(config, Kernels.MIHOMO);
+
+  assert.deepEqual(result.routingPriority, [
+    { id: "early", order: 10, index: 1, enabled: true },
+    { id: "tie", order: 10, index: 2, enabled: true },
+    { id: "late", order: 20, index: 0, enabled: true },
+  ]);
 });
