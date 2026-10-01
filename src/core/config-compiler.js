@@ -226,13 +226,28 @@ function rewriteAction(action, chains, groups, nodes) {
   }
   return clone(action);
 }
+function routingPrioritySnapshot(routing) {
+  const rules = routing && Array.isArray(routing.rules) ? routing.rules : [];
+  return rules
+    .map((rule, index) => ({
+      id: rule && rule.id ? String(rule.id) : null,
+      order: rule && Number.isInteger(rule.order) ? rule.order : 0,
+      index,
+      enabled: rule ? rule.enabled !== false : false,
+    }))
+    .filter((item) => item.id !== null && item.enabled)
+    .sort((a, b) => a.order - b.order || a.index - b.index);
+}
+
 function routingConflictDiagnostics(routing) {
   const rules = routing && Array.isArray(routing.rules) ? routing.rules : [];
   const seen = new Map();
   const conflicts = [];
+  const priority = routingPrioritySnapshot(routing);
+  const priorityIndex = new Map(priority.map((item, index) => [item.index, index]));
   for (let index = 0; index < rules.length; index += 1) {
     const rule = rules[index];
-    if (!rule || typeof rule !== "object" || !rule.match || !rule.action) continue;
+    if (!rule || typeof rule !== "object" || rule.enabled === false || !rule.match || !rule.action) continue;
     const fingerprint = JSON.stringify(rule.match);
     const actionFingerprint = JSON.stringify(rule.action);
     if (!seen.has(fingerprint)) {
@@ -245,8 +260,10 @@ function routingConflictDiagnostics(routing) {
         type: "overlapping-match",
         firstRuleId: first.ruleId,
         firstRuleIndex: first.index,
+        firstPriority: priorityIndex.get(first.index) ?? null,
         ruleId: rule.id || null,
         ruleIndex: index,
+        priority: priorityIndex.get(index) ?? null,
       });
     }
   }
@@ -325,6 +342,7 @@ export function compileUnifiedConfig(config, kernel = config && config.kernel) {
   const nodeTargets = nodeTargetMap(config);
   const compiledGroupState = { ...compiledGroups, inactive: new Set(compiledGroups.inactive || []) };
   const effectiveRouting = routingForKernel(config.routing, resolvedChains, inactiveChains, compiledGroupState, nodeTargets, featureState);
+  const routingPriority = routingPrioritySnapshot(effectiveRouting);
   const routingConflicts = routingConflictDiagnostics(effectiveRouting);
   const kernelConfig = {
     ...config,
@@ -348,6 +366,7 @@ export function compileUnifiedConfig(config, kernel = config && config.kernel) {
     inactiveChains: [...inactiveChains],
     inactiveGroups: profileInactiveGroups,
     profileFeatures: featureState ? clone(featureState) : undefined,
+    routingPriority,
     routingConflicts,
   };
 }
