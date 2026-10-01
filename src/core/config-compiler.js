@@ -2,7 +2,7 @@ import { adapterFor } from "../adapters/index.js";
 import { AdapterCapabilities, hasAdapterCapability } from "../adapters/contract.js";
 import { compileGroups } from "./group-compiler.js";
 import { resolveChain } from "./chain-resolution.js";
-import { createProfileCustomization, resolveProfileChain } from "./profile-customization.js";
+import { createProfileCustomization, resolveProfileChain, resolveProfileGroups } from "./profile-customization.js";
 import { validateUnifiedCompatibility } from "./compatibility.js";
 import { preflightUnifiedConfig } from "./compile-preflight.js";
 import { validateCompiledConfig } from "./compiled-config-validation.js";
