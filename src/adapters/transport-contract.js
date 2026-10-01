@@ -4,9 +4,16 @@ export const TransportTypes = Object.freeze({
   TLS: "tls",
   QUIC: "quic",
   HTTP: "http",
+  H2: "h2",
+  WS: "ws",
+  GRPC: "grpc",
+  XHTTP: "xhttp",
+  MKCP: "mkcp",
+  MEKYA: "mekya",
 });
 
 export const TransportCapabilities = Object.freeze({
+  IDENTIFY: "transport-identify",
   STREAM: "stream",
   DATAGRAM: "datagram",
   SECURE: "secure",

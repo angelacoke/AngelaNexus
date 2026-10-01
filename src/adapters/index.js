@@ -35,3 +35,5 @@ export function adapterFor(kernel) {
 }
 
 export { builtinProtocolAdapters, builtinProtocolAdapterFor } from "./protocol-registry.js";
+
+export { builtinTransportAdapters, builtinTransportAdapterFor } from "./transport-registry.js";
