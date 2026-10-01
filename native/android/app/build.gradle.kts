@@ -65,6 +65,13 @@ android {
     }
 
     sourceSets["main"].java.srcDirs("../src/main/kotlin")
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
 }
 
 dependencies {
