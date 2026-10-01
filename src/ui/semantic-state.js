@@ -1,3 +1,5 @@
+import { RUNTIME_KEYS } from "./semantic-localization.js";
+
 export const UiRuntimeStates = Object.freeze({
   IDLE: "idle",
   PREPARING: "preparing",
@@ -10,20 +12,20 @@ export const UiRuntimeStates = Object.freeze({
   FAILED: "failed"
 });
 
-const labels = Object.freeze({
-  idle: "idle",
-  preparing: "preparing",
-  validating: "validating",
-  starting: "starting",
-  running: "running",
-  degraded: "degraded",
-  recovering: "recovering",
-  stopped: "stopped",
-  failed: "failed"
+export const UI_RUNTIME_LABEL_KEYS = Object.freeze({
+  idle: RUNTIME_KEYS.idle,
+  preparing: RUNTIME_KEYS.preparing,
+  validating: RUNTIME_KEYS.validating,
+  starting: RUNTIME_KEYS.starting,
+  running: RUNTIME_KEYS.running,
+  degraded: RUNTIME_KEYS.degraded,
+  recovering: RUNTIME_KEYS.recovering,
+  stopped: RUNTIME_KEYS.stopped,
+  failed: RUNTIME_KEYS.failed
 });
 
 export function toUiRuntimeState(experienceState) {
-  if (!Object.prototype.hasOwnProperty.call(labels, experienceState)) {
+  if (!Object.prototype.hasOwnProperty.call(UI_RUNTIME_LABEL_KEYS, experienceState)) {
     throw new Error("unsupported runtime state: " + experienceState);
   }
 
@@ -33,7 +35,7 @@ export function toUiRuntimeState(experienceState) {
 
   return Object.freeze({
     state: experienceState,
-    label: labels[experienceState],
+    labelKey: UI_RUNTIME_LABEL_KEYS[experienceState],
     activeExecution,
     proxyClaimAllowed: activeExecution
   });
