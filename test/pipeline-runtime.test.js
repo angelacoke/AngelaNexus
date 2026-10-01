@@ -11,6 +11,7 @@ function node(id, server) {
     name: id,
     protocol: "vmess",
     server, port: 443,
+    auth: { uuid: "00000000-0000-4000-8000-000000000001" },
   });
 }
 
@@ -133,7 +134,6 @@ test("pipeline runtime keeps kernel roles parallel and does not invent entry rel
   assert.ok(prepared.every(x => !("role" in x)));
   assert.ok(prepared.every(x => !("entry" in x) && !("relay" in x) && !("exit" in x)));
 });
-
 
 test("pipeline runtime preparation carries the platform-linked kernel configs", () => {
   const linkedSpec = createPipelineSpec({
