@@ -83,7 +83,18 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
 
     for _, value := range strings.Split(cString(address), ",") {
         value = strings.TrimSpace(value)
-        if value != "" { if prefix, ok := parsePrefix(value); ok {\n            if prefix.Addr().Is4() { options.Inet4Address = append(options.Inet4Address, prefix) } else { options.Inet6Address = append(options.Inet6Address, prefix) }\n        } else {\n            _ = syscall.Close(int(fd))\n            return 0\n        } }
+        if value != "" {
+            prefix, ok := parsePrefix(value)
+            if !ok {
+                _ = syscall.Close(int(fd))
+                return 0
+            }
+            if prefix.Addr().Is4() {
+                options.Inet4Address = append(options.Inet4Address, prefix)
+            } else {
+                options.Inet6Address = append(options.Inet6Address, prefix)
+            }
+        }
     }
 
     for _, value := range strings.Split(cString(dns), ",") {
@@ -97,11 +108,6 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
     return 1
 }
 
-func mustPrefix(value string) netip.Prefix {
-    prefix, err := netip.ParsePrefix(value)
-    if err != nil { panic(fmt.Sprintf("invalid TUN address: %s", value)) }
-    return prefix
-}
 
 //export stopTun
 func stopTun() {
