@@ -18,6 +18,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
+      - name: Run Android unit tests
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace testDebugUnitTest
       - name: Assemble Android debug APK
         working-directory: native/android
         run: gradle --no-daemon --console=plain --stacktrace --info assembleDebug
