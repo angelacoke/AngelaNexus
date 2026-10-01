@@ -7,14 +7,32 @@ const LOCALE_METADATA = Object.freeze({
   fa: Object.freeze({ code: "fa", name: "Persian", nativeName: "فارسی", direction: "rtl" }),
 });
 
+function normalizeLocale(locale) {
+  if (typeof locale !== "string") return "";
+  return locale.trim().replace(/_/g, "-");
+}
+
+function findSupportedLocale(locale) {
+  const normalized = normalizeLocale(locale);
+  if (!normalized) return null;
+
+  const exact = SUPPORTED_LOCALES.indexOf(normalized);
+  if (exact !== -1) return SUPPORTED_LOCALES[exact];
+
+  const language = normalized.split("-")[0].toLowerCase();
+  if (language === "zh") return "zh-CN";
+  if (SUPPORTED_LOCALES.indexOf(language) !== -1) return language;
+  return null;
+}
+
 function isSupportedLocale(locale) {
-  return SUPPORTED_LOCALES.indexOf(locale) !== -1;
+  return findSupportedLocale(locale) !== null;
 }
 
 function resolveLocale(requestedLocale, fallback = DEFAULT_LOCALE) {
-  if (isSupportedLocale(requestedLocale)) return requestedLocale;
-  if (isSupportedLocale(fallback)) return fallback;
-  return DEFAULT_LOCALE;
+  return findSupportedLocale(requestedLocale) ||
+    findSupportedLocale(fallback) ||
+    DEFAULT_LOCALE;
 }
 
 function getLocaleMetadata(locale) {
