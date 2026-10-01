@@ -2,7 +2,7 @@ export const UpstreamKernelRegistry = Object.freeze({
   mihomo: Object.freeze({
     name: "Mihomo",
     repository: "MetaCubeX/mihomo",
-    stable: "1.19.31",
+    stable: "1.19.32",
     channel: "stable",
     preview: null,
     releases: "https://github.com/MetaCubeX/mihomo/releases",
