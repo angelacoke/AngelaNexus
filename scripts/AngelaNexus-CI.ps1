@@ -10,9 +10,7 @@ function Invoke-GhJson {
     for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
         try {
             $raw = gh api $Endpoint 2>&1
-            if ($LASTEXITCODE -eq 0) {
-                return ($raw | ConvertFrom-Json)
-            }
+            if ($LASTEXITCODE -eq 0) { return ($raw | ConvertFrom-Json) }
         } catch {
             if ($attempt -ge $MaxAttempts) { throw }
         }
@@ -26,7 +24,7 @@ function Invoke-GhJson {
 
 function Get-MainSha {
     $ref = Invoke-GhJson "repos/$Repo/git/ref/heads/$Branch"
-    return $ref.object.sha
+    return [string]$ref.object.sha
 }
 
 function Get-RunsForSha {
@@ -42,32 +40,28 @@ function Get-RunsForSha {
         if ([string]::IsNullOrWhiteSpace($nameText)) { continue }
         [void]$items.Add($item)
     }
-    return @($items.ToArray())
+    return $items.ToArray()
 }
 
 function Show-Status {
     param([array]$Runs)
     $rows = foreach ($run in $Runs) {
         [pscustomobject]@{
-            Workflow = $run.name
-            Run = $run.id
-            Status = $run.status
-            Result = if ($run.conclusion) { $run.conclusion } else { "-" }
-            Attempt = $run.run_attempt
+            Workflow = [string]$run.name
+            Run = [string]$run.id
+            Status = [string]$run.status
+            Result = if ($run.conclusion) { [string]$run.conclusion } else { "-" }
+            Attempt = [string]$run.run_attempt
         }
     }
-    if ($rows.Count -gt 0) {
-        $rows | Sort-Object Workflow | Format-Table -AutoSize | Out-Host
-    }
+    if ($rows.Count -gt 0) { $rows | Sort-Object Workflow | Format-Table -AutoSize | Out-Host }
 }
 
 function Wait-ForRuns {
     param([string]$Sha)
     while ($true) {
         $currentSha = Get-MainSha
-        if ($currentSha -ne $Sha) {
-            throw "main 已产生新提交。停止旧 SHA 验证：$Sha -> $currentSha"
-        }
+        if ($currentSha -ne $Sha) { throw "main 已产生新提交。停止旧 SHA 验证：$Sha -> $currentSha" }
         $runs = @(Get-RunsForSha $Sha)
         if ($runs.Count -eq 0) {
             Write-Host "当前 SHA 尚未发现 GitHub Actions，等待 ${PollSeconds}s..."
@@ -78,23 +72,24 @@ function Wait-ForRuns {
         Write-Host "[$(Get-Date -Format 'HH:mm:ss')] AngelaNexus 全项目 CI"
         Write-Host "SHA: $Sha"
         Show-Status $runs
-        $active = @($runs | Where-Object {
-            $_.status -in @("queued","in_progress","waiting","requested","pending")
-        })
+        $active = @($runs | Where-Object { $_.status -in @("queued","in_progress","waiting","requested","pending") })
         if ($active.Count -gt 0) {
             Write-Host "仍有 $($active.Count) 个 Workflow 未完成，等待 ${PollSeconds}s..."
             Start-Sleep -Seconds $PollSeconds
             continue
         }
-        return ,$runs
+        return $runs
     }
 }
 
 function Retry-FailedRuns {
     param([array]$Runs,[hashtable]$Attempts)
     $failed = @($Runs | Where-Object {
-        $_.id -and [int64]$_.id -gt 0 -and $_.name -and
-        $_.conclusion -notin @("success","skipped","neutral")
+        $idText = [string]$_.id
+        $nameText = [string]$_.name
+        $idText -match '^[0-9]+$' -and [int64]$idText -gt 0 -and
+        -not [string]::IsNullOrWhiteSpace($nameText) -and
+        [string]$_.conclusion -notin @("success","skipped","neutral")
     })
     foreach ($run in $failed) {
         $key = [string]$run.id
@@ -105,11 +100,9 @@ function Retry-FailedRuns {
         Write-Host "失败 Workflow: $($run.name) / Run $($run.id)"
         Write-Host "重试次数: $($Attempts[$key])/$MaxAttempts"
         gh run rerun $run.id --failed --repo $Repo
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warning "gh run rerun 失败：$($run.id)"
-        }
+        if ($LASTEXITCODE -ne 0) { Write-Warning "gh run rerun 失败：$($run.id)" }
     }
-    return ,$failed
+    return $failed
 }
 
 Write-Host "=========================================="
@@ -129,14 +122,10 @@ $attempts = @{}
 
 while ($true) {
     $runs = @(Wait-ForRuns $sha)
-    $failed = @($runs | Where-Object {
-        $_.conclusion -notin @("success","skipped","neutral")
-    })
+    $failed = @($runs | Where-Object { [string]$_.conclusion -notin @("success","skipped","neutral") })
     if ($failed.Count -eq 0) {
         $finalSha = Get-MainSha
-        if ($finalSha -ne $sha) {
-            throw "最终验证前 main 发生变化：$sha -> $finalSha"
-        }
+        if ($finalSha -ne $sha) { throw "最终验证前 main 发生变化：$sha -> $finalSha" }
         Write-Host ""
         Write-Host "=========================================="
         Write-Host " ANGELANEXUS 全项目 CI 验证成功"
@@ -146,9 +135,7 @@ while ($true) {
     }
 
     $retryable = @(Retry-FailedRuns -Runs $runs -Attempts $attempts)
-    $exhausted = @($retryable | Where-Object {
-        $attempts[[string]$_.id] -ge $MaxAttempts
-    })
+    $exhausted = @($retryable | Where-Object { $attempts[[string]$_.id] -ge $MaxAttempts })
     if ($exhausted.Count -gt 0) {
         Write-Host ""
         Write-Host "=========================================="
