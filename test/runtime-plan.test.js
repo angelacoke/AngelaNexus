@@ -165,3 +165,26 @@ test("runtime plan fails closed when transport capabilities are required but no 
   assert.equal(result.status, "unsupported");
   assert.deepEqual(result.missingCapabilities, ["stream"]);
 });
+
+
+test("runtime plan uses built-in protocol and transport registries when not overridden", () => {
+  const result = createRuntimePlan(
+    node({ transport: { type: "tcp" } }),
+    {
+      executionBackends: [backend],
+    },
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.plan.protocol.id, NodeProtocols.VLESS);
+  assert.equal(result.plan.transport.id, TransportTypes.TCP);
+});
+
+test("explicit empty registries still disable built-in discovery", () => {
+  const result = createRuntimePlan(node(), {
+    protocolAdapters: [],
+    transportAdapters: [],
+    executionBackends: [backend],
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "no protocol adapter available");
+});
