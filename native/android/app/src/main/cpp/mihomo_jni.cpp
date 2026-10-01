@@ -15,6 +15,25 @@ jstring makeString(JNIEnv* env, const char* value) {
 
 }  // namespace
 
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_angelanexus_MihomoJniNativeHost_nativeApplyConfig(
+    JNIEnv* env, jobject, jstring configJson) {
+    using ApplyConfig = char* (*)(const char*);
+    const auto apply = resolve<ApplyConfig>("angelaApplyConfig");
+    const auto freeCString = resolve<void (*)(char*)>("freeCString");
+    if (apply == nullptr || freeCString == nullptr) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalStateException"),
+                      "Mihomo config bridge exports are unavailable");
+        return nullptr;
+    }
+    const char* value = configJson == nullptr ? "" : env->GetStringUTFChars(configJson, nullptr);
+    char* error = apply(value);
+    if (configJson != nullptr) env->ReleaseStringUTFChars(configJson, value);
+    jstring result = makeString(env, error);
+    freeCString(error);
+    return result;
+}
+
 extern "C" JNIEXPORT jboolean JNICALL
 Java_app_angelanexus_MihomoJniNativeHost_nativeStartTun(
     JNIEnv* env, jobject, jint fd, jstring stack, jstring address, jstring dns) {
