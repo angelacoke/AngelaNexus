@@ -43,11 +43,16 @@ function loopbackEndpoint(endpoint, field) {
 }
 
 function linkEndpointFor(spec, index) {
-  if (index === 0) return endpointOf(spec.inbound, "pipeline inbound");
   return loopbackEndpoint(spec.hops[index].listen, "pipeline hop " + spec.hops[index].id + " listen");
 }
 
-function compileMihomo(config, hop, inbound, upstream) {
+function ingressEndpointsFor(spec, index) {
+  const internal = linkEndpointFor(spec, index);
+  if (index === 0) return [endpointOf(spec.inbound, "pipeline inbound"), internal];
+  return [internal];
+}
+
+function compileMihomo(config, hop, inboundEndpoints, upstream) {
   const proxies = ensureArray(config, "proxies");
   const existing = new Set(proxies.map((item) => item && item.name).filter(Boolean));
   const target = nodeName(hop);
@@ -55,14 +60,17 @@ function compileMihomo(config, hop, inbound, upstream) {
   const listener = {
     name: uniqueTag(existing, "PipelineIn", hop.id),
     type: "mixed",
-    listen: inbound.host,
-    port: inbound.port,
+    listen: inboundEndpoints[0].host,
+    port: inboundEndpoints[0].port,
     udp: false,
     users: [],
     proxy: target,
   };
   const listeners = ensureArray(config, "listeners");
   listeners.push(listener);
+  for (const inbound of inboundEndpoints.slice(1)) {
+    listeners.push({ ...listener, name: uniqueTag(existing, "PipelineIn", hop.id), listen: inbound.host, port: inbound.port });
+  }
 
   if (upstream) {
     const linkName = uniqueTag(existing, "PipelineLink", hop.id);
@@ -80,7 +88,7 @@ function compileMihomo(config, hop, inbound, upstream) {
   return config;
 }
 
-function compileSingBox(config, hop, inbound, upstream) {
+function compileSingBox(config, hop, inboundEndpoints, upstream) {
   const outbounds = ensureArray(config, "outbounds");
   const existing = new Set(outbounds.map((item) => item && item.tag).filter(Boolean));
   const target = nodeName(hop);
@@ -91,9 +99,16 @@ function compileSingBox(config, hop, inbound, upstream) {
   inbounds.push({
     type: "mixed",
     tag: inboundTag,
-    listen: inbound.host,
-    listen_port: inbound.port,
+    listen: inboundEndpoints[0].host,
+    listen_port: inboundEndpoints[0].port,
   });
+  for (const inbound of inboundEndpoints.slice(1)) {
+    const tag = uniqueTag(existing, "PipelineIn", hop.id);
+    inbounds.push({ type: "mixed", tag, listen: inbound.host, listen_port: inbound.port });
+    config.route = config.route || { rules: [] };
+    config.route.rules = Array.isArray(config.route.rules) ? config.route.rules : [];
+    config.route.rules.unshift({ inbound: [tag], action: "route", outbound: target });
+  }
 
   if (!config.route || typeof config.route !== "object" || Array.isArray(config.route)) config.route = { rules: [] };
   if (!Array.isArray(config.route.rules)) config.route.rules = [];
@@ -118,7 +133,7 @@ function compileSingBox(config, hop, inbound, upstream) {
   return config;
 }
 
-function compileXray(config, hop, inbound, upstream) {
+function compileXray(config, hop, inboundEndpoints, upstream) {
   const outbounds = ensureArray(config, "outbounds");
   const existing = new Set(outbounds.map((item) => item && item.tag).filter(Boolean));
   const target = nodeName(hop);
@@ -127,12 +142,19 @@ function compileXray(config, hop, inbound, upstream) {
   const inboundTag = uniqueTag(existing, "PipelineIn", hop.id);
   const inbounds = ensureArray(config, "inbounds");
   inbounds.push({
-    listen: inbound.host,
-    port: inbound.port,
+    listen: inboundEndpoints[0].host,
+    port: inboundEndpoints[0].port,
     protocol: "socks",
     tag: inboundTag,
     settings: { udp: false },
   });
+  for (const inbound of inboundEndpoints.slice(1)) {
+    const tag = uniqueTag(existing, "PipelineIn", hop.id);
+    inbounds.push({ listen: inbound.host, port: inbound.port, protocol: "socks", tag, settings: { udp: false } });
+    config.routing = config.routing || { rules: [] };
+    config.routing.rules = Array.isArray(config.routing.rules) ? config.routing.rules : [];
+    config.routing.rules.unshift({ type: "field", inboundTag: [tag], outboundTag: target });
+  }
 
   if (!config.routing || typeof config.routing !== "object" || Array.isArray(config.routing)) config.routing = { rules: [] };
   if (!Array.isArray(config.routing.rules)) config.routing.rules = [];
@@ -185,6 +207,7 @@ export function compileLinkedPipeline(spec, { drivers } = {}) {
       throw new Error("kernel driver is unavailable: " + hop.kernel);
     }
     const currentInbound = linkEndpointFor(spec, index);
+    const ingressEndpoints = ingressEndpointsFor(spec, index);
     const upstream = index === 0 ? null : loopbackEndpoint(spec.hops[index - 1].listen, "pipeline upstream");
     const config = clone(driver.compileNode(hop.node, { security: spec.security }));
     const compiler = kernelCompiler(hop.kernel);
@@ -192,8 +215,9 @@ export function compileLinkedPipeline(spec, { drivers } = {}) {
       hopId: hop.id,
       kernel: hop.kernel,
       inbound: currentInbound,
+      ingress: ingressEndpoints,
       upstream,
-      config: Object.freeze(compiler(config, hop, currentInbound, upstream)),
+      config: Object.freeze(compiler(config, hop, ingressEndpoints, upstream)),
     }));
   }
 
