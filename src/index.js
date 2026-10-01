@@ -36,3 +36,8 @@ export * from "./core/session-invalidation.js";
 export * from "./core/execution-event-ledger.js";
 
 export * from "./core/path-trust.js";
+
+export * from "./adapters/protocol-contract.js";
+export * from "./adapters/transport-contract.js";
+export * from "./adapters/execution-backend-contract.js";
+export * from "./core/runtime-plan.js";
