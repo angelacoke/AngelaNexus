@@ -13,6 +13,7 @@ export const TransportTypes = Object.freeze({
 });
 
 export const TransportCapabilities = Object.freeze({
+  IDENTIFY: "transport-identify",
   STREAM: "stream",
   DATAGRAM: "datagram",
   SECURE: "secure",
