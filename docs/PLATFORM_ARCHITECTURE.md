@@ -20,7 +20,7 @@ AngelaNexus UI
 Application / Orchestration
    |
 Platform-neutral Core
-   |-- unified capability model
+   |-- canonical node / flow / pipeline model
    |-- configuration / import
    |-- explicit routing policy
    |-- strategy groups
@@ -29,7 +29,16 @@ Platform-neutral Core
    |-- health/self-healing
    |-- resource policy / telemetry
    |
-Kernel Adapter
+Protocol Adapter Layer
+   |-- protocol identification / capability contract
+   |-- protocol-neutral runtime descriptors
+   |
+Transport Abstraction
+   |-- stream / datagram transport contracts
+   |-- transport capability negotiation
+   |
+Execution Backend Layer
+   |-- compatibility backend adapters
    |-- Mihomo
    |-- sing-box
    |-- Xray
