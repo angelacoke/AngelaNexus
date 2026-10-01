@@ -72,7 +72,7 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
 
     options := LC.Tun{
         Enable: true,
-        Stack: strings.TrimSpace(cString(stack)),
+        Stack: tunStackValue(cString(stack)),
         Device: "AngelaNexus",
         DNSHijack: nil,
         AutoRoute: false,
@@ -83,7 +83,7 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
 
     for _, value := range strings.Split(cString(address), ",") {
         value = strings.TrimSpace(value)
-        if value != "" { options.Inet4Address = append(options.Inet4Address, mustPrefix(value)) }
+        if value != "" { if prefix, ok := parsePrefix(value); ok {\n            if prefix.Addr().Is4() { options.Inet4Address = append(options.Inet4Address, prefix) } else { options.Inet6Address = append(options.Inet6Address, prefix) }\n        } else {\n            _ = syscall.Close(int(fd))\n            return 0\n        } }
     }
 
     for _, value := range strings.Split(cString(dns), ",") {
@@ -115,7 +115,7 @@ func stopTun() {
 
 //export suspend
 func suspend(suspended C.uchar) {
-    if bool(suspended) {
+    if suspended != 0 {
         tunnel.OnSuspend()
     } else {
         tunnel.OnRunning()
