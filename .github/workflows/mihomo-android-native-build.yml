@@ -100,3 +100,11 @@ jobs:
           file "$RUNNER_TEMP/libclash-${{ matrix.abi }}.so"
           sha256sum "$RUNNER_TEMP/libclash-${{ matrix.abi }}.so"
           nm -D --defined-only "$RUNNER_TEMP/libclash-${{ matrix.abi }}.so" | grep -E "angelaInit|angelaApplyConfig|startTUN|stopTun|suspend|forceGC|getTraffic|getTotalTraffic|freeCString"
+
+      - name: Upload verified native artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mihomo-v1.19.32-${{ matrix.abi }}
+          path: ${{ runner.temp }}/libclash-${{ matrix.abi }}.so
+          if-no-files-found: error
+          retention-days: 14
