@@ -60,7 +60,7 @@ func angelaApplyConfig(configJSON *C.char) *C.char {
 }
 
 //export startTUN
-func startTUN(fd C.int, stack, address, dns *C.char) C.bool {
+func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
     androidTunMu.Lock()
     defer androidTunMu.Unlock()
 
@@ -68,7 +68,7 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.bool {
         _ = androidTun.Close()
         androidTun = nil
     }
-    if fd < 0 { return false }
+    if fd < 0 { return 0 }
 
     options := LC.Tun{
         Enable: true,
@@ -92,9 +92,9 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.bool {
     }
 
     listener, err := sing_tun.New(options, tunnel.Tunnel)
-    if err != nil { return false }
+    if err != nil { return 0 }
     androidTun = listener
-    return true
+    return 1
 }
 
 func mustPrefix(value string) netip.Prefix {
