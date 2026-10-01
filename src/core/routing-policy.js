@@ -99,6 +99,8 @@ export function createRoutingRule({
     id: nonEmptyString(id, "routing rule id"),
     name: nonEmptyString(name, "routing rule name"),
     enabled: enabled !== false,
+    // Retained as presentation/editing metadata for compatibility. It has no
+    // effect on parallel rule evaluation or action resolution.
     order: Number.isInteger(order) ? order : 0,
     match: Object.freeze(normalizeMatch(match)),
     action: Object.freeze(normalizeAction(action)),
@@ -118,8 +120,7 @@ export function createRoutingPolicy({
 
   const normalizedRules = rules
     .map((rule) => rule && rule.id ? createRoutingRule(rule) : rule)
-    .filter(Boolean)
-    .sort((a, b) => a.order - b.order);
+    .filter(Boolean);
 
   return {
     version: 1,
