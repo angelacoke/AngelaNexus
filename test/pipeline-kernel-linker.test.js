@@ -30,7 +30,7 @@ function spec() {
 test("linked pipeline compiles explicit kernel-to-kernel TCP links", () => {
   const result = compileLinkedPipeline(spec());
   assert.equal(result.transport, "tcp");
-  assert.deepEqual(result.hops.map((hop) => hop.inbound.port), [30000, 31002, 31003]);
+  assert.deepEqual(result.hops.map((hop) => hop.inbound.port), [31001, 31002, 31003]);
   assert.deepEqual(result.hops.map((hop) => hop.upstream && hop.upstream.port), [null, 31001, 31002]);
 
   const mihomo = result.hops[0].config;
