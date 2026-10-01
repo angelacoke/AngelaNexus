@@ -8,13 +8,12 @@ package main
 import "C"
 
 import (
-    "encoding/json"
-    "fmt"
     "os"
     "net/netip"
     "runtime"
     "strings"
     "sync"
+    "syscall"
     "unsafe"
 
     "github.com/metacubex/mihomo/config"
@@ -38,6 +37,17 @@ func cString(s *C.char) string {
 func resultString(err error) *C.char {
     if err == nil { return C.CString("") }
     return C.CString(err.Error())
+}
+
+func tunStackValue(value string) constant.TUNStack {
+    stack, ok := constant.StackTypeMapping[strings.ToLower(strings.TrimSpace(value))]
+    if !ok { return constant.TunSystem }
+    return stack
+}
+
+func parsePrefix(value string) (netip.Prefix, bool) {
+    prefix, err := netip.ParsePrefix(value)
+    return prefix, err == nil
 }
 
 //export angelaInit
