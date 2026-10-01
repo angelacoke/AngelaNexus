@@ -2,7 +2,7 @@ import { adapterFor } from "../adapters/index.js";
 import { AdapterCapabilities, hasAdapterCapability } from "../adapters/contract.js";
 import { compileGroups } from "./group-compiler.js";
 import { resolveChain } from "./chain-resolution.js";
-import { resolveProfileChain } from "./profile-customization.js";
+import { createProfileCustomization, resolveProfileChain } from "./profile-customization.js";
 import { validateUnifiedCompatibility } from "./compatibility.js";
 import { preflightUnifiedConfig } from "./compile-preflight.js";
 import { validateCompiledConfig } from "./compiled-config-validation.js";
@@ -180,7 +180,14 @@ export function compileUnifiedConfig(config, kernel = config && config.kernel) {
     throw error;
   }
   const compatibility = preflight.compatibility;
-  const featureState = profileFeatureState(config);
+  const featureInput = profileFeatureState(config);
+  const featureState = featureInput
+    ? createProfileCustomization({
+      groups: groupList(config.groups),
+      chains: chainList(config.chains),
+      ...featureInput,
+    })
+    : undefined;
   const resolvedChains = resolveConfiguredChains(config, featureState);
   const compilableGroups = groupsForKernel(config);
   const compiledGroups = compileGroups(compilableGroups, kernel, config.nodes, config.states, featureState);
@@ -204,5 +211,6 @@ export function compileUnifiedConfig(config, kernel = config && config.kernel) {
     preflight,
     groups: [...compiledGroups.targetMap.entries()].map(([id, target]) => ({ id, target })),
     chains: [...resolvedChains.values()].map((chain) => ({ id: chain.id, mode: chain.mode, hops: chain.hops.map((node) => node.id) })),
+    profileFeatures: featureState ? clone(featureState) : undefined,
   };
 }
