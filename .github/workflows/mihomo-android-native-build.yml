@@ -45,7 +45,6 @@ jobs:
           set -euo pipefail
           SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort | tail -n 1)"
           test -x "$SDKMANAGER"
-          yes | "$SDKMANAGER" --licenses >/dev/null
           "$SDKMANAGER" "ndk;28.0.13004108"
 
       - name: Fetch pinned Mihomo source
