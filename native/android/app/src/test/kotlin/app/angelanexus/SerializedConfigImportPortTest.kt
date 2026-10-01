@@ -27,7 +27,7 @@ class SerializedConfigImportPortTest {
 
         var completed = false
         var failure: Throwable? = null
-        port.importConfiguration(request).startCoroutine(
+        suspend { port.importConfiguration(request) }.startCoroutine(
             object : Continuation<Unit> {
                 override val context = EmptyCoroutineContext
                 override fun resumeWith(result: Result<Unit>) {
