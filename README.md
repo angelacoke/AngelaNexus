@@ -8,6 +8,10 @@
 
 AngelaNexus is the unified cross-platform proxy-system project for Mihomo, sing-box, and Xray adapters.
 
+## Constitutional architecture
+
+The project's architecture, implementation, verification, and maintenance are governed by the **[AngelaNexus 底层宪级纲领](docs/ANGELANEXUS_CONSTITUTION.md)** (AN-Constitution v1.0). It establishes Platform First, parallel execution backends, canonical data models, protocol/transport separation, user control, parallel rule semantics, security boundaries, cross-platform isolation, evidence-based verification, and staged migration toward backend independence.
+
 ## Product platforms
 
 AngelaNexus APP is designed for all five primary platforms from the first architecture layer:
@@ -35,7 +39,7 @@ The four-quadrant cross mark in `assets/brand/angelanexus-logo.svg` is the offic
 - iOS / Windows / macOS / Linux executable shells: architectural targets established; implementation remains milestone-driven and is not claimed as complete.
 - Mihomo / sing-box / Xray Android runtime embedding: not yet claimed as production-ready.
 
-See [`docs/APP_PLATFORM_STRATEGY.md`](docs/APP_PLATFORM_STRATEGY.md), [`docs/APP_UI_DESIGN.md`](docs/APP_UI_DESIGN.md) and [`docs/APP_PROGRESS.md`](docs/APP_PROGRESS.md) for the evidence-based APP architecture, UI design and progress.
+See [docs/ANGELANEXUS_CONSTITUTION.md](docs/ANGELANEXUS_CONSTITUTION.md), [`docs/APP_PLATFORM_STRATEGY.md`](docs/APP_PLATFORM_STRATEGY.md), [`docs/APP_UI_DESIGN.md`](docs/APP_UI_DESIGN.md) and [`docs/APP_PROGRESS.md`](docs/APP_PROGRESS.md) for the project's architecture, UI design, progress and constitutional constraints.
 
 ## License
 
