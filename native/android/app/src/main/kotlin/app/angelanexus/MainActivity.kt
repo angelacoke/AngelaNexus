@@ -67,8 +67,7 @@ private fun AngelaNexusRoot() {
 
     val vpnLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
-            context.startService(Intent(context, AngelaNexusVpnService::class.java))
-            status = "vpn-boundary-started"
+            status = "vpn-runtime-not-ready"
         }
     }
 
