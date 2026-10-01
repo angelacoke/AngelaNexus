@@ -111,9 +111,15 @@ jobs:
           unzip -l "$APK" | grep -q "lib/armeabi-v7a/libmihomo-jni.so"
           unzip -l "$APK" | grep -q "lib/x86_64/libmihomo-jni.so"
 
-          unzip -p "$APK" lib/arm64-v8a/libclash.so | sha256sum | grep -q             "667c94964d0a60f86cdcc130b2cdf3b385b02d9f2c5d3b324b3ed7a6b7326007"
-          unzip -p "$APK" lib/armeabi-v7a/libclash.so | sha256sum | grep -q             "3ae94d7defb1778cd611eceffcff6884407893d28c42a4350af2b49108ac9a09"
-          unzip -p "$APK" lib/x86_64/libclash.so | sha256sum | grep -q             "da7bcdbf165cc1e3457d3560b51e703cb3a478dd83f0c1cfe42ccf676d6c1f42"
+          ARM64_SHA="$(unzip -p "$APK" lib/arm64-v8a/libclash.so | sha256sum | cut -d' ' -f1)"
+          ARMV7_SHA="$(unzip -p "$APK" lib/armeabi-v7a/libclash.so | sha256sum | cut -d' ' -f1)"
+          X86_64_SHA="$(unzip -p "$APK" lib/x86_64/libclash.so | sha256sum | cut -d' ' -f1)"
+          printf 'APK arm64-v8a libclash.so SHA-256: %s\n' "$ARM64_SHA"
+          printf 'APK armeabi-v7a libclash.so SHA-256: %s\n' "$ARMV7_SHA"
+          printf 'APK x86_64 libclash.so SHA-256: %s\n' "$X86_64_SHA"
+          test "$ARM64_SHA" = "667c94964d0a60f86cdcc130b2cdf3b385b02d9f2c5d3b324b3ed7a6b7326007"
+          test "$ARMV7_SHA" = "3ae94d7defb1778cd611eceffcff6884407893d28c42a4350af2b49108ac9a09"
+          test "$X86_64_SHA" = "da7bcdbf165cc1e3457d3560b51e703cb3a478dd83f0c1cfe42ccf676d6c1f42"
 
       - name: Verify release certificate
         shell: bash
