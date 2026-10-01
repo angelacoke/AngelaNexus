@@ -22,10 +22,6 @@ function text(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function clone(value) {
-  return value === undefined ? undefined : structuredClone(value);
-}
-
 function healthRank(driver) {
   const state = text(driver?.health?.state || driver?.state || "unknown").toLowerCase();
   return HEALTH_ORDER[state] ?? HEALTH_ORDER.unknown;
@@ -156,6 +152,10 @@ export function createDriverSelection(input = {}) {
       selected: null,
       candidates: Object.freeze([]),
       rejected: Object.freeze(rejected),
+      fallback: Object.freeze({
+        allowed: false,
+        candidates: Object.freeze([])
+      }),
       explanation: fixedDriver
         ? "The fixed driver cannot satisfy the execution plan; automatic fallback is not permitted."
         : "No available driver satisfies the execution plan and current user policy."
