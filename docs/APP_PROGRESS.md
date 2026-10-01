@@ -68,18 +68,20 @@ Implemented in source with regression coverage:
 
 This is an executable control-plane milestone. It does **not** claim that a Mihomo/sing-box/Xray runtime is already embedded or running.
 
-### Android Mihomo native build boundary
+### Android Mihomo native runtime boundary
 
-Implemented and CI-verified as a build milestone:
+Implemented and CI-verified:
 
-- exact upstream core source commit pinned to `ab405bad5beeeac8b003bb01f60f134f6df54471`;
+- Mihomo source pinned to exact release `v1.19.32` commit `88dcbf7f1614a67c3b36b848ee3592dfa92ada36`;
 - Android native shared-library build verification for `arm64-v8a`, `armeabi-v7a` and `x86_64`;
 - Go 1.24.8 and Android NDK 28.0.13004108 pinned in the verification workflow;
-- reproducible `c-shared` build command with version metadata pinned to `v1.19.31`;
-- non-empty ELF shared-object output and SHA-256 emission verified for every ABI;
-- all project CI workflows were green on the resulting commit.
+- reproducible `c-shared` build with version metadata pinned to `v1.19.32`;
+- SHA-256-pinned native artifacts for all three supported ABIs;
+- verified JNI loading boundary that refuses missing or hash-mismatched native artifacts;
+- dedicated Android packaging workflow that downloads only the verified artifacts, packages `libclash.so` plus the AngelaNexus JNI shim, and verifies the final APK contents and hashes;
+- signed Mihomo-enabled APK/AAB artifact successfully produced by CI.
 
-This milestone proves that the pinned native core can be built for the supported Android ABIs. It does **not** claim that the generated library is packaged into the APK or that JNI/TUN traffic execution has been verified on a device.
+The native core is now actually present in the dedicated Mihomo-enabled Android release artifact. This does **not** claim successful end-to-end TUN traffic on a physical Android device.
 
 ### Modern modular UI baseline
 
@@ -113,9 +115,9 @@ This is a data-contract milestone, **not** a claim that the cloud account servic
 
 ## Not yet claimed as production functionality
 
-- No Mihomo/sing-box/Xray runtime is embedded in the Android APK yet.
-- The imported configuration is not yet automatically compiled and launched into a verified Android kernel runtime.
-- VPN boundary establishment is not yet evidence of end-to-end proxy traffic interception.
+- The standard Android shell release is not yet the final Mihomo-enabled production release; the dedicated Mihomo-enabled release artifact is the current verified native packaging path.
+- The imported configuration is not yet automatically compiled, bound to the selected kernel, and launched through the Android VPN lifecycle.
+- Physical-device TUN establishment and end-to-end proxy traffic interception are not yet verified evidence.
 - The UI is not yet backed by the complete Core execution state stream.
 - No production Android background lifecycle, notification channel, secure storage, or battery policy integration is claimed yet.
 - Production cloud authentication/storage/sync service is not yet implemented.
@@ -128,7 +130,7 @@ This is a data-contract milestone, **not** a claim that the cloud account servic
 3. Extract reusable UI into the multiplatform UI layer without leaking platform APIs.
 4. Implement account authentication and cloud data service behind a platform-neutral service contract.
 5. Connect Android configuration import to the kernel-neutral import pipeline. **Done at contract + automated-test level.**
-6. Complete Android execution-state bridge and one verified kernel runtime. **Execution-state bridge implemented; verified kernel runtime remains.**
+6. Complete Android execution-state bridge and one verified kernel runtime. **Execution-state bridge implemented; Mihomo v1.19.32 native build, hash verification, JNI packaging and signed APK/AAB packaging are verified; physical-device runtime/traffic verification remains.**
 7. Establish Desktop JVM application shell shared by Windows/macOS/Linux.
 8. Establish iOS application entry point and Network Extension boundary.
 9. Add platform-specific secure storage, background lifecycle, notifications, network state and resource-policy adapters.
