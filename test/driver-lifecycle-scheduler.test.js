@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createDriverSelection } from "./driver-scheduler.js";
+import { createDriverSelection } from "../src/core/driver-scheduler.js";
 
 function driver(id, capabilities, state = "ready") {
   return {
