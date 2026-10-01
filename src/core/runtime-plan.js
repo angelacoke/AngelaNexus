@@ -2,6 +2,7 @@ import { NodeProtocols, normalizeNode } from "./model.js";
 import { findProtocolAdapter } from "../adapters/protocol-contract.js";
 import { findTransportAdapter } from "../adapters/transport-contract.js";
 import { findExecutionBackend } from "../adapters/execution-backend-contract.js";
+import { missingCapabilities } from "../adapters/capability-negotiation.js";
 
 function clone(value) { return value === undefined ? undefined : structuredClone(value); }
 
@@ -12,6 +13,11 @@ function protocolOf(node) {
 function transportOf(node) {
   const type = node?.transport?.type || node?.network || null;
   return type ? String(type).trim().toLowerCase() : null;
+}
+
+function capabilityFailure(target, required) {
+  const missing = missingCapabilities(target?.capabilities, required);
+  return missing.length ? missing : null;
 }
 
 export function createRuntimePlan(nodeInput, options = {}) {
@@ -38,6 +44,22 @@ export function createRuntimePlan(nodeInput, options = {}) {
     };
   }
 
+  const requiredProtocolCapabilities = options.requiredProtocolCapabilities || [];
+  const missingProtocolCapabilities = capabilityFailure(protocolAdapter, requiredProtocolCapabilities);
+  if (missingProtocolCapabilities) {
+    return {
+      ok: false,
+      node,
+      protocol,
+      transport: transportOf(node),
+      protocolAdapter: protocolAdapter.protocol,
+      status: "unsupported",
+      reason: "protocol adapter lacks required capabilities",
+      missingCapabilities: missingProtocolCapabilities,
+      backend: null,
+    };
+  }
+
   const transport = transportOf(node);
   const transportAdapter = transport
     ? findTransportAdapter(options.transportAdapters, node.transport)
@@ -56,8 +78,28 @@ export function createRuntimePlan(nodeInput, options = {}) {
     };
   }
 
+  const requiredTransportCapabilities = options.requiredTransportCapabilities || [];
+  if (transportAdapter) {
+    const missingTransportCapabilities = capabilityFailure(transportAdapter, requiredTransportCapabilities);
+    if (missingTransportCapabilities) {
+      return {
+        ok: false,
+        node,
+        protocol,
+        transport,
+        protocolAdapter: protocolAdapter.protocol,
+        transportAdapter: transportAdapter.type,
+        status: "unsupported",
+        reason: "transport adapter lacks required capabilities",
+        missingCapabilities: missingTransportCapabilities,
+        backend: null,
+      };
+    }
+  }
+
   const descriptor = protocolAdapter.describe(node);
   const transportDescriptor = transportAdapter ? transportAdapter.describe(node.transport) : null;
+  const requiredBackendCapabilities = options.requiredBackendCapabilities || [];
   const plan = Object.freeze({
     kind: "runtime-plan",
     version: 1,
@@ -69,17 +111,22 @@ export function createRuntimePlan(nodeInput, options = {}) {
     transport: transportAdapter
       ? Object.freeze({ id: transportAdapter.type, descriptor: clone(transportDescriptor) })
       : null,
+    requirements: Object.freeze({
+      protocol: Object.freeze([...requiredProtocolCapabilities]),
+      transport: Object.freeze([...requiredTransportCapabilities]),
+      backend: Object.freeze([...requiredBackendCapabilities]),
+    }),
     policy: clone(options.policy || null),
     userAuthorized: options.userAuthorized === true,
   });
 
-  const backend = findExecutionBackend(options.executionBackends, plan);
+  const backend = findExecutionBackend(options.executionBackends, plan, requiredBackendCapabilities);
   if (!backend) {
     return {
       ok: false,
       plan,
       status: "unsupported",
-      reason: "no execution backend can execute this plan",
+      reason: "no execution backend can execute this plan with required capabilities",
       backend: null,
     };
   }
