@@ -1,0 +1,94 @@
+name: Wiki synchronization
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/wiki-sync-bridge
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wiki-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify Wiki repository access
+        env:
+          WIKI_TOKEN: ${{ secrets.ANGELANEXUS_WIKI_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${WIKI_TOKEN}"
+          AUTH="$(printf 'x-access-token:%s' "${WIKI_TOKEN}" | base64 -w0)"
+          git -c http.extraheader="AUTHORIZATION: basic ${AUTH}" \
+            ls-remote "https://github.com/${GITHUB_REPOSITORY_OWNER}/AngelaNexus.wiki.git" HEAD
+
+      - name: Clone Wiki
+        env:
+          WIKI_TOKEN: ${{ secrets.ANGELANEXUS_WIKI_TOKEN }}
+        run: |
+          set -euo pipefail
+          rm -rf wiki
+          AUTH="$(printf 'x-access-token:%s' "${WIKI_TOKEN}" | base64 -w0)"
+          git -c http.extraheader="AUTHORIZATION: basic ${AUTH}" \
+            clone "https://github.com/${GITHUB_REPOSITORY_OWNER}/AngelaNexus.wiki.git" wiki
+
+      - name: Synchronize managed pages
+        run: |
+          set -euo pipefail
+          node scripts/sync-wiki.mjs "${GITHUB_WORKSPACE}/wiki"
+
+      - name: Commit and push Wiki changes
+        env:
+          WIKI_TOKEN: ${{ secrets.ANGELANEXUS_WIKI_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd wiki
+          git config user.name "AngelaNexus Wiki Sync"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- . ':!/.git'; then
+            echo "Wiki is already synchronized."
+            exit 0
+          fi
+          git add Home.md Constitution.md Platform-Architecture.md Platform-Strategy.md UI-Design.md Product-Experience.md Account-Sync.md Progress.md
+          git commit -m "docs: synchronize AngelaNexus documentation"
+          branch="$(git symbolic-ref --short HEAD)"
+          AUTH="$(printf 'x-access-token:%s' "${WIKI_TOKEN}" | base64 -w0)"
+          git -c http.extraheader="AUTHORIZATION: basic ${AUTH}" push origin "HEAD:${branch}"
+
+      - name: Verify synchronized Wiki state
+        env:
+          WIKI_TOKEN: ${{ secrets.ANGELANEXUS_WIKI_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd wiki
+          AUTH="$(printf 'x-access-token:%s' "${WIKI_TOKEN}" | base64 -w0)"
+          git -c http.extraheader="AUTHORIZATION: basic ${AUTH}" fetch origin
+          branch="$(git symbolic-ref --short HEAD)"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "origin/${branch}")"
+          test -f Home.md
+          test -f Constitution.md
+          test -f Platform-Architecture.md
+          test -f Platform-Strategy.md
+          test -f UI-Design.md
+          test -f Product-Experience.md
+          test -f Account-Sync.md
+          test -f Progress.md
+          cmp -s Constitution.md ../docs/ANGELANEXUS_CONSTITUTION.md
+          cmp -s Platform-Architecture.md ../docs/PLATFORM_ARCHITECTURE.md
+          cmp -s Platform-Strategy.md ../docs/APP_PLATFORM_STRATEGY.md
+          cmp -s UI-Design.md ../docs/APP_UI_DESIGN.md
+          cmp -s Product-Experience.md ../docs/PRODUCT_EXPERIENCE_BASELINE.md
+          cmp -s Account-Sync.md ../docs/APP_ACCOUNT_SYNC.md
+          cmp -s Progress.md ../docs/APP_PROGRESS.md
+          echo "Wiki synchronization verified successfully."
