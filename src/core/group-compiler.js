@@ -125,5 +125,5 @@ export function compileGroups(groups, kernel, nodes = [], states, featureState) 
     if (kernel === Kernels.XRAY) throw new Error("Xray does not support unified group type without semantic downgrade: " + type);
     throw new Error("unsupported kernel for group compilation: " + kernel);
   }
-  return { groups: output, targetMap };
+  return { groups: output, targetMap, inactive: [...resolved.inactive] };
 }
