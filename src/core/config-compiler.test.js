@@ -15,7 +15,7 @@ function baseConfig(profileFeatures) {
     ],
     routing: {
       rules: [
-        { id: "chain-rule", action: { type: "chain", target: "chain-a" } },
+        { id: "chain-rule", name: "Chain Rule", action: { type: "chain", target: "chain-a" } },
       ],
     },
     ...(profileFeatures ? { profileFeatures } : {}),
@@ -30,7 +30,7 @@ test("disabled profile chain removes its routing action and compiles fail-closed
 
   assert.deepEqual(result.chains, []);
   assert.equal(result.config.proxies.find((proxy) => proxy.name === "Node 2")["dialer-proxy"], undefined);
-  assert.deepEqual(result.config.rules, ["MATCH,REJECT"]);
+  assert.deepEqual(result.config.rules, ["IP-CIDR6,::/0,REJECT", "DST-PORT,3478,REJECT", "MATCH,REJECT"]);
 });
 
 test("enabled profile chain is compiled and its routing action resolves to the final hop", () => {
