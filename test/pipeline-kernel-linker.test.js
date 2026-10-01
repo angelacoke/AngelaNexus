@@ -36,6 +36,7 @@ test("linked pipeline compiles explicit kernel-to-kernel TCP links", () => {
   const mihomo = result.hops[0].config;
   assert.equal(mihomo.listeners[0].port, 30000);
   assert.equal(mihomo.listeners[0].proxy, "front");
+  assert.equal(mihomo.listeners[1].port, 31001);
 
   const singBox = result.hops[1].config;
   assert.equal(singBox.inbounds[0].listen_port, 31002);
