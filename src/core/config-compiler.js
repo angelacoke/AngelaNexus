@@ -2,7 +2,7 @@ import { adapterFor } from "../adapters/index.js";
 import { AdapterCapabilities, hasAdapterCapability } from "../adapters/contract.js";
 import { compileGroups } from "./group-compiler.js";
 import { resolveChain } from "./chain-resolution.js";
-import { createProfileCustomization, resolveProfileChain } from "./profile-customization.js";
+import { createProfileCustomization, resolveProfileChain, resolveProfileGroups } from "./profile-customization.js";
 import { validateUnifiedCompatibility } from "./compatibility.js";
 import { preflightUnifiedConfig } from "./compile-preflight.js";
 import { validateCompiledConfig } from "./compiled-config-validation.js";
@@ -84,22 +84,117 @@ function groupsForKernel(config) {
   const definitions = groupList(config.groups);
   const chainGroups = groupIdsUsedByChains(config.chains, definitions);
   const routedGroups = groupIdsUsedByRouting(config.routing, definitions);
-  return definitions.filter((group) => !chainGroups.has(String(group.id).trim()) || routedGroups.has(String(group.id).trim()));
+  const requiredByRouting = new Set(routedGroups);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const group of definitions) {
+      const id = String(group.id).trim();
+      if (!requiredByRouting.has(id)) continue;
+      for (const member of Array.isArray(group.members) ? group.members : []) {
+        const memberId = String(member || "").trim();
+        if (!memberId || !definitions.some((candidate) => String(candidate.id).trim() === memberId)) continue;
+        if (!requiredByRouting.has(memberId)) {
+          requiredByRouting.add(memberId);
+          changed = true;
+        }
+      }
+    }
+  }
+  return definitions.filter((group) => !chainGroups.has(String(group.id).trim()) || requiredByRouting.has(String(group.id).trim()));
 }
 function chainMode(chain) { return typeof chain?.mode === "string" && chain.mode.trim() ? chain.mode : "node->node"; }
-function resolveConfiguredChains(config, featureState) {
+function effectiveInactiveGroupIds(groups, featureState) {
+  const definitions = resolveProfileGroups(groupList(groups), featureState || {});
+  const byId = new Map(definitions.map((group) => [String(group.id).trim(), group]));
+  const inactive = new Set(
+    definitions
+      .filter((group) => group.enabled === false)
+      .map((group) => String(group.id).trim())
+      .filter(Boolean)
+  );
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const group of definitions) {
+      const id = String(group.id).trim();
+      if (inactive.has(id)) continue;
+      const dependsOnInactive = (Array.isArray(group.members) ? group.members : []).some((member) => {
+        const memberId = String(member || "").trim();
+        return memberId && byId.has(memberId) && inactive.has(memberId);
+      });
+      if (dependsOnInactive) {
+        inactive.add(id);
+        changed = true;
+      }
+    }
+  }
+  return [...inactive];
+}
+function chainDependsOnDisabledGroup(hops, groups, disabledIds, seen = new Set()) {
+  const byId = new Map(groupList(groups).map((group) => [String(group.id).trim(), group]));
+  function visitHops(items) {
+    for (const hop of Array.isArray(items) ? items : []) {
+      if (!hop || typeof hop !== "object") continue;
+      const groupId = String(hop.group || hop.groupId || "").trim();
+      if (groupId && visitGroup(groupId)) return true;
+      if (Array.isArray(hop.chain) && visitHops(hop.chain)) return true;
+      if (hop.chain && typeof hop.chain === "object" && Array.isArray(hop.chain.hops) && visitHops(hop.chain.hops)) return true;
+    }
+    return false;
+  }
+  function visitGroup(id) {
+    const normalized = String(id || "").trim();
+    if (!normalized) return false;
+    if (disabledIds.has(normalized)) return true;
+    if (seen.has(normalized)) return false;
+    const group = byId.get(normalized);
+    if (!group) return false;
+    seen.add(normalized);
+    return (Array.isArray(group.members) ? group.members : []).some((member) => byId.has(String(member || "").trim()) && visitGroup(String(member || "").trim()));
+  }
+  return visitHops(hops);
+}
+function resolveConfiguredChains(config, featureState, inactiveGroupIds = []) {
   const resolved = new Map();
+  const inactiveChains = new Set();
+  const disabledGroups = new Set((Array.isArray(inactiveGroupIds) ? inactiveGroupIds : []).map((id) => String(id).trim()).filter(Boolean));
+  const profileGroups = featureState
+    ? resolveProfileGroups(groupList(config.groups), featureState).map((group) => (
+      disabledGroups.has(String(group.id).trim()) ? { ...group, enabled: false } : group
+    ))
+    : groupList(config.groups);
+  const disabledProfileGroups = new Set(
+    profileGroups
+      .filter((group) => group.enabled === false)
+      .map((group) => String(group.id).trim())
+      .filter(Boolean)
+  );
   for (const chain of chainList(config.chains)) {
     if (featureState) {
       const selected = resolveProfileChain(chain, featureState);
       if (!selected) continue;
     }
     const id = String(chain.id).trim();
-    const resolvedChain = resolveChain(chainHops(chain), { nodes: config.nodes, groups: config.groups, states: config.states, maxDepth: chain.maxDepth });
-    if (!resolvedChain.ok) throw new Error("chain " + id + " cannot be safely compiled: " + resolvedChain.error);
+    const resolvedChain = resolveChain(chainHops(chain), {
+      nodes: config.nodes,
+      groups: profileGroups,
+      states: config.states,
+      maxDepth: chain.maxDepth,
+    });
+    if (!resolvedChain.ok) {
+      if (
+        disabledProfileGroups.size &&
+        chainDependsOnDisabledGroup(chainHops(chain), profileGroups, disabledProfileGroups)
+      ) {
+        inactiveChains.add(id);
+        continue;
+      }
+      throw new Error("chain " + id + " cannot be safely compiled: " + resolvedChain.error);
+    }
     resolved.set(id, { id, mode: chainMode(chain), hops: resolvedChain.data.hops.map((node) => clone(node)) });
   }
-  return resolved;
+  return { resolved, inactive: [...inactiveChains] };
 }
 function nodeTargetMap(config) {
   const map = new Map();
@@ -123,12 +218,15 @@ function rewriteAction(action, chains, groups, nodes) {
     const target = String(action.target || "").trim();
     if (!target) throw new Error("routing route action requires target");
     const resolved = groups.targetMap.get(target) || nodes.get(target);
-    if (!resolved) throw new Error("routing references missing node or group: " + target);
+    if (!resolved) {
+      if (groups.inactive instanceof Set && groups.inactive.has(target)) return null;
+      throw new Error("routing references missing node or group: " + target);
+    }
     return { ...clone(action), target: resolved };
   }
   return clone(action);
 }
-function routingForKernel(routing, chains, groups, nodes, featureState) {
+function routingForKernel(routing, chains, inactiveChains, groups, nodes, featureState) {
   const source = clone(routing || {});
   if (!source || typeof source !== "object") return source;
   const chainEnabled = Boolean(featureState && featureState.chainEnabled);
@@ -138,6 +236,7 @@ function routingForKernel(routing, chains, groups, nodes, featureState) {
     if (action.type !== "chain") return rewriteAction(action, chains, groups, nodes);
     const target = String(action.target || "").trim();
     if (!chains.has(target)) {
+      if (inactiveChains.has(target)) return null;
       if (featureState && (!chainEnabled || (selectedChainId && target !== selectedChainId))) return null;
       return rewriteAction(action, chains, groups, nodes);
     }
@@ -188,15 +287,22 @@ export function compileUnifiedConfig(config, kernel = config && config.kernel) {
       ...featureInput,
     })
     : undefined;
-  const resolvedChains = resolveConfiguredChains(config, featureState);
+  const profileInactiveGroups = effectiveInactiveGroupIds(config.groups, featureState);
   const compilableGroups = groupsForKernel(config);
   const compiledGroups = compileGroups(compilableGroups, kernel, config.nodes, config.states, featureState);
+  const chainState = resolveConfiguredChains(config, featureState, [...new Set([
+    ...profileInactiveGroups,
+    ...(compiledGroups.inactive || []),
+  ])]);
+  const resolvedChains = chainState.resolved;
+  const inactiveChains = new Set(chainState.inactive);
   const nodeTargets = nodeTargetMap(config);
+  const compiledGroupState = { ...compiledGroups, inactive: new Set(compiledGroups.inactive || []) };
   const kernelConfig = {
     ...config,
     security: preflight.security.policy,
     groups: compiledGroups.groups,
-    routing: routingForKernel(config.routing, resolvedChains, compiledGroups, nodeTargets, featureState),
+    routing: routingForKernel(config.routing, resolvedChains, inactiveChains, compiledGroupState, nodeTargets, featureState),
   };
   const compiledBase = adapter.compileConfig(kernelConfig);
   const compiled = resolvedChains.size ? compileResolvedChains(adapter, compiledBase, resolvedChains) : compiledBase;
@@ -211,6 +317,8 @@ export function compileUnifiedConfig(config, kernel = config && config.kernel) {
     preflight,
     groups: [...compiledGroups.targetMap.entries()].map(([id, target]) => ({ id, target })),
     chains: [...resolvedChains.values()].map((chain) => ({ id: chain.id, mode: chain.mode, hops: chain.hops.map((node) => node.id) })),
+    inactiveChains: [...inactiveChains],
+    inactiveGroups: profileInactiveGroups,
     profileFeatures: featureState ? clone(featureState) : undefined,
   };
 }

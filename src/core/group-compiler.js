@@ -82,7 +82,12 @@ function compileGroupDefinitions(definitions, nodes, states, kernel) {
     const type = normalizeType(group);
     if (!type) throw new Error("group type is required: " + group.id);
     const members = resolve(group);
-    if (!members.length && type !== "region" && !nestedGroupIds.has(String(group.id).trim())) {
+    const hasNestedMembers = (Array.isArray(group.members) ? group.members : [])
+      .some((member) => {
+        const id = clean(member);
+        return id && byId.has(id);
+      });
+    if (!members.length && type !== "region" && !hasNestedMembers && !nestedGroupIds.has(String(group.id).trim())) {
       throw new Error("group has no usable members: " + group.id);
     }
   }
@@ -106,7 +111,12 @@ export function compileGroups(groups, kernel, nodes = [], states, featureState) 
     const record = resolved.active.get(id);
     const type = normalizeType(group);
     if (!record) {
-      if (type === "region" || nestedGroupIds.has(id)) continue;
+      const hasNestedMembers = (Array.isArray(group.members) ? group.members : [])
+        .some((member) => {
+          const memberId = clean(member);
+          return memberId && definitions.some((candidate) => String(candidate.id).trim() === memberId);
+        });
+      if (type === "region" || hasNestedMembers || nestedGroupIds.has(id)) continue;
       throw new Error("group has no usable members: " + group.id);
     }
     const members = record.members;
@@ -125,5 +135,5 @@ export function compileGroups(groups, kernel, nodes = [], states, featureState) 
     if (kernel === Kernels.XRAY) throw new Error("Xray does not support unified group type without semantic downgrade: " + type);
     throw new Error("unsupported kernel for group compilation: " + kernel);
   }
-  return { groups: output, targetMap };
+  return { groups: output, targetMap, inactive: [...resolved.inactive] };
 }
