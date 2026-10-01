@@ -13,15 +13,6 @@ jstring makeString(JNIEnv* env, const char* value) {
     return env->NewStringUTF(value == nullptr ? "" : value);
 }
 
-bool ready(JNIEnv* env) {
-    if (resolve<void (*)()>("stopTun") == nullptr) {
-        env->ThrowNew(env->FindClass("java/lang/IllegalStateException"),
-                      "Mihomo bridge exports are not loaded");
-        return false;
-    }
-    return true;
-}
-
 }  // namespace
 
 extern "C" JNIEXPORT jboolean JNICALL
