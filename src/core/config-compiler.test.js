@@ -95,7 +95,7 @@ test("disabled nested group is removed from effective group output without break
   }, Kernels.MIHOMO);
 
   assert.deepEqual(result.inactiveGroups, ["child", "parent"]);
-  assert.equal(result.config.proxy-groups.some((group) => group.name === "Parent"), false);
+  assert.equal(result.config["proxy-groups"].some((group) => group.name === "Parent"), false);
   assert.equal(result.config.rules.some((rule) => typeof rule === "string" && rule.endsWith(",Parent")), false);
   assert.equal(result.config.rules.some((rule) => typeof rule === "string" && rule.endsWith(",Global")), true);
 });
