@@ -1,0 +1,89 @@
+name: mihomo-android-native-build
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/mihomo-android-native-build.yml"
+      - "native/android/**"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Verify native core build (${{ matrix.abi }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - abi: arm64-v8a
+            goarch: arm64
+            cc: aarch64-linux-android24-clang
+          - abi: armeabi-v7a
+            goarch: arm
+            cc: armv7a-linux-androideabi24-clang
+          - abi: x86_64
+            goarch: amd64
+            cc: x86_64-linux-android24-clang
+
+    steps:
+      - name: Checkout AngelaNexus
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.8"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        shell: bash
+        run: sdkmanager "ndk;28.0.13004108"
+
+      - name: Fetch pinned Mihomo source
+        shell: bash
+        env:
+          MIHOMO_COMMIT: "ab405bad5beeeac8b003bb01f60f134f6df54471"
+        run: |
+          set -euo pipefail
+          git clone --no-checkout https://github.com/MetaCubeX/mihomo.git "$RUNNER_TEMP/mihomo"
+          git -C "$RUNNER_TEMP/mihomo" fetch --depth 1 origin "$MIHOMO_COMMIT"
+          git -C "$RUNNER_TEMP/mihomo" checkout --detach "$MIHOMO_COMMIT"
+          test "$(git -C "$RUNNER_TEMP/mihomo" rev-parse HEAD)" = "$MIHOMO_COMMIT"
+
+      - name: Build native shared object
+        shell: bash
+        env:
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_NDK_HOME }}
+          GOOS: android
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "1"
+          CC: ${{ matrix.cc }}
+        working-directory: ${{ runner.temp }}/mihomo
+        run: |
+          set -euo pipefail
+          NDK="$ANDROID_NDK_ROOT/28.0.13004108/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export PATH="$NDK:$PATH"
+          export CC="$NDK/${CC}"
+          if [ "${GOARCH}" = "arm" ]; then export GOARM=7; fi
+          go version
+          "$CC" --version
+          go build \
+            -trimpath \
+            -ldflags="-w -s -X github.com/metacubex/mihomo/constant.Version=v1.19.31" \
+            -tags="with_gvisor,cmfa" \
+            -buildmode=c-shared \
+            -o "$RUNNER_TEMP/libclash-${{ matrix.abi }}.so" \
+            .
+
+      - name: Verify native artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$RUNNER_TEMP/libclash-${{ matrix.abi }}.so"
+          file "$RUNNER_TEMP/libclash-${{ matrix.abi }}.so"
+          sha256sum "$RUNNER_TEMP/libclash-${{ matrix.abi }}.so"
