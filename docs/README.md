@@ -2,12 +2,16 @@
 
 AngelaNexus documentation is **English-first**. English is the canonical documentation language for architecture, APIs, implementation contracts, release records, and developer-facing specifications.
 
-A Chinese translation layer is provided for users and contributors who prefer Simplified Chinese.
+## Documentation languages
 
-## Languages
+The product documentation and APP UI support the following four languages:
 
-- **English (primary):** this documentation tree and the canonical project specifications.
-- **简体中文：** [Chinese documentation](zh-CN/README.md)
+- **English (primary / default)**
+- **简体中文 (Simplified Chinese)**
+- **Русский (Russian)**
+- **فارسی (Persian)**
+
+The application language is independent from routing, security, protocol, or execution-backend semantics. Persian uses right-to-left layout.
 
 ## Core documentation
 
@@ -21,13 +25,14 @@ A Chinese translation layer is provided for users and contributors who prefer Si
 | Account, sync and backup | [Account & Sync](APP_ACCOUNT_SYNC.md) | [账户与同步](zh-CN/APP_ACCOUNT_SYNC.md) |
 | Project progress | [Progress](APP_PROGRESS.md) | [项目进度](zh-CN/APP_PROGRESS.md) |
 
-## Translation policy
+## Localization policy
 
-1. English is the primary and normative documentation language.
-2. Chinese documentation mirrors the same architecture and requirements.
-3. Translations must not introduce different product behavior or architectural semantics.
-4. When a translation and the English source disagree, the English canonical document takes precedence until the translation is corrected.
-5. New major architecture documents should be added to both language navigation indexes.
-6. Technical identifiers, protocol names, API names, version numbers, and code symbols remain unchanged across languages.
+1. English is the primary and normative language.
+2. Simplified Chinese, Russian, and Persian are first-class product UI locales.
+3. Locale selection never changes platform policy semantics.
+4. Translations must not introduce different product behavior.
+5. Unsupported or missing translations fall back deterministically to English.
+6. Technical identifiers, protocol names, API names, version numbers, and code symbols remain unchanged.
+7. UI layout must support right-to-left rendering for Persian.
 
 Language changes presentation only; it does not change AngelaNexus platform semantics.
