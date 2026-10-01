@@ -226,6 +226,32 @@ function rewriteAction(action, chains, groups, nodes) {
   }
   return clone(action);
 }
+function routingConflictDiagnostics(routing) {
+  const rules = routing && Array.isArray(routing.rules) ? routing.rules : [];
+  const seen = new Map();
+  const conflicts = [];
+  for (let index = 0; index < rules.length; index += 1) {
+    const rule = rules[index];
+    if (!rule || typeof rule !== "object" || !rule.match || !rule.action) continue;
+    const fingerprint = JSON.stringify(rule.match);
+    const actionFingerprint = JSON.stringify(rule.action);
+    if (!seen.has(fingerprint)) {
+      seen.set(fingerprint, { index, actionFingerprint, ruleId: rule.id || null });
+      continue;
+    }
+    const first = seen.get(fingerprint);
+    if (first.actionFingerprint !== actionFingerprint) {
+      conflicts.push({
+        type: "overlapping-match",
+        firstRuleId: first.ruleId,
+        firstRuleIndex: first.index,
+        ruleId: rule.id || null,
+        ruleIndex: index,
+      });
+    }
+  }
+  return conflicts;
+}
 function routingForKernel(routing, chains, inactiveChains, groups, nodes, featureState) {
   const source = clone(routing || {});
   if (!source || typeof source !== "object") return source;
@@ -298,11 +324,13 @@ export function compileUnifiedConfig(config, kernel = config && config.kernel) {
   const inactiveChains = new Set(chainState.inactive);
   const nodeTargets = nodeTargetMap(config);
   const compiledGroupState = { ...compiledGroups, inactive: new Set(compiledGroups.inactive || []) };
+  const effectiveRouting = routingForKernel(config.routing, resolvedChains, inactiveChains, compiledGroupState, nodeTargets, featureState);
+  const routingConflicts = routingConflictDiagnostics(effectiveRouting);
   const kernelConfig = {
     ...config,
     security: preflight.security.policy,
     groups: compiledGroups.groups,
-    routing: routingForKernel(config.routing, resolvedChains, inactiveChains, compiledGroupState, nodeTargets, featureState),
+    routing: effectiveRouting,
   };
   const compiledBase = adapter.compileConfig(kernelConfig);
   const compiled = resolvedChains.size ? compileResolvedChains(adapter, compiledBase, resolvedChains) : compiledBase;
@@ -320,5 +348,6 @@ export function compileUnifiedConfig(config, kernel = config && config.kernel) {
     inactiveChains: [...inactiveChains],
     inactiveGroups: profileInactiveGroups,
     profileFeatures: featureState ? clone(featureState) : undefined,
+    routingConflicts,
   };
 }
