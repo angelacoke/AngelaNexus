@@ -18,13 +18,17 @@ function Get-MainSha {
 function Get-RunsForSha {
     param([string]$Sha)
     $result = Invoke-GhJson "repos/$Repo/actions/runs?head_sha=$Sha&per_page=100"
-    return @($result.workflow_runs)
+    return @($result.workflow_runs | Where-Object {
+        $_.id -and [int64]$_.id -gt 0 -and $_.name
+    })
 }
 function Show-Status {
     param([array]$Runs)
     $rows = foreach ($run in $Runs) {
         [pscustomobject]@{
-            Workflow = $run.name; Run = $run.id; Status = $run.status
+            Workflow = $run.name
+            Run = $run.id
+            Status = $run.status
             Result = if ($run.conclusion) { $run.conclusion } else { "-" }
             Attempt = $run.run_attempt
         }
@@ -38,7 +42,7 @@ function Wait-ForRuns {
         if ($currentSha -ne $Sha) { throw "main 已产生新提交。停止旧 SHA 验证：$Sha -> $currentSha" }
         $runs = Get-RunsForSha $Sha
         if ($runs.Count -eq 0) {
-            Write-Host "当前 SHA 尚未发现 GitHub Actions，等待 \${PollSeconds}s..."
+            Write-Host "当前 SHA 尚未发现 GitHub Actions，等待 ${PollSeconds}s..."
             Start-Sleep -Seconds $PollSeconds
             continue
         }
@@ -48,7 +52,7 @@ function Wait-ForRuns {
         Show-Status $runs
         $active = @($runs | Where-Object { $_.status -in @("queued","in_progress","waiting","requested","pending") })
         if ($active.Count -gt 0) {
-            Write-Host "仍有 $($active.Count) 个 Workflow 未完成，等待 \${PollSeconds}s..."
+            Write-Host "仍有 $($active.Count) 个 Workflow 未完成，等待 ${PollSeconds}s..."
             Start-Sleep -Seconds $PollSeconds
             continue
         }
@@ -57,7 +61,10 @@ function Wait-ForRuns {
 }
 function Retry-FailedRuns {
     param([array]$Runs,[hashtable]$Attempts)
-    $failed = @($Runs | Where-Object { $_.conclusion -notin @("success","skipped","neutral") })
+    $failed = @($Runs | Where-Object {
+        $_.id -and [int64]$_.id -gt 0 -and $_.name -and
+        $_.conclusion -notin @("success","skipped","neutral")
+    })
     foreach ($run in $failed) {
         $key = [string]$run.id
         if (-not $Attempts.ContainsKey($key)) { $Attempts[$key] = 0 }
@@ -120,6 +127,6 @@ while ($true) {
         exit 1
     }
 
-    Write-Host "失败 Workflow 已重新执行，等待 \${PollSeconds}s 后重新验证..."
+    Write-Host "失败 Workflow 已重新执行，等待 ${PollSeconds}s 后重新验证..."
     Start-Sleep -Seconds $PollSeconds
 }
