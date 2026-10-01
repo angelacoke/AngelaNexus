@@ -104,6 +104,30 @@ function groupsForKernel(config) {
   return definitions.filter((group) => !chainGroups.has(String(group.id).trim()) || requiredByRouting.has(String(group.id).trim()));
 }
 function chainMode(chain) { return typeof chain?.mode === "string" && chain.mode.trim() ? chain.mode : "node->node"; }
+function chainDependsOnDisabledGroup(hops, groups, disabledIds, seen = new Set()) {
+  const byId = new Map(groupList(groups).map((group) => [String(group.id).trim(), group]));
+  function visitHops(items) {
+    for (const hop of Array.isArray(items) ? items : []) {
+      if (!hop || typeof hop !== "object") continue;
+      const groupId = String(hop.group || hop.groupId || "").trim();
+      if (groupId && visitGroup(groupId)) return true;
+      if (Array.isArray(hop.chain) && visitHops(hop.chain)) return true;
+      if (hop.chain && typeof hop.chain === "object" && Array.isArray(hop.chain.hops) && visitHops(hop.chain.hops)) return true;
+    }
+    return false;
+  }
+  function visitGroup(id) {
+    const normalized = String(id || "").trim();
+    if (!normalized) return false;
+    if (disabledIds.has(normalized)) return true;
+    if (seen.has(normalized)) return false;
+    const group = byId.get(normalized);
+    if (!group) return false;
+    seen.add(normalized);
+    return (Array.isArray(group.members) ? group.members : []).some((member) => byId.has(String(member || "").trim()) && visitGroup(String(member || "").trim()));
+  }
+  return visitHops(hops);
+}
 function resolveConfiguredChains(config, featureState, inactiveGroupIds = []) {
   const resolved = new Map();
   const inactiveChains = new Set();
@@ -113,6 +137,12 @@ function resolveConfiguredChains(config, featureState, inactiveGroupIds = []) {
       disabledGroups.has(String(group.id).trim()) ? { ...group, enabled: false } : group
     ))
     : groupList(config.groups);
+  const disabledProfileGroups = new Set(
+    profileGroups
+      .filter((group) => group.enabled === false)
+      .map((group) => String(group.id).trim())
+      .filter(Boolean)
+  );
   for (const chain of chainList(config.chains)) {
     if (featureState) {
       const selected = resolveProfileChain(chain, featureState);
@@ -126,7 +156,10 @@ function resolveConfiguredChains(config, featureState, inactiveGroupIds = []) {
       maxDepth: chain.maxDepth,
     });
     if (!resolvedChain.ok) {
-      if (disabledGroups.size && /chain group (?:is disabled|has no usable member|not found)/.test(resolvedChain.error || "")) {
+      if (
+        disabledProfileGroups.size &&
+        chainDependsOnDisabledGroup(chainHops(chain), profileGroups, disabledProfileGroups)
+      ) {
         inactiveChains.add(id);
         continue;
       }
