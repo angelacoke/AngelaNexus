@@ -12,6 +12,19 @@ AngelaNexus APP 从架构第一天即面向：
 
 Android 只是当前最先落地的平台验证，不是 APP 的主平台，也不是唯一平台。
 
+## APP localization
+
+The shared APP language baseline is:
+
+- English (en) — primary/default
+- Simplified Chinese (zh-CN) — first-class
+- Russian (ru) — first-class
+- Persian (fa) — first-class, with RTL layout
+
+Locale selection belongs to the shared UI layer and is independent from Core policy semantics. No locale may alter routing, security, DNS, GFW, protocol, transport, account, backup, or execution-backend behavior.
+
+The language selector must expose native language names and preserve the selected locale across supported platforms. Missing translation keys fall back to English deterministically.
+
 ## UI 架构
 
 采用“共享 UI 语义 + 平台原生能力适配”的模型。
