@@ -1,0 +1,150 @@
+name: android-native-package
+
+on:
+  workflow_run:
+    workflows:
+      - mihomo-android-native-build
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  package:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    name: Package verified Mihomo runtime into Android release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ANGELANEXUS_RELEASE_KEYSTORE_B64: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_B64 }}
+      ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD }}
+      ANGELANEXUS_RELEASE_KEY_ALIAS: ${{ secrets.ANGELANEXUS_RELEASE_KEY_ALIAS }}
+      ANGELANEXUS_RELEASE_KEY_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEY_PASSWORD }}
+
+    steps:
+      - name: Checkout triggering commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Download verified Mihomo arm64-v8a
+        uses: actions/download-artifact@v5
+        with:
+          name: mihomo-v1.19.32-arm64-v8a
+          path: ${{ runner.temp }}/mihomo/arm64-v8a
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download verified Mihomo armeabi-v7a
+        uses: actions/download-artifact@v5
+        with:
+          name: mihomo-v1.19.32-armeabi-v7a
+          path: ${{ runner.temp }}/mihomo/armeabi-v7a
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download verified Mihomo x86_64
+        uses: actions/download-artifact@v5
+        with:
+          name: mihomo-v1.19.32-x86_64
+          path: ${{ runner.temp }}/mihomo/x86_64
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install verified Mihomo libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p native/android/app/src/main/jniLibs/arm64-v8a
+          mkdir -p native/android/app/src/main/jniLibs/armeabi-v7a
+          mkdir -p native/android/app/src/main/jniLibs/x86_64
+
+          install -m 0644 "${{ runner.temp }}/mihomo/arm64-v8a/libclash-arm64-v8a.so"             native/android/app/src/main/jniLibs/arm64-v8a/libclash.so
+          install -m 0644 "${{ runner.temp }}/mihomo/armeabi-v7a/libclash-armeabi-v7a.so"             native/android/app/src/main/jniLibs/armeabi-v7a/libclash.so
+          install -m 0644 "${{ runner.temp }}/mihomo/x86_64/libclash-x86_64.so"             native/android/app/src/main/jniLibs/x86_64/libclash.so
+
+          test "$(sha256sum native/android/app/src/main/jniLibs/arm64-v8a/libclash.so | cut -d' ' -f1)"             = "667c94964d0a60f86cdcc130b2cdf3b385b02d9f2c5d3b324b3ed7a6b7326007"
+          test "$(sha256sum native/android/app/src/main/jniLibs/armeabi-v7a/libclash.so | cut -d' ' -f1)"             = "3ae94d7defb1778cd611eceffcff6884407893d28c42a4350af2b49108ac9a09"
+          test "$(sha256sum native/android/app/src/main/jniLibs/x86_64/libclash.so | cut -d' ' -f1)"             = "da7bcdbf165cc1e3457d3560b51e703cb3a478dd83f0c1cfe42ccf676d6c1f42"
+
+      - name: Verify release signing configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_B64"
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD"
+          test -n "$ANGELANEXUS_RELEASE_KEY_ALIAS"
+          test -n "$ANGELANEXUS_RELEASE_KEY_PASSWORD"
+
+      - name: Assemble signed release APK and AAB with Mihomo
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace assembleRelease bundleRelease
+
+      - name: Verify packaged Mihomo libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="native/android/app/build/outputs/apk/release/app-release.apk"
+          AAB="native/android/app/build/outputs/bundle/release/app-release.aab"
+          test -s "$APK"
+          test -s "$AAB"
+
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/libclash.so"
+          unzip -l "$APK" | grep -q "lib/armeabi-v7a/libclash.so"
+          unzip -l "$APK" | grep -q "lib/x86_64/libclash.so"
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/libmihomo-jni.so"
+          unzip -l "$APK" | grep -q "lib/armeabi-v7a/libmihomo-jni.so"
+          unzip -l "$APK" | grep -q "lib/x86_64/libmihomo-jni.so"
+
+          unzip -p "$APK" lib/arm64-v8a/libclash.so | sha256sum | grep -q             "667c94964d0a60f86cdcc130b2cdf3b385b02d9f2c5d3b324b3ed7a6b7326007"
+          unzip -p "$APK" lib/armeabi-v7a/libclash.so | sha256sum | grep -q             "3ae94d7defb1778cd611eceffcff6884407893d28c42a4350af2b49108ac9a09"
+          unzip -p "$APK" lib/x86_64/libclash.so | sha256sum | grep -q             "da7bcdbf165cc1e3457d3560b51e703cb3a478dd83f0c1cfe42ccf676d6c1f42"
+
+      - name: Verify release certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="native/android/app/build/outputs/apk/release/app-release.apk"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+
+          printf '%s' "$ANGELANEXUS_RELEASE_KEYSTORE_B64" | base64 --decode > /tmp/angelanexus-release.keystore
+          chmod 600 /tmp/angelanexus-release.keystore
+
+          KEYTOOL_OUTPUT="$(keytool -list -v -keystore /tmp/angelanexus-release.keystore             -storepass "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD"             -alias "$ANGELANEXUS_RELEASE_KEY_ALIAS")"
+          EXPECTED_CERT_SHA256="$(printf '%s\n' "$KEYTOOL_OUTPUT" | awk '/^[[:space:]]*SHA256:/ {sub(/^[^:]*:[[:space:]]*/, ""); print; exit}')"
+          test -n "$EXPECTED_CERT_SHA256"
+
+          CERT_OUTPUT="$("$APKSIGNER" verify --print-certs "$APK")"
+          ACTUAL_CERT_SHA256="$(printf '%s\n' "$CERT_OUTPUT" | awk '/certificate SHA-256 digest:/ {print $NF; exit}')"
+          test -n "$ACTUAL_CERT_SHA256"
+
+          EXPECTED="$(printf '%s' "$EXPECTED_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
+          ACTUAL="$(printf '%s' "$ACTUAL_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
+          test "$ACTUAL" = "$EXPECTED"
+          rm -f /tmp/angelanexus-release.keystore
+
+      - name: Upload Mihomo-enabled Android release
+        uses: actions/upload-artifact@v4
+        with:
+          name: AngelaNexus-android-mihomo-v1.19.32-${{ github.event.workflow_run.head_sha }}
+          path: |
+            native/android/app/build/outputs/apk/release/app-release.apk
+            native/android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
