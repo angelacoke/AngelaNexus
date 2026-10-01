@@ -1,62 +1,78 @@
+# AngelaNexus
+
 <p align="center">
-  <img src="assets/brand/angelanexus-logo.svg" alt="AngelaNexus logo" width="190">
+  <img src="assets/brand/angelanexus-logo.svg" alt="AngelaNexus" width="190">
 </p>
 
-<h1 align="center">AngelaNexus</h1>
+<p align="center"><strong>智能网络代理平台</strong></p>
 
-<p align="center">智能网络代理平台</p>
+<p align="center">
+  <a href="README_zh_CN.md">简体中文</a> ·
+  <a href="docs/README.md">Documentation</a> ·
+  <a href="docs/ANGELANEXUS_CONSTITUTION.md">Constitution</a>
+</p>
 
-> **Release status / 发布状态：非正式版本阶段（Pre-release）**
->
-> AngelaNexus APP will begin distribution through pre-release channels such as Alpha / Preview / Beta. **Stable / 正式版 will not be declared at the beginning.** Stable release requires the project's defined security, compatibility, performance, resource-efficiency, device verification, and regression gates to be satisfied.
+> A cross-platform network proxy platform built around unified policy, capability negotiation, replaceable execution Drivers, security verification, and measurable resource efficiency.
 
----
+## Features
 
-## 中文简介
+- **Cross-platform** — Android, iOS, Windows, macOS, and Linux.
+- **Three execution backends** — Mihomo, sing-box, and Xray participate as parallel, capability-aware Drivers.
+- **Unified architecture** — Intent + Policy + Capability Registry + Driver Scheduler.
+- **Automatic recognition** — Detect configuration, protocol, transport, and capability requirements, then build an explainable execution plan.
+- **User control** — Automation lowers complexity; important network behavior remains visible, adjustable, and lockable by the user.
+- **Security-first** — Explicit security state and verification for leak prevention, DNS, IPv4/IPv6, TUN, Kill Switch, privilege boundaries, and related controls.
+- **Efficient operation** — Avoid redundant parsing, matching, DNS work, connections, state, background wakeups, and control traffic.
+- **Low resource usage** — RAM, CPU, wakeups, and battery consumption are treated as architectural constraints, not late-stage optimizations.
+- **Maintainable by design** — Canonical data models and Driver interfaces keep new protocols and execution backends from creating unnecessary coupling.
+- **Evidence-based development** — Important behavior is backed by current upstream evidence, automated tests, benchmarks, and regression verification.
 
-AngelaNexus 是面向 **Android、iOS、Windows、macOS、Linux** 的智能网络代理平台，采用统一平台控制面与可替换执行 Driver 架构。
+## Architecture
 
-核心架构为：
+```
+                         AngelaNexus
+                              │
+                ┌─────────────▼─────────────┐
+                │ Platform Control Plane    │
+                │ Intent · Policy · Routing │
+                │ DNS · Security · Lifecycle│
+                └─────────────┬─────────────┘
+                              │
+                Capability Registry
+                              │
+                    Driver Scheduler
+                  ┌───────────┼───────────┐
+                  ▼           ▼           ▼
+               Mihomo      sing-box      Xray
+                  │           │           │
+                  └───────────┼───────────┘
+                              ▼
+                    Protocol / Transport
+                              │
+                           Network
+```
 
-**Unified Intent + Policy + Capability Registry + Driver Scheduler**
+The three backends are not coupled to one another. AngelaNexus selects an authorized Driver according to the current Intent, required capabilities, user policy, platform constraints, and verified Driver state.
 
-Mihomo、sing-box、Xray 作为平行执行后端参与能力协商和实际协议/传输执行。平台负责统一意图、策略、能力匹配、调度、安全边界和用户控制，不要求用户直接理解不同内核之间的实现差异。
+## Platforms
 
-### 核心工程原则
+| Platform | Direction | Status |
+|---|---|---|
+| Android | First executable application surface | Active development |
+| iOS | Cross-platform target | Milestone-driven |
+| Windows | Cross-platform target | Milestone-driven |
+| macOS | Cross-platform target | Milestone-driven |
+| Linux | Cross-platform target | Milestone-driven |
 
-1. **架构**：统一 Intent + Policy + Capability Registry + Driver Scheduler。
-2. **内核**：Mihomo / sing-box / Xray 平行待命、能力协商、适配执行，不互相绑死。
-3. **智能**：自动识别配置、协议、传输和能力，自动形成可解释的执行计划。
-4. **用户控制**：自动化负责降低操作门槛，但重要网络行为始终可以查看、调整和固定。
-5. **安全**：防泄漏、DNS、IPv4/IPv6、TUN、Kill Switch、权限边界等必须具有明确状态和验证机制。
-6. **性能**：低延迟、高吞吐、合理并发，避免重复解析、重复匹配、重复连接和重复状态维护。
-7. **资源**：严格控制 RAM、CPU、后台唤醒、网络控制开销和电池消耗；不可接受的资源回归可以阻断发布。
-8. **跨平台**：Android、Windows、macOS、Linux、iOS 保持统一核心语义，同时通过隔离的 Platform Adapter 使用各系统原生能力。
-9. **可维护性**：统一数据模型和 Driver 接口，避免增加内核或协议时形成不必要的架构耦合。
-10. **可验证性**：重要设计必须有最新可信的上游依据、自动化测试、可测量基准和回归验证。
-11. **长期演进**：每完成一个同质类实现阶段，都回顾并审计既定纲领，确认局部实现没有偏离整体架构。
+Android is the first executable application surface, not the architectural primary target.
 
-这些原则是工程要求，而不是营销宣传。规范性要求以 [AngelaNexus 底层宪级纲领](docs/ANGELANEXUS_CONSTITUTION.md) 为准。
+## Release status
 
-## English summary
-
-AngelaNexus is a unified cross-platform proxy-system project for **Android, iOS, Windows, macOS, and Linux**.
-
-Its architecture is based on:
-
-**Unified Intent + Policy + Capability Registry + Driver Scheduler**
-
-Mihomo, sing-box, and Xray operate as parallel execution backends. The platform owns unified intent, policy, capability matching, scheduling, security boundaries, and user control, while each Driver preserves the backend's native protocol and transport capabilities.
-
-The project prioritizes security, correctness, user control, performance, low memory usage, low background activity, low battery consumption, cross-platform consistency, maintainability, measurable verification, and constitutional review during staged implementation.
-
-## Release policy / 发布策略
-
-AngelaNexus APP **不会直接以 Stable / 正式版起步**。
+AngelaNexus **does not start as a Stable / formal release**.
 
 Planned lifecycle:
 
-```text
+```
 Development
     ↓
 Alpha / Experimental
@@ -67,62 +83,58 @@ Beta
     ↓
 Release Candidate
     ↓
-Stable / 正式版
+Stable
 ```
 
-The exact channel for each distributed build will be explicitly identified. A pre-release build must not be described as a Stable / 正式版, and production-readiness claims must not be inferred merely from a successful CI build or a signed APK/AAB.
+The current Android application baseline is **0.1.0**, explicitly a pre-release/development version.
 
-Before Stable, the project must establish sufficient evidence for at least:
+A successful CI run, a signed APK/AAB, or a functioning development build does not by itself establish production readiness.
 
-- core functionality and regression stability
-- real-device verification
-- cross-platform verification appropriate to the supported surface
-- three-kernel capability and execution conformance
-- network security and leak-prevention verification
-- resource, memory, CPU, wakeup, and battery measurements
-- upgrade / rollback and configuration migration safety
-- signing and release-artifact verification
-- documented known limitations and release criteria
+Before Stable, the project must accumulate evidence for core functionality, real-device behavior, three-kernel conformance, network security, resource usage, upgrade/migration safety, release artifacts, and known limitations.
 
-## Product platforms
+See [Release Policy](docs/RELEASE_POLICY.md).
 
-AngelaNexus is designed for all five primary platforms from the architecture layer:
+## Current status
 
-- Android
-- iOS
-- Windows
-- macOS
-- Linux
+- Platform-neutral core: active development.
+- Unified Driver Scheduler and capability matching: active development.
+- Android application module: present under `native/android/app`.
+- Android VPN boundary: native `VpnService` integration is present.
+- Android configuration import pipeline: implemented with bounded UTF-8 reading and kernel-neutral handoff.
+- Android root/transparent networking: capability and guarded-runtime foundations are present; production claims require real-device/kernel verification.
+- Mihomo / sing-box / Xray runtime embedding: not yet claimed as production-ready.
 
-Android is currently the first executable application surface, not the architectural primary target.
+## Documentation
 
-## Current implementation status
+- [English documentation](docs/README.md)
+- [简体中文文档](docs/zh-CN/README.md)
+- [Constitution](docs/ANGELANEXUS_CONSTITUTION.md)
+- [Release Policy](docs/RELEASE_POLICY.md)
+- [Platform Architecture](docs/PLATFORM_ARCHITECTURE.md)
+- [Product Experience Baseline](docs/PRODUCT_EXPERIENCE_BASELINE.md)
+- [Project Progress](docs/APP_PROGRESS.md)
 
-- Platform-neutral core: active development with automated unit and three-kernel conformance verification.
-- Cross-platform UI strategy: shared UI semantics with independent native platform capability adapters.
-- Android: real application module baseline is present under `native/android/app`.
-- Current Android application version baseline: `0.1.0`, explicitly a **pre-release/development version**, not Stable.
-- Android VPN: native `VpnService` boundary is wired into the application shell.
-- Android configuration import: document picker, bounded UTF-8 reader, versioned import envelope, Core receiver, and kernel-neutral import pipeline handoff are implemented and covered by tests.
-- Android transparent/root networking: capability contracts, guarded rule transactions, lifecycle cleanup, and runtime health checks are implemented; real device/kernel execution remains separately verified before being claimed as production-complete.
-- iOS / Windows / macOS / Linux executable shells: architectural targets established; implementation remains milestone-driven and is not claimed as complete.
-- Mihomo / sing-box / Xray Android runtime embedding: not yet claimed as production-ready.
+## Development principles
 
-## Documentation / 文档
+The project's constitutional requirements include:
 
-- **English documentation:** [`docs/README.md`](docs/README.md)
-- **简体中文文档：** [`docs/zh-CN/README.md`](docs/zh-CN/README.md)
-- **底层宪级纲领 / Constitution:** [`docs/ANGELANEXUS_CONSTITUTION.md`](docs/ANGELANEXUS_CONSTITUTION.md)
-- **Release policy / 发布策略:** [`docs/RELEASE_POLICY.md`](docs/RELEASE_POLICY.md)
+1. Security and correctness precede efficiency and power optimization.
+2. User policy must not be silently changed by automatic optimization.
+3. Three-kernel standby means capability availability, not three full runtimes permanently resident.
+4. Background work must be bounded, explainable, and resource-audited.
+5. Resource regressions must be measured and resolved or explicitly justified before progression.
+6. Each homogeneous implementation stage is audited against the established constitution before the next stage begins.
 
-## Project identity
-
-The four-quadrant cross mark in `assets/brand/angelanexus-logo.svg` is the official project logo. The square variant in `assets/brand/angelanexus-app-icon.svg` is the canonical app-icon asset for platform clients.
+The normative requirements are defined in [AN-Constitution](docs/ANGELANEXUS_CONSTITUTION.md).
 
 ## License
 
-Original AngelaNexus source code is intended to be licensed under Apache License 2.0 unless a more specific file-level notice states otherwise. Third-party components retain their own licenses and attribution requirements. See [`LICENSE`](LICENSE), [`NOTICE`](NOTICE), and [`docs/legal/THIRD_PARTY_LICENSES.md`](docs/legal/THIRD_PARTY_LICENSES.md).
+AngelaNexus original source code is intended to use Apache License 2.0 unless a more specific file-level notice states otherwise.
+
+Third-party components retain their own licenses and attribution requirements.
+
+See [LICENSE](LICENSE), [NOTICE](NOTICE), and [Third-party licenses](docs/legal/THIRD_PARTY_LICENSES.md).
 
 ## Acknowledgements
 
-AngelaNexus builds on open-source software, upstream proxy projects, standards, developer tools, and community knowledge. See [`docs/ACKNOWLEDGEMENTS.md`](docs/ACKNOWLEDGEMENTS.md) for the current acknowledgement list and attribution principles.
+AngelaNexus uses open-source software, upstream projects, standards, developer tools, and community knowledge. Third-party attribution is maintained separately in [ACKNOWLEDGEMENTS](docs/ACKNOWLEDGEMENTS.md).
