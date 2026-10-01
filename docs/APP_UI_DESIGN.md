@@ -4,9 +4,22 @@
 
 This UI specification applies to Android, iOS, Windows, macOS and Linux. Android is the first executable UI surface. Information architecture, semantic states and user concepts are shared across platforms.
 
+## Supported UI languages
+
+The APP is designed as a four-language product:
+
+| Locale | Display name | Direction | Role |
+|---|---|---|---|
+| en | English | LTR | Primary / default |
+| zh-CN | 简体中文 | LTR | First-class |
+| ru | Русский | LTR | First-class |
+| fa | فارسی | RTL | First-class |
+
+Language selection is an explicit user setting and must not change routing, security, DNS, GFW, protocol, transport, or execution-backend semantics. Platform language can be used as the initial suggestion, with deterministic English fallback.
+
 ## Direction
 
-AngelaNexus uses a modern, modular, adaptive interface with compact cards, clear primary actions, light/dark themes and explicit separation between home, configuration, proxy, rules and settings. The implementation remains independently structured around the AngelaNexus Core/Kernel architecture.
+AngelaNexus uses a modern, modular, adaptive interface with compact cards, clear primary actions, light/dark themes and explicit separation between home, configuration, proxy, rules and settings.
 
 ## Shared UI boundary
 
@@ -18,20 +31,30 @@ Shared UI must not directly import platform-specific APIs.
 
 ## Primary navigation
 
-1. **首页** — connection state, traffic, environment, quick actions and runtime state.
-2. **配置** — subscriptions, local files, single nodes and multi-node imports.
-3. **代理** — nodes, selectors, chains and kernel-independent proxy views.
-4. **规则** — routing, anti-leak, China-network optimization and GFW-aware policy visibility.
-5. **设置** — account/data, backup/restore, platform settings, security, kernel diagnostics and appearance.
+1. **Home** — connection state, traffic, environment, quick actions and runtime state.
+2. **Configuration** — subscriptions, local files, single nodes and multi-node imports.
+3. **Proxy** — nodes, selectors, chains and kernel-independent proxy views.
+4. **Rules** — routing, anti-leak, China-network optimization and GFW-aware policy visibility.
+5. **Settings** — account/data, backup/restore, platform settings, security, diagnostics and appearance.
+
+## Localization UX
+
+The language selector must expose all four supported languages using their native names:
+
+- English
+- 简体中文
+- Русский
+- فارسی
+
+The selector must remain accessible from Settings. Changing language must not reset configuration, routing policies, security preferences, account state, backups, or runtime state.
+
+Persian requires RTL-aware layout, including navigation order, text alignment, icons that convey direction, dialogs, lists and mixed LTR technical identifiers. Technical identifiers such as domains, URLs, IP addresses, protocol names and version strings remain LTR-safe.
 
 ## Account and data
 
 Settings contains account identity, synchronization status, backup history, backup creation, restoration, selective restoration, conflict resolution, synchronization scope and device list.
 
-The UI clearly distinguishes:
-- **shared account data** — portable across platforms;
-- **platform state** — interpreted by each platform independently;
-- **device-only secrets** — never included in ordinary synchronization or backup.
+The UI clearly distinguishes shared account data, platform state and device-only secrets.
 
 Successful synchronization must never be presented as successful proxy start or VPN/TUN activation.
 
@@ -48,69 +71,19 @@ Use a sidebar with a central workspace and optional detail panel. Support keyboa
 
 ## UI principles
 
-- **Modular:** reusable semantic modules; core policy is not duplicated in UI code.
-- **State-driven:** UI reflects Core/account/platform state.
-- **Progressive disclosure:** simple controls first; advanced routing, security, synchronization and diagnostics remain accessible without clutter.
-- **Security-visible:** anti-leak, route mode, VPN state, DNS state and GFW-related decisions are observable.
-- **Data-boundary-visible:** users can see what is shared, platform-local and device-only.
-- **Low resource use:** avoid persistent animations and unnecessary polling; status views subscribe to shared state.
-- **Adaptive:** responsive containers preserve the same semantics across screen sizes.
-- **Accessible:** touch targets, dynamic text sizing, keyboard navigation, semantic labels and sufficient contrast.
-- **Theme-aware:** follow system light/dark mode and platform appearance capabilities.
-- **Platform-native where necessary:** shared semantics do not force identical OS controls where native mechanisms are materially better.
-
-## Home layout
-
-The home screen remains compact:
-- app identity and Core status;
-- primary connection card;
-- upload/download/session metrics;
-- environment/security summary;
-- synchronization indicator;
-- quick actions;
-- runtime diagnostics.
-
-The connection card must never claim active proxy traffic until the Core reports an active execution state.
-
-## Configuration UX
-
-The user can provide:
-- subscription URL;
-- local configuration file;
-- one node;
-- multiple nodes, including mixed formats.
-
-The UI hands input to the Core import/sniffing pipeline and does not require manual kernel selection when Core detection is available.
-
-## Backup/restore UX
-
-Backup and restore are explicit user actions. Restore shows a preview before destructive changes and supports selective restoration where the data model permits it.
-
-Restore order:
-1. validate account and backup identity;
-2. validate schema/version;
-3. preview changes;
-4. restore shared account data;
-5. apply only supported platform state;
-6. re-run Core validation/security checks;
-7. report unsupported platform fields without claiming they were applied.
-
-## Proxy UX
-
-Proxy views are kernel-neutral. Common node fields are always available; kernel-specific capabilities are optional details. Chain composition is represented as a graph/list of outbound stages rather than fixed role names.
-
-## Rules UX
-
-Rules are grouped by intent:
-- network routing;
-- privacy / anti-leak;
-- China-network optimization;
-- AI/service routing;
-- GFW observation and response;
-- user overrides.
-
-The UI displays the effective decision and available evidence source; it does not silently rewrite user policy.
+- Modular
+- State-driven
+- Progressive disclosure
+- Security-visible
+- Data-boundary-visible
+- Low resource use
+- Adaptive
+- Accessible
+- Theme-aware
+- Platform-native where necessary
+- Localization-ready
+- RTL-safe
 
 ## Implementation status
 
-The UI specification is a design baseline, not proof of production runtime execution. Production cloud authentication, cloud storage, proxy execution and platform-native runtime integration require separate implementation and verification milestones.
+The UI specification is a design baseline, not proof of production runtime execution. Each platform and each locale requires implementation and build/runtime verification before being marked production-ready.
