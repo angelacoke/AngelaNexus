@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Kernels } from "./model.js";
 import { compileUnifiedConfig } from "./config-compiler.js";
+import { analyzeRuleRelationships, evaluateParallelMatchSet } from "./parallel-rule-engine.js";
 
 function baseConfig(profileFeatures) {
   return {
@@ -129,7 +130,7 @@ test("chain depending on a disabled nested group is removed fail-closed", () => 
 });
 
 
-test("compiler reports overlapping routing matches without silently changing user rule order", () => {
+test("platform rule analysis reports overlap without priority semantics", () => {
   const config = baseConfig();
   config.routing.rules = [
     { id: "rule-a", name: "Rule A", match: { domain_suffix: ["same.example"] }, action: { type: "route", target: "auto" } },
@@ -137,38 +138,18 @@ test("compiler reports overlapping routing matches without silently changing use
   ];
   const result = compileUnifiedConfig(config, Kernels.MIHOMO);
 
-  assert.deepEqual(result.routingConflicts, [{
-    type: "overlapping-match",
-    firstRuleId: "rule-a",
-    firstRuleIndex: 0,
-    firstPriority: 0,
-    ruleId: "rule-b",
-    ruleIndex: 1,
-    priority: 1,
+  assert.deepEqual(result.routingRelationships, [{
+    type: "identical-match",
+    leftRuleId: "rule-a",
+    leftRuleIndex: 0,
+    rightRuleId: "rule-b",
+    rightRuleIndex: 1,
+    relation: "identical",
   }]);
-  assert.ok(result.config.rules.some((rule) => typeof rule === "string" && rule.endsWith(",Auto")));
-  assert.ok(result.config.rules.some((rule) => typeof rule === "string" && rule.endsWith(",Global")));
+  assert.equal("routingPriority" in result, false);
 });
 
-
-test("compiler exposes effective routing priority after explicit rule order normalization", () => {
-  const config = baseConfig();
-  config.routing.rules = [
-    { id: "late", name: "Late", order: 20, match: { domain_suffix: ["late.example"] }, action: { type: "route", target: "auto" } },
-    { id: "early", name: "Early", order: 10, match: { domain_suffix: ["early.example"] }, action: { type: "route", target: "global" } },
-    { id: "tie", name: "Tie", order: 10, match: { domain_suffix: ["tie.example"] }, action: { type: "route", target: "auto" } },
-  ];
-  const result = compileUnifiedConfig(config, Kernels.MIHOMO);
-
-  assert.deepEqual(result.routingPriority, [
-    { id: "early", order: 10, index: 1, enabled: true },
-    { id: "tie", order: 10, index: 2, enabled: true },
-    { id: "late", order: 20, index: 0, enabled: true },
-  ]);
-});
-
-
-test("compiler reports provable domain and suffix routing overlap without reordering rules", () => {
+test("platform rule analysis distinguishes contained domain matches", () => {
   const config = baseConfig();
   config.routing.rules = [
     { id: "broad", name: "Broad", match: { domain_suffix: ["example.com"] }, action: { type: "route", target: "auto" } },
@@ -177,16 +158,24 @@ test("compiler reports provable domain and suffix routing overlap without reorde
   ];
   const result = compileUnifiedConfig(config, Kernels.MIHOMO);
 
-  assert.deepEqual(result.routingConflicts, [{
-    type: "semantic-overlap",
-    firstRuleId: "broad",
-    firstRuleIndex: 0,
-    firstPriority: 0,
-    ruleId: "exact",
-    ruleIndex: 1,
-    priority: 1,
-    relation: "domain-in-suffix",
+  assert.deepEqual(result.routingRelationships, [{
+    type: "overlapping-match",
+    leftRuleId: "broad",
+    leftRuleIndex: 0,
+    rightRuleId: "exact",
+    rightRuleIndex: 1,
+    relation: "contains",
   }]);
-  assert.ok(result.config.rules.some((rule) => typeof rule === "string" && rule === "DOMAIN-SUFFIX,example.com,Auto"));
-  assert.ok(result.config.rules.some((rule) => typeof rule === "string" && rule === "DOMAIN,api.example.com,Global"));
+});
+
+test("parallel match set evaluates every enabled rule without short-circuiting", () => {
+  const rules = [
+    { id: "app", match: { app_id: ["com.example.app"] }, action: { type: "route", target: "auto" } },
+    { id: "domain", match: { domain: ["api.example.com"] }, action: { type: "route", target: "global" } },
+    { id: "disabled", enabled: false, match: { domain: ["api.example.com"] }, action: { type: "route", target: "unused" } },
+  ];
+  const result = evaluateParallelMatchSet(rules, { app_id: "com.example.app", domain: "api.example.com" },
+    (match, flow) => match.app_id?.includes(flow.app_id) || match.domain?.includes(flow.domain));
+  assert.deepEqual(result.ruleIds, ["app", "domain"]);
+  assert.equal(result.matches.length, 2);
 });
