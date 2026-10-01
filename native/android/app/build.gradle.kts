@@ -76,6 +76,12 @@ android {
             version = "3.22.1"
         }
     }
+
+    packaging {
+        jniLibs {
+            keepDebugSymbols.add("**/libclash.so")
+        }
+    }
 }
 
 dependencies {
