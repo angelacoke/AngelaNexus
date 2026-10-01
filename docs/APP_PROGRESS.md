@@ -57,6 +57,17 @@ Implemented and tested at the contract/integration level:
 
 Real-device traffic interception remains a separate verification requirement and is not marked complete without reproducible device evidence.
 
+### Android execution-state bridge
+
+Implemented in source with regression coverage:
+
+- stable kernel-neutral execution phases from import receipt through start, running, stop and failure;
+- platform control-plane state object carrying the selected kernel identifier and failure detail;
+- listener-based state publication for UI/runtime integration;
+- explicit rejection of blank kernel identifiers and failure details.
+
+This is an executable control-plane milestone. It does **not** claim that a Mihomo/sing-box/Xray runtime is already embedded or running.
+
 ### Modern modular UI baseline
 
 Implemented on Android as the first platform surface:
@@ -104,7 +115,7 @@ This is a data-contract milestone, **not** a claim that the cloud account servic
 3. Extract reusable UI into the multiplatform UI layer without leaking platform APIs.
 4. Implement account authentication and cloud data service behind a platform-neutral service contract.
 5. Connect Android configuration import to the kernel-neutral import pipeline. **Done at contract + automated-test level.**
-6. Complete Android execution-state bridge and one verified kernel runtime.
+6. Complete Android execution-state bridge and one verified kernel runtime. **Execution-state bridge implemented; verified kernel runtime remains.**
 7. Establish Desktop JVM application shell shared by Windows/macOS/Linux.
 8. Establish iOS application entry point and Network Extension boundary.
 9. Add platform-specific secure storage, background lifecycle, notifications, network state and resource-policy adapters.
