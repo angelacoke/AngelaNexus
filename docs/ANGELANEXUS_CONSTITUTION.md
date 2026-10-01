@@ -2,7 +2,7 @@
 
 **项目：AngelaNexus**  
 **定位：智能网络代理平台**  
-**纲领版本：AN-Constitution v1.0**
+**纲领版本：AN-Constitution v1.1**
 
 > 本文件是 AngelaNexus 后续架构设计、代码实现、测试验证、CI、发布与维护的底层宪级约束。任何后续实现均不得违反本纲领；如发现现有实现与本纲领冲突，应优先修复架构冲突，再继续推进后续开发。
 
@@ -643,3 +643,388 @@ Backend-Independent
 ```
 
 本纲领自写入项目起，作为 AngelaNexus 后续开发、架构调整、代码实现、测试、CI、发布和维护的底层宪级约束。
+
+## 第二十二章：统一意图与三内核能力协商调度原则
+
+### 第三十二条：统一意图，不统一底层实现
+
+AngelaNexus 应将用户可理解的网络行为抽象为统一 **Intent**，由平台负责解释、组合、验证和编排，再由执行后端负责实际执行。
+
+统一的对象是：
+
+- 用户网络意图
+- 策略语义
+- 路由要求
+- 安全要求
+- DNS 要求
+- 连接要求
+- 协议/传输要求
+- 平台能力要求
+- 用户偏好
+
+不强行统一的对象是：
+
+- 各执行后端内部实现
+- 内核特有协议能力
+- 内核特有传输能力
+- 内核特有优化
+- 内核特有兼容机制
+- 无法可靠映射的原生能力
+
+核心原则：
+
+> **统一意图、统一标准、统一调度；保留内核差异、原生能力和底层实现。**
+
+### 第三十三条：三内核平行待命
+
+Mihomo、sing-box、Xray 在平台架构中平行存在。
+
+平台可以使三个执行后端保持可用、可探测、可调度的待命状态，但：
+
+> **待命不等于同时处理同一条流量。**
+
+同一 Session 原则上只能由一个明确授权的执行 Driver 承担，除非该 Session 的 Execution Plan 明确要求合法的多阶段 Pipeline / Chain。
+
+不得通过简单的“轮流使用内核”作为调度语义。
+
+### 第三十四条：Capability Registry
+
+每个执行 Driver 必须通过统一能力描述向平台报告自身能力。
+
+能力至少包括：
+
+- Protocol
+- Transport
+- TLS / Security Mode
+- UDP
+- IPv4 / IPv6
+- Multiplex
+- Chain
+- DNS
+- TUN / Platform Integration
+- Operating System
+- Architecture
+- Root / Privilege Requirement
+- Driver Version
+- Health
+- Limitations
+- Unsupported Features
+- Native Extensions
+
+能力状态必须可验证，并允许：
+
+- Supported
+- Unsupported
+- Partial
+- Unknown
+- Degraded
+- Failed
+
+不得把未知能力视为已支持。
+
+### 第三十五条：Intent → Capability → Execution Plan
+
+平台统一采用：
+
+```
+User / Flow
+    ↓
+Intent
+    ↓
+Policy Evaluation
+    ↓
+Capability Matching
+    ↓
+Candidate Drivers
+    ↓
+Execution Plan
+    ↓
+Selected Driver
+    ↓
+Execution
+```
+
+平台首先根据硬性要求淘汰不满足必要能力的 Driver，再根据可解释的能力匹配、平台兼容性、当前健康状态和用户设置形成候选集。
+
+不得因为某个内核“默认更常用”而绕过能力验证。
+
+### 第三十六条：禁止不可解释的内核评分
+
+平台不得建立无法解释、无法验证的“内核总分”并据此偷偷决定网络行为。
+
+调度依据应能够说明：
+
+- Intent 要求什么
+- 哪些 Driver 满足要求
+- 哪些 Driver 不满足
+- 哪些能力为 Partial / Unknown
+- 为什么进入候选集
+- 为什么最终选定某 Driver
+- 是否存在用户固定限制
+- 是否启用了自动故障转移
+- 执行结果如何
+
+涉及重要网络行为时，自动选择必须可见、可关闭、可固定。
+
+### 第三十七条：用户拥有 Driver 选择权
+
+平台至少应支持以下选择语义：
+
+```
+Automatic
+Fixed Driver
+Allowed Drivers
+Disable Automatic Failover
+Allow Automatic Failover
+```
+
+自动模式下平台可以根据 Intent 与 Capability Registry 选择最适配的 Driver。
+
+固定模式下平台不得擅自切换到其他 Driver。
+
+用户明确禁止自动故障转移时，失败不得偷偷转移到其他执行后端。
+
+### 第三十八条：故障转移必须重新验证
+
+Driver 出现：
+
+- 启动失败
+- 能力失效
+- 连接失败
+- 协议失败
+- 传输失败
+- 健康状态恶化
+- 平台能力变化
+
+时，平台可以根据用户授权的 Failover Policy 重新执行：
+
+```
+Failure
+ ↓
+Revalidate Intent
+ ↓
+Revalidate Capability
+ ↓
+Rebuild Candidate Set
+ ↓
+Create New Execution Plan
+ ↓
+User Policy Allows?
+ ↓
+Failover / Fail Closed
+```
+
+不得把“换一个内核”视为无条件安全的操作。
+
+### 第三十九条：Session 边界必须明确
+
+Driver 调度以 Session / Connection 为基本执行边界。
+
+必须区分：
+
+- New Connection
+- Existing Session
+- Stream
+- Pipeline / Chain
+
+一般情况下，Driver 切换应作用于新建连接。
+
+除非能够证明底层协议和运行时支持安全迁移，否则不得宣称已有连接能够无损迁移到另一个 Driver。
+
+### 第四十条：统一接口不应抹平原生能力
+
+如果某个 Driver 提供统一标准之外的原生能力，平台应采用：
+
+```
+Unified Capability
+        +
+Native Extension
+```
+
+的方式接入。
+
+原生扩展必须：
+
+- 明确归属
+- 明确能力范围
+- 明确平台限制
+- 明确版本要求
+- 明确是否影响跨平台一致性
+- 不得污染 Canonical Model
+- 不得夺取平台全局策略决定权
+
+因此：
+
+> **统一标准负责共同语义，原生扩展负责差异能力。**
+
+### 第四十一条：平台不应重复实现内核协议执行能力
+
+平台统一策略和意图，不意味着 AngelaNexus 必须重新实现所有协议、加密、握手、传输和底层连接机制。
+
+原则上：
+
+```
+Platform
+  ↓
+Intent / Policy / Execution Plan
+  ↓
+Driver
+  ↓
+Protocol / Transport Execution
+```
+
+平台只有在具有明确架构收益、可验证性和长期维护能力时，才逐步吸收某项执行能力。
+
+不得为了“统一”而制造重复实现。
+
+### 第四十二条：三内核是可替换执行平面
+
+Mihomo、sing-box、Xray 的长期定位为：
+
+> **可替换、可协商、可调度的 Protocol / Transport Execution Plane。**
+
+它们不是 AngelaNexus 的大脑。
+
+平台负责：
+
+- 判断意图
+- 计算策略
+- 匹配能力
+- 生成执行计划
+- 选择 Driver
+- 管理 Session
+- 处理安全边界
+- 处理故障与恢复
+
+Driver 负责：
+
+- 接收平台授权
+- 转换统一模型
+- 调用对应执行能力
+- 返回执行状态
+- 返回可验证结果
+
+### 第四十三条：新增执行后端不得改变平台核心架构
+
+未来增加第四、第五个执行后端时，不得通过：
+
+```
+Mihomo ↔ sing-box ↔ Xray ↔ New Backend
+```
+
+形成点对点耦合。
+
+必须通过：
+
+```
+                 Unified Standard
+                /      |      |      \
+           Mihomo   sing-box   Xray   New Backend
+             \        |       |       /
+                 Driver Layer
+```
+
+接入。
+
+新增 Driver 原则上只需要实现统一接口、能力声明和必要适配，不得要求平台核心为其建立新的全局分支。
+
+### 第四十四条：性能与资源约束
+
+三内核待命机制不得演变为三份完整运行时长期高负载运行。
+
+平台必须区分：
+
+- Installed
+- Available
+- Ready
+- Active
+- Idle
+- Suspended
+- Unavailable
+
+根据平台资源、系统生命周期和用户设置，可以采用：
+
+- 按需启动
+- 预热
+- 保活
+- 挂起
+- 释放
+
+等策略。
+
+任何优化不得违反：
+
+- 用户控制
+- 安全边界
+- Fail Closed
+- Session 正确性
+- 跨平台一致性
+
+### 第四十五条：统一调度的最终定义
+
+AngelaNexus 的三内核调度模型正式定义为：
+
+> **三个执行内核平行存在、能力可探测、统一接收平台意图；平台通过 Capability Registry 对候选执行后端进行能力协商和策略匹配，为每个 Session 生成可解释的 Execution Plan，由最适配且获得授权的 Driver 执行；内核之间不通过简单轮询决定任务，也不得成为平台全局策略中心。**
+
+最终架构关系：
+
+```
+                    AngelaNexus
+                         │
+                    User / Flow
+                         │
+                         ▼
+                  Unified Intent
+                         │
+                         ▼
+                 Policy / Security
+                         │
+                         ▼
+               Capability Registry
+                         │
+                         ▼
+                Driver Scheduler
+                         │
+             ┌───────────┼───────────┐
+             ▼           ▼           ▼
+          Mihomo      sing-box      Xray
+          Driver       Driver       Driver
+             │           │           │
+             └───────────┼───────────┘
+                         ▼
+              Protocol / Transport
+                    Execution
+                         │
+                         ▼
+                      Network
+```
+
+其核心原则归纳为：
+
+> **平台统一意图，策略统一表达，能力统一声明，调度统一决策，Driver 负责翻译，内核负责执行；三内核平行待命、按能力协商，不以简单轮询为核心调度机制。**
+
+## 第二十三章：纲领附件变更控制
+
+### 第四十六条：架构共识必须进入纲领附件
+
+凡经确认并影响 AngelaNexus 长期架构边界的重大共识，应在实施代码之前进入本纲领或正式纲领附件。
+
+纲领附件不得与主纲领产生相互矛盾的架构定义。
+
+### 第四十七条：附件内容必须经过实现前审计
+
+新增架构原则进入实施阶段前，必须核查：
+
+- 是否与 Platform First 一致
+- 是否保持三内核平行
+- 是否保持 Canonical Model
+- 是否保持用户最终控制权
+- 是否保持 Fail Closed
+- 是否破坏跨平台
+- 是否造成 Backend Lock-in
+- 是否引入不可解释的自动决策
+- 是否造成不必要的资源消耗
+- 是否可以通过测试和事实依据验证
+
+通过后方可进入代码实现。
+
