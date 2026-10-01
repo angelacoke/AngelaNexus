@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - feat/wiki-sync-bridge
+      - main
 
 permissions:
   contents: read
