@@ -120,9 +120,9 @@ Feature availability must be capability-driven, not hard-coded as if all platfor
 
 ## Kernel policy
 
-The core selects a kernel through an adapter contract. Kernel-specific configuration syntax remains inside adapters.
+The core produces a backend-neutral runtime plan. Protocol and transport are resolved independently before an execution backend is selected. Kernel-specific configuration syntax remains inside compatibility adapters.
 
-No kernel is a permanent production-primary target. Mihomo, sing-box and Xray remain first-class adapters; native embedding must be verified independently for each selected kernel and platform before production support is claimed.
+No kernel is a permanent production-primary target. Mihomo, sing-box and Xray remain compatibility execution backends; native or independent execution must be verified separately before production support is claimed.
 
 ## Evidence rule
 
