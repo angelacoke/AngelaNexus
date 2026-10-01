@@ -31,6 +31,32 @@ Implemented:
 - Explicit runtime status indicating that kernel execution is not yet connected.
 - Dedicated Android debug-build CI workflow.
 
+### Android configuration import path
+
+Implemented and tested:
+
+- bounded UTF-8 reading with the 5 MiB input limit;
+- versioned Android import DTO and serialized envelope;
+- Android transport boundary that sends only the serialized envelope;
+- platform-neutral runtime receiver that validates envelope type, version, source, name and byte limit;
+- Core import runtime handoff into the existing kernel-neutral import pipeline;
+- regression coverage for valid envelopes and malformed/oversized input.
+
+This milestone establishes the import path contract. It does **not** claim that a kernel has already started from the imported configuration.
+
+### Android transparent/root networking baseline
+
+Implemented and tested at the contract/integration level:
+
+- transparent mode selection;
+- guarded rooted backend capability checks;
+- atomic rule transaction boundaries;
+- self-loop protection;
+- cleanup and rollback handling;
+- live transparent runtime inspection and health checks.
+
+Real-device traffic interception remains a separate verification requirement and is not marked complete without reproducible device evidence.
+
 ### Modern modular UI baseline
 
 Implemented on Android as the first platform surface:
@@ -38,7 +64,7 @@ Implemented on Android as the first platform surface:
 - Jetpack Compose + Material 3 foundation.
 - System light/dark theme support and Android dynamic colors.
 - Five-module navigation: Home / Profiles / Proxies / Rules / Settings.
-- Compact card-based dashboard inspired by modern Clash clients while keeping AngelaNexus-specific information architecture.
+- Compact card-based dashboard with AngelaNexus-specific information architecture.
 - Explicit Core, VPN, routing, anti-leak and GFW status surfaces.
 - Responsive semantic component structure intended for phone/tablet/desktop adaptation.
 - UI design specification in `docs/APP_UI_DESIGN.md`.
@@ -64,9 +90,9 @@ This is a data-contract milestone, **not** a claim that the cloud account servic
 ## Not yet claimed as production functionality
 
 - No Mihomo/sing-box/Xray runtime is embedded in the Android APK yet.
-- Configuration import currently reaches the Android document-picker boundary; the selected input is not yet connected to the core import pipeline.
-- VPN boundary establishment is only a platform integration check; it does not install a proxy route or claim traffic interception.
-- The UI is not yet backed by the full Core execution state stream.
+- The imported configuration is not yet automatically compiled and launched into a verified Android kernel runtime.
+- VPN boundary establishment is not yet evidence of end-to-end proxy traffic interception.
+- The UI is not yet backed by the complete Core execution state stream.
 - No production Android background lifecycle, notification channel, secure storage, or battery policy integration is claimed yet.
 - Production cloud authentication/storage/sync service is not yet implemented.
 - iOS, Windows, macOS and Linux executable application shells are not yet claimed as implemented.
@@ -77,7 +103,7 @@ This is a data-contract milestone, **not** a claim that the cloud account servic
 2. Establish account/sync/backup contracts and security boundaries. **Done at Core contract level.**
 3. Extract reusable UI into the multiplatform UI layer without leaking platform APIs.
 4. Implement account authentication and cloud data service behind a platform-neutral service contract.
-5. Connect Android configuration import to the kernel-neutral import pipeline.
+5. Connect Android configuration import to the kernel-neutral import pipeline. **Done at contract + automated-test level.**
 6. Complete Android execution-state bridge and one verified kernel runtime.
 7. Establish Desktop JVM application shell shared by Windows/macOS/Linux.
 8. Establish iOS application entry point and Network Extension boundary.
