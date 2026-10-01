@@ -80,7 +80,8 @@ export function createRuntimePlan(nodeInput, options = {}) {
 
   const requiredTransportCapabilities = normalizeCapabilities(options.requiredTransportCapabilities);
   if (requiredTransportCapabilities.length && !transportAdapter) {
-    return {\n      ok: false,\n      node,\n      protocol,\n      transport,\n      protocolAdapter: protocolAdapter.protocol,\n      status: "unsupported",\n      reason: "required transport capabilities cannot be satisfied without a transport adapter",\n      missingCapabilities: requiredTransportCapabilities,\n      backend: null,\n    };
+    return {
+      ok: false,\n      node,\n      protocol,\n      transport,\n      protocolAdapter: protocolAdapter.protocol,\n      status: "unsupported",\n      reason: "required transport capabilities cannot be satisfied without a transport adapter",\n      missingCapabilities: requiredTransportCapabilities,\n      backend: null,\n    };
   }
 
   if (transportAdapter) {
