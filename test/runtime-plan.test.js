@@ -38,18 +38,19 @@ function node(overrides = {}) {
   };
 }
 
-test("runtime plan is backend-neutral before backend selection", () => {
+test("runtime plan remains backend-neutral before backend selection", () => {
   const result = createRuntimePlan(node(), {
     protocolAdapters: [protocol],
     transportAdapters: [],
-    executionBackends: [backend],
     userAuthorized: true,
   });
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, false);
+  assert.equal(result.status, "unsupported");
+  assert.equal(result.reason, "no execution backend can execute this plan");
   assert.equal(result.plan.kind, "runtime-plan");
   assert.equal(result.plan.protocol.id, "vless");
   assert.equal(result.plan.transport, null);
-  assert.equal(result.backend, "test-backend");
+  assert.equal(result.backend, null);
 });
 
 test("runtime plan separates protocol and transport selection", () => {
@@ -103,9 +104,9 @@ test("backend is not consulted when protocol adapter is unavailable", () => {
 });
 
 test("authorization can reject a valid runtime plan before execution", () => {
-  const result = createRuntimePlan(node(), {
+  const result = createRuntimePlan(node({ transport: { type: "tcp" } }), {
     protocolAdapters: [protocol],
-    transportAdapters: [],
+    transportAdapters: [tcp],
     executionBackends: [backend],
     authorize: () => false,
   });
