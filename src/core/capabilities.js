@@ -29,6 +29,44 @@ const protocolSupport = Object.freeze({
   ]),
 });
 
+const QUIC_PROTOCOLS = new Set([
+  NodeProtocols.HYSTERIA,
+  NodeProtocols.HYSTERIA2,
+  NodeProtocols.TUIC,
+]);
+
+const UDP_NATIVE_PROTOCOLS = new Set([
+  NodeProtocols.HYSTERIA,
+  NodeProtocols.HYSTERIA2,
+  NodeProtocols.TUIC,
+  NodeProtocols.WIREGUARD,
+]);
+
+function literalAddressFamily(value) {
+  const address = typeof value === "string" ? value.trim() : "";
+  if (!address) return null;
+  if (/^\\d{1,3}(?:\\.\\d{1,3}){3}$/.test(address)) return "ipv4";
+  if (address.includes(":") && /^[0-9a-f:.]+$/i.test(address)) return "ipv6";
+  return null;
+}
+
+function explicitIpVersion(node) {
+  const value = node?.["ip-version"] ?? node?.ipVersion ?? node?.ip_version;
+  const normalized = String(value || "").toLowerCase();
+  if (normalized === "4" || normalized === "ipv4" || normalized === "ipv4-prefer") return "ipv4";
+  if (normalized === "6" || normalized === "ipv6" || normalized === "ipv6-prefer") return "ipv6";
+  return null;
+}
+
+function hasChainConfiguration(node) {
+  return Boolean(
+    node?.chain
+    || node?.dialerProxy
+    || node?.["dialer-proxy"]
+    || node?.detour
+  );
+}
+
 export function evaluateNodeCapabilities(node, kernel) {
   if (!Object.values(Kernels).includes(kernel)) {
     return result(false, {}, "unsupported kernel: " + kernel);
@@ -44,20 +82,44 @@ export function evaluateNodeCapabilities(node, kernel) {
   const unsupported = [];
   const supportedProtocols = protocolSupport[kernel];
 
-  if (!supportedProtocols.has(protocol)) unsupported.push("protocol:" + protocol);
-  else capabilities.add(NodeCapabilities.TCP);
+  if (!supportedProtocols.has(protocol)) {
+    unsupported.push("protocol:" + protocol);
+  } else {
+    capabilities.add(NodeCapabilities.TCP);
+  }
 
-  if (node.udp === true) capabilities.add(NodeCapabilities.UDP);
-  if (node.endpoint?.server) capabilities.add(NodeCapabilities.IPV4);
-  if (node.tls?.enabled) capabilities.add(NodeCapabilities.TLS);
-  if (node.tls?.reality?.enabled) capabilities.add(NodeCapabilities.REALITY);
+  if (node.udp === true || UDP_NATIVE_PROTOCOLS.has(protocol)) {
+    capabilities.add(NodeCapabilities.UDP);
+  }
 
-  const transport = String(node.transport?.type || "").toLowerCase();
+  const family = literalAddressFamily(node.endpoint?.server || node.server || node.address);
+  const configuredFamily = explicitIpVersion(node);
+  if (family) capabilities.add(family === "ipv4" ? NodeCapabilities.IPV4 : NodeCapabilities.IPV6);
+  else if (configuredFamily === "ipv4") capabilities.add(NodeCapabilities.IPV4);
+  else if (configuredFamily === "ipv6") capabilities.add(NodeCapabilities.IPV6);
+
+  if (node.tls?.enabled || node.tls === true) capabilities.add(NodeCapabilities.TLS);
+  if (node.tls?.reality?.enabled || node.reality === true || node["reality-opts"]) {
+    capabilities.add(NodeCapabilities.REALITY);
+  }
+
+  const transport = String(node.transport?.type || node.network || "").toLowerCase();
   if (transport === "ws") capabilities.add(NodeCapabilities.WEBSOCKET);
   if (transport === "grpc") capabilities.add(NodeCapabilities.GRPC);
-  if (transport === "quic") capabilities.add(NodeCapabilities.QUIC);
-  if (node.multiplex || node.mux || node.multiplex?.enabled) {
+  if (transport === "quic" || QUIC_PROTOCOLS.has(protocol)) capabilities.add(NodeCapabilities.QUIC);
+
+  if (node.multiplex?.enabled === true || node.multiplex === true || node.mux?.enabled === true || node.mux === true) {
     capabilities.add(NodeCapabilities.MULTIPLEX);
+  }
+
+  if (hasChainConfiguration(node)) capabilities.add(NodeCapabilities.CHAIN);
+
+  if (
+    kernel === Kernels.MIHOMO
+    && protocol === NodeProtocols.ANYTLS
+    && (node.tls?.reality?.enabled || node.reality === true || node["reality-opts"])
+  ) {
+    unsupported.push("combination:anytls+reality");
   }
 
   return result(unsupported.length === 0, {
