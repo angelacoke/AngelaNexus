@@ -15,6 +15,17 @@ AngelaNexus is the unified cross-platform proxy-system project for Mihomo, sing-
 
 English is the normative documentation language. Chinese documentation mirrors the same architecture and product semantics.
 
+## Application languages
+
+The cross-platform APP provides four first-class UI languages:
+
+- English — primary/default
+- 简体中文 — Simplified Chinese
+- Русский — Russian
+- فارسی — Persian (RTL)
+
+Language selection is presentation-only and cannot change routing, security, DNS, GFW, protocol, transport, account, backup, or execution-backend semantics.
+
 ## Constitutional architecture
 
 The project's architecture, implementation, verification, and maintenance are governed by the **[AngelaNexus 底层宪级纲领](docs/ANGELANEXUS_CONSTITUTION.md)** (AN-Constitution v1.0). It establishes Platform First, parallel execution backends, canonical data models, protocol/transport separation, user control, parallel rule semantics, security boundaries, cross-platform isolation, evidence-based verification, and staged migration toward backend independence.
