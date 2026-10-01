@@ -30,7 +30,8 @@ The four-quadrant cross mark in `assets/brand/angelanexus-logo.svg` is the offic
 - Cross-platform UI strategy: shared UI semantics with independent native platform capability adapters.
 - Android: real application module baseline is present under `native/android/app`.
 - Android VPN: native `VpnService` boundary is wired into the application shell.
-- Android configuration import: document-picker entry point is present; core import integration remains the next milestone.
+- Android configuration import: document picker, bounded UTF-8 reader, versioned import envelope, Core receiver, and kernel-neutral import pipeline handoff are implemented and covered by tests.
+- Android transparent/root networking: capability contracts, guarded rule transactions, lifecycle cleanup, and runtime health checks are implemented; real device/kernel execution remains separately verified before being claimed as production-complete.
 - iOS / Windows / macOS / Linux executable shells: architectural targets established; implementation remains milestone-driven and is not claimed as complete.
 - Mihomo / sing-box / Xray Android runtime embedding: not yet claimed as production-ready.
 
