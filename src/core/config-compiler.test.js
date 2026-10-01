@@ -166,3 +166,27 @@ test("compiler exposes effective routing priority after explicit rule order norm
     { id: "late", order: 20, index: 0, enabled: true },
   ]);
 });
+
+
+test("compiler reports provable domain and suffix routing overlap without reordering rules", () => {
+  const config = baseConfig();
+  config.routing.rules = [
+    { id: "broad", name: "Broad", match: { domain_suffix: ["example.com"] }, action: { type: "route", target: "auto" } },
+    { id: "exact", name: "Exact", match: { domain: ["api.example.com"] }, action: { type: "route", target: "global" } },
+    { id: "sibling", name: "Sibling", match: { domain_suffix: ["other.example.com"] }, action: { type: "route", target: "auto" } },
+  ];
+  const result = compileUnifiedConfig(config, Kernels.MIHOMO);
+
+  assert.deepEqual(result.routingConflicts, [{
+    type: "semantic-overlap",
+    firstRuleId: "broad",
+    firstRuleIndex: 0,
+    firstPriority: 0,
+    ruleId: "exact",
+    ruleIndex: 1,
+    priority: 1,
+    relation: "domain-in-suffix",
+  }]);
+  assert.ok(result.config.rules.some((rule) => typeof rule === "string" && rule === "DOMAIN-SUFFIX,example.com,Auto"));
+  assert.ok(result.config.rules.some((rule) => typeof rule === "string" && rule === "DOMAIN,api.example.com,Global"));
+});
