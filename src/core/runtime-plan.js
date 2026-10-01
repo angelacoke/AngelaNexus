@@ -2,6 +2,8 @@ import { NodeProtocols, normalizeNode } from "./model.js";
 import { findProtocolAdapter } from "../adapters/protocol-contract.js";
 import { findTransportAdapter } from "../adapters/transport-contract.js";
 import { findExecutionBackend } from "../adapters/execution-backend-contract.js";
+import { builtinProtocolAdapters } from "../adapters/protocol-registry.js";
+import { builtinTransportAdapters } from "../adapters/transport-registry.js";
 import { missingCapabilities, normalizeCapabilities } from "../adapters/capability-negotiation.js";
 
 function clone(value) { return value === undefined ? undefined : structuredClone(value); }
@@ -31,7 +33,14 @@ export function createRuntimePlan(nodeInput, options = {}) {
     throw new Error("unsupported node protocol: " + protocol);
   }
 
-  const protocolAdapter = findProtocolAdapter(options.protocolAdapters, node);
+  const protocolAdapters = options.protocolAdapters === undefined
+    ? builtinProtocolAdapters
+    : options.protocolAdapters;
+  const transportAdapters = options.transportAdapters === undefined
+    ? builtinTransportAdapters
+    : options.transportAdapters;
+
+  const protocolAdapter = findProtocolAdapter(protocolAdapters, node);
   if (!protocolAdapter) {
     return {
       ok: false,
@@ -62,7 +71,7 @@ export function createRuntimePlan(nodeInput, options = {}) {
 
   const transport = transportOf(node);
   const transportAdapter = transport
-    ? findTransportAdapter(options.transportAdapters, node.transport)
+    ? findTransportAdapter(transportAdapters, node.transport)
     : null;
 
   if (transport && !transportAdapter) {
