@@ -1,10 +1,10 @@
 import { NodeProtocols, normalizeNode } from "./model.js";
 import { findProtocolAdapter } from "../adapters/protocol-contract.js";
 import { findTransportAdapter } from "../adapters/transport-contract.js";
-import { findExecutionBackend } from "../adapters/execution-backend-contract.js";
 import { builtinProtocolAdapters } from "../adapters/protocol-registry.js";
 import { builtinTransportAdapters } from "../adapters/transport-registry.js";
 import { missingCapabilities, normalizeCapabilities } from "../adapters/capability-negotiation.js";
+import { createDriverSelection } from "./driver-scheduler.js";
 
 function clone(value) { return value === undefined ? undefined : structuredClone(value); }
 
@@ -143,24 +143,35 @@ export function createRuntimePlan(nodeInput, options = {}) {
     userAuthorized: options.userAuthorized === true,
   });
 
-  const backend = findExecutionBackend(options.executionBackends, plan, requiredBackendCapabilities);
-  if (!backend) {
+  const selection = createDriverSelection({
+    plan,
+    drivers: options.executionBackends,
+    requiredCapabilities: requiredBackendCapabilities,
+    fixedDriver: options.fixedDriver,
+    allowedDrivers: options.allowedDrivers,
+    preferredDrivers: options.preferredDrivers,
+    allowFailover: options.allowFailover === true,
+  });
+
+  if (selection.status !== "selected") {
     return {
       ok: false,
       plan,
-      status: "unsupported",
-      reason: "no execution backend can execute this plan with required capabilities",
+      status: selection.status,
+      reason: selection.explanation,
       backend: null,
+      driverSelection: selection,
     };
   }
 
-  if (typeof options.authorize === "function" && options.authorize(plan) !== true) {
+  if (typeof options.authorize === "function" && options.authorize(plan, selection) !== true) {
     return {
       ok: false,
       plan,
       status: "rejected",
       reason: "runtime plan was not authorized",
-      backend: backend.id,
+      backend: selection.selected.id,
+      driverSelection: selection,
     };
   }
 
@@ -168,6 +179,7 @@ export function createRuntimePlan(nodeInput, options = {}) {
     ok: true,
     plan,
     status: "ready",
-    backend: backend.id,
+    backend: selection.selected.id,
+    driverSelection: selection,
   };
 }
