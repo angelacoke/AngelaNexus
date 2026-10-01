@@ -50,7 +50,7 @@ jobs:
       - name: Fetch pinned Mihomo source
         shell: bash
         env:
-          MIHOMO_COMMIT: "ab405bad5beeeac8b003bb01f60f134f6df54471"
+          MIHOMO_COMMIT: "88dcbf7f1614a67c3b36b848ee3592dfa92ada36"
         run: |
           set -euo pipefail
           git clone --no-checkout https://github.com/MetaCubeX/mihomo.git "$RUNNER_TEMP/mihomo"
@@ -77,7 +77,7 @@ jobs:
           "$CC" --version
           go build \
             -trimpath \
-            -ldflags="-w -s -X github.com/metacubex/mihomo/constant.Version=v1.19.31" \
+            -ldflags="-w -s -X github.com/metacubex/mihomo/constant.Version=v1.19.32" \
             -tags="with_gvisor,cmfa" \
             -buildmode=c-shared \
             -o "$RUNNER_TEMP/libclash-${{ matrix.abi }}.so" \
