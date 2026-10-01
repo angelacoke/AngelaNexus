@@ -43,3 +43,30 @@ test("enabled profile chain is compiled and its routing action resolves to the f
   assert.equal(result.config.proxies.find((proxy) => proxy.name === "Node 2")["dialer-proxy"], "Node 1");
   assert.ok(result.config.rules.some((rule) => typeof rule === "string" && rule.endsWith(",Node 2")));
 });
+
+
+test("compiler rejects profile switches that reference unknown groups or chains", () => {
+  assert.throws(() => compileUnifiedConfig({
+    ...baseConfig(),
+    profileFeatures: { disabledGroupIds: ["missing-group"] },
+  }, Kernels.MIHOMO), /unknown policy group/);
+
+  assert.throws(() => compileUnifiedConfig({
+    ...baseConfig(),
+    profileFeatures: { chainEnabled: true, chainId: "missing-chain" },
+  }, Kernels.MIHOMO), /unknown chain/);
+});
+
+test("compiler exposes the normalized profile feature state for the UI layer", () => {
+  const result = compileUnifiedConfig(baseConfig({
+    enabledGroupIds: ["auto"],
+    disabledGroupIds: ["global"],
+    chainEnabled: true,
+    chainId: "chain-a",
+  }), Kernels.MIHOMO);
+
+  assert.deepEqual(result.profileFeatures.enabledGroupIds, ["auto"]);
+  assert.deepEqual(result.profileFeatures.disabledGroupIds, ["global"]);
+  assert.equal(result.profileFeatures.chainEnabled, true);
+  assert.equal(result.profileFeatures.chainId, "chain-a");
+});
