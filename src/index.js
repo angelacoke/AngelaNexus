@@ -30,13 +30,11 @@ export * from "./core/kernel-execution.js";
 export * from "./core/execution-controller.js";
 export * from "./core/execution-contract.js";
 export * from "./core/decision-planner.js";
+export * from "./core/pipeline.js";
 
 export * from "./core/session-invalidation.js";
-
 export * from "./core/execution-event-ledger.js";
-
 export * from "./core/path-trust.js";
-
 export * from "./adapters/protocol-contract.js";
 export * from "./adapters/transport-contract.js";
 export * from "./adapters/execution-backend-contract.js";
