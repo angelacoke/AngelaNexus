@@ -61,8 +61,9 @@ export function createTransparentLifecycle(initial = TransparentLifecycleStates.
         throw new Error("cannot activate from " + state);
       }
       admitted = true;
+      if (pendingBackend !== null) activeBackend = pendingBackend;
       pendingBackend = null;
-      return transition(TransparentLifecycleStates.ACTIVE);
+      return transition(TransparentLifecycleStates.ACTIVE, activeBackend);
     },
     beginDrain() {
       if (state !== TransparentLifecycleStates.ACTIVE) throw new Error("cannot drain from " + state);
