@@ -28,8 +28,8 @@ class AngelaNexusVpnService : VpnService() {
 
         private const val CHANNEL_ID = "angelanexus-vpn"
         private const val NOTIFICATION_ID = 18181
-        private const val DEFAULT_ADDRESS = "198.18.0.2/30"
-        private const val DEFAULT_ROUTE = "0.0.0.0/0"
+        private const val DEFAULT_ADDRESS = "198.18.0.2/30,fd00:198:18::2/126"
+        private const val DEFAULT_ROUTE = "0.0.0.0/0,::/0"
         private const val DEFAULT_DNS = "198.18.0.2"
         private const val DEFAULT_STACK = "mixed"
     }
@@ -80,9 +80,16 @@ class AngelaNexusVpnService : VpnService() {
                 .setSession(getString(R.string.app_name))
                 .setMtu(1400)
                 .setBlocking(false)
-                .addAddress(address.substringBefore('/'), address.substringAfter('/').toInt())
-                .addRoute(route.substringBefore('/'), route.substringAfter('/').toInt())
-                .addDnsServer(dns)
+
+            splitValues(address).forEach { cidr ->
+                builder.addAddress(cidr.substringBefore('/'), cidr.substringAfter('/').toInt())
+            }
+            splitValues(route).forEach { cidr ->
+                builder.addRoute(cidr.substringBefore('/'), cidr.substringAfter('/').toInt())
+            }
+            splitValues(dns).forEach { server ->
+                builder.addDnsServer(server)
+            }
 
             val descriptor = builder.establish()
                 ?: error("Android VPN TUN establishment failed")
@@ -99,6 +106,9 @@ class AngelaNexusVpnService : VpnService() {
             START_NOT_STICKY
         }
     }
+
+    private fun splitValues(value: String): List<String> =
+        value.split(',').map(String::trim).filter(String::isNotEmpty)
 
     private fun stopRuntime(keepService: Boolean = false) {
         runCatching { mihomo?.stopTun() }
