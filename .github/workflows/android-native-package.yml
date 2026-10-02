@@ -85,9 +85,13 @@ jobs:
           install -m 0644 "$ARMV7_SO" native/android/app/src/main/jniLibs/armeabi-v7a/libclash.so
           install -m 0644 "$X86_64_SO" native/android/app/src/main/jniLibs/x86_64/libclash.so
 
-          test "$(sha256sum native/android/app/src/main/jniLibs/arm64-v8a/libclash.so | cut -d' ' -f1)"             = "667c94964d0a60f86cdcc130b2cdf3b385b02d9f2c5d3b324b3ed7a6b7326007"
-          test "$(sha256sum native/android/app/src/main/jniLibs/armeabi-v7a/libclash.so | cut -d' ' -f1)"             = "3ae94d7defb1778cd611eceffcff6884407893d28c42a4350af2b49108ac9a09"
-          test "$(sha256sum native/android/app/src/main/jniLibs/x86_64/libclash.so | cut -d' ' -f1)"             = "da7bcdbf165cc1e3457d3560b51e703cb3a478dd83f0c1cfe42ccf676d6c1f42"
+          file native/android/app/src/main/jniLibs/arm64-v8a/libclash.so
+          file native/android/app/src/main/jniLibs/armeabi-v7a/libclash.so
+          file native/android/app/src/main/jniLibs/x86_64/libclash.so
+          sha256sum native/android/app/src/main/jniLibs/arm64-v8a/libclash.so > "$RUNNER_TEMP/mihomo-source.sha256"
+          sha256sum native/android/app/src/main/jniLibs/armeabi-v7a/libclash.so >> "$RUNNER_TEMP/mihomo-source.sha256"
+          sha256sum native/android/app/src/main/jniLibs/x86_64/libclash.so >> "$RUNNER_TEMP/mihomo-source.sha256"
+          cat "$RUNNER_TEMP/mihomo-source.sha256"
 
       - name: Verify release signing configuration
         shell: bash
@@ -124,9 +128,12 @@ jobs:
           printf 'APK arm64-v8a libclash.so SHA-256: %s\n' "$ARM64_SHA"
           printf 'APK armeabi-v7a libclash.so SHA-256: %s\n' "$ARMV7_SHA"
           printf 'APK x86_64 libclash.so SHA-256: %s\n' "$X86_64_SHA"
-          test "$ARM64_SHA" = "667c94964d0a60f86cdcc130b2cdf3b385b02d9f2c5d3b324b3ed7a6b7326007"
-          test "$ARMV7_SHA" = "3ae94d7defb1778cd611eceffcff6884407893d28c42a4350af2b49108ac9a09"
-          test "$X86_64_SHA" = "da7bcdbf165cc1e3457d3560b51e703cb3a478dd83f0c1cfe42ccf676d6c1f42"
+          SOURCE_ARM64_SHA="$(awk '$2 == "native/android/app/src/main/jniLibs/arm64-v8a/libclash.so" {print $1}' "$RUNNER_TEMP/mihomo-source.sha256")"
+          SOURCE_ARMV7_SHA="$(awk '$2 == "native/android/app/src/main/jniLibs/armeabi-v7a/libclash.so" {print $1}' "$RUNNER_TEMP/mihomo-source.sha256")"
+          SOURCE_X86_64_SHA="$(awk '$2 == "native/android/app/src/main/jniLibs/x86_64/libclash.so" {print $1}' "$RUNNER_TEMP/mihomo-source.sha256")"
+          test "$ARM64_SHA" = "$SOURCE_ARM64_SHA"
+          test "$ARMV7_SHA" = "$SOURCE_ARMV7_SHA"
+          test "$X86_64_SHA" = "$SOURCE_X86_64_SHA"
 
       - name: Verify release certificate
         shell: bash
