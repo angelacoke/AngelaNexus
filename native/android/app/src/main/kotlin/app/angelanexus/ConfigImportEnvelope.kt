@@ -1,13 +1,12 @@
 package app.angelanexus
 
-import org.json.JSONObject
 import java.nio.charset.StandardCharsets
 
 /**
  * Android serialization of the platform-neutral runtime import envelope.
  *
- * The envelope shape mirrors src/platform/runtime-import.js. Android does not
- * interpret the configuration body; it only serializes the bounded transport DTO.
+ * Android does not interpret the configuration body; it only serializes the
+ * bounded transport DTO.
  */
 object ConfigImportEnvelope {
     const val TYPE = "angelanexus.config-import"
@@ -19,19 +18,44 @@ object ConfigImportEnvelope {
     ): String {
         require(maxBytes > 0) { "runtime import maxBytes must be positive" }
 
-        val payload = JSONObject()
-            .put("type", TYPE)
-            .put("version", request.version)
-            .put("source", request.source.wireValue)
-            .put("name", request.name)
-            .put("content", request.content)
-            .toString()
+        val payload = buildString {
+            append('{')
+            append("\"type\":\"").append(escape(TYPE)).append("\",")
+            append("\"version\":").append(request.version).append(',')
+            append("\"source\":\"").append(escape(request.source.wireValue)).append("\",")
+            append("\"name\":")
+            if (request.name == null) append("null") else append("\"").append(escape(request.name)).append("\"")
+            append(',')
+            append("\"content\":\"").append(escape(request.content)).append("\"")
+            append('}')
+        }
 
         val size = payload.toByteArray(StandardCharsets.UTF_8).size
         require(size <= maxBytes) {
             "runtime import payload exceeds byte limit: $size > $maxBytes"
         }
         return payload
+    }
+
+    private fun escape(value: String): String = buildString(value.length) {
+        for (char in value) {
+            when (char) {
+                '\\' -> append("\\\\")
+                '"' -> append("\\"")
+                '\b' -> append("\\b")
+                '\u000C' -> append("\\f")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                else -> {
+                    if (char.code < 0x20) {
+                        append("\\u").append(char.code.toString(16).padStart(4, '0'))
+                    } else {
+                        append(char)
+                    }
+                }
+            }
+        }
     }
 
     private val ConfigImportRequest.Source.wireValue: String
