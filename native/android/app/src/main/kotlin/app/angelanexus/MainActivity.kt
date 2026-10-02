@@ -22,6 +22,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import app.angelanexus.ui.AngelaNexusApp
 import app.angelanexus.ui.theme.AngelaNexusTheme
 import kotlinx.coroutines.launch
+import java.net.URI
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -39,7 +40,10 @@ private fun AngelaNexusRoot() {
     val context = LocalContext.current
     val darkTheme = isSystemInDarkTheme()
     val scope = rememberCoroutineScope()
-    val importPort = remember { PendingConfigImportPort() }
+    val coreRuntimeTransport = remember {
+        HttpCoreRuntimeTransport(URI("http://127.0.0.1:18181/"))
+    }
+    val importPort = remember { SerializedConfigImportPort(coreRuntimeTransport) }
     val importCoordinator = remember { ConfigImportCoordinator(importPort) }
     val rootAdapter = remember { AndroidRootTransparentAdapter(context) }
     val rootCapabilities = remember { rootAdapter.inspect() }
@@ -59,8 +63,8 @@ private fun AngelaNexusRoot() {
                     importCoordinator.importLocalFile(stream, uri.lastPathSegment)
                 } ?: throw IllegalStateException("selected configuration cannot be opened")
             }.fold(
-                onSuccess = { status = "config-staged" },
-                onFailure = { status = "config-import-error" }
+                onSuccess = { status = "config-delivered-to-core" },
+                onFailure = { status = "core-runtime-unavailable" }
             )
         }
     }
