@@ -108,7 +108,7 @@ test("failed optimization health check rolls back to the previous action", () =>
     },
     capabilityVerified: true,
     securityHealthy: true,
-    optimizationExecutor: () => true,
+    optimizationExecutor: () => ({ ok: true, rollback: () => true }),
     healthCheck: () => false,
   });
   assert.equal(result.ok, false);
