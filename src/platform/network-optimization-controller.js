@@ -96,6 +96,7 @@ export function createNetworkOptimizationController({
       });
     }
 
+    let optimizationRollback = null;
     try {
       lifecycle.beginDrain();
       lifecycle.markDrained();
@@ -111,7 +112,7 @@ export function createNetworkOptimizationController({
           typeof execution === "object" &&
           execution.ok === true);
       if (!executionSucceeded) throw new Error("optimization executor rejected activation");
-      const optimizationRollback =
+      optimizationRollback =
         execution !== null &&
         typeof execution === "object" &&
         typeof execution.rollback === "function"
@@ -145,6 +146,11 @@ export function createNetworkOptimizationController({
         snapshot: snapshot(),
       });
     } catch (error) {
+      try {
+        if (optimizationRollback) optimizationRollback();
+      } catch {
+        // Lifecycle recovery below remains authoritative if kernel rollback fails.
+      }
       try {
         lifecycle.rollback("optimization-activation-failed");
         lifecycle.recover();
