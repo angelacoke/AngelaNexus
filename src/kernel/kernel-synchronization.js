@@ -3,6 +3,9 @@ import { adapterFor } from "../adapters/index.js";
 import { driverFor } from "./driver-registry.js";
 import { KernelDriverCapabilities } from "./driver-contract.js";
 import { getKernelRuntimeSpec } from "./runtime-registry.js";
+import { getKernelUpstream } from "../core/kernel-registry.js";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 
 export const KERNEL_SYNCHRONIZATION_VERSION = 1;
 
@@ -24,8 +27,13 @@ function inspectKernel(kernel) {
   const adapter = adapterFor(kernel);
   const driver = driverFor(kernel);
   const runtime = getKernelRuntimeSpec(kernel);
+  const upstream = getKernelUpstream(kernel);
+  const conformanceScript = resolve(process.cwd(), "scripts/kernel-conformance.mjs");
   return Object.freeze({
     kernel,
+    upstreamStable: Boolean(upstream?.stable),
+    upstreamRepository: Boolean(upstream?.repository),
+    conformanceScript: existsSync(conformanceScript),
     adapter: Boolean(adapter),
     driver: Boolean(driver),
     capabilities: Object.freeze(driver ? [...driver.capabilities] : []),
@@ -40,6 +48,9 @@ export function inspectKernelSynchronization() {
   const kernels = REQUIRED_KERNELS.map(inspectKernel);
   const missing = [];
   for (const item of kernels) {
+    if (!item.upstreamStable) missing.push(item.kernel + ":upstream-stable");
+    if (!item.upstreamRepository) missing.push(item.kernel + ":upstream-repository");
+    if (!item.conformanceScript) missing.push(item.kernel + ":conformance-script");
     if (!item.adapter) missing.push(item.kernel + ":adapter");
     if (!item.driver) missing.push(item.kernel + ":driver");
     if (!item.configCompile) missing.push(item.kernel + ":config-compile");
