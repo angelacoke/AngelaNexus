@@ -1,4 +1,5 @@
 import { selectTransparentBackend } from "./transparent-backend-capability.js";
+import { capabilityTruthFromBackend } from "./capability-truth.js";
 
 export const TRANSPARENT_PROXY_MODES = Object.freeze({
   TUN: "tun",
@@ -38,7 +39,6 @@ export function createTransparentProxyConfig(options = {}) {
   if (!Object.values(TRANSPARENT_PROXY_MODES).includes(mode)) {
     throw new Error("unsupported transparent proxy mode: " + mode);
   }
-
   const config = {
     version: 1,
     enabled: Boolean(options.enabled),
@@ -58,37 +58,27 @@ export function createTransparentProxyConfig(options = {}) {
       allowDirectFallback: false,
     }),
   };
-
-  if (!config.capture.ipv4 && !config.capture.ipv6) {
-    throw new Error("transparent proxy must capture at least one IP family");
-  }
-  if (!config.security.failClosed) {
-    throw new Error("transparent proxy fail-closed protection cannot be disabled");
-  }
-
+  if (!config.capture.ipv4 && !config.capture.ipv6) throw new Error("transparent proxy must capture at least one IP family");
+  if (!config.security.failClosed) throw new Error("transparent proxy fail-closed protection cannot be disabled");
   return Object.freeze(config);
 }
 
-export function resolveTransparentBackend({ platform, requiredCapabilities = [], evidence = {}, preferred = [] } = {}) {
-  return selectTransparentBackend({ platform, requiredCapabilities, evidence, preferred });
+export function resolveTransparentBackend({ platform, requiredCapabilities = [], evidence = {}, preferred = [], runtime = {} } = {}) {
+  const selection = selectTransparentBackend({ platform, requiredCapabilities, evidence, preferred });
+  if (!selection.ok) return selection;
+  const truth = capabilityTruthFromBackend(selection.backend, evidence, runtime);
+  return Object.freeze({ ...selection, truth });
 }
 
 export function evaluateTransparentProxy(config, runtime = {}) {
   if (!config || config.enabled !== true) {
-    return Object.freeze({
-      state: TRANSPARENT_PROXY_STATES.DISABLED,
-      active: false,
-      failClosed: true,
-      reason: "transparent-proxy-disabled",
-    });
+    return Object.freeze({ state: TRANSPARENT_PROXY_STATES.DISABLED, active: false, failClosed: true, reason: "transparent-proxy-disabled" });
   }
-
   const required = [];
   if (config.capture.ipv4) required.push("ipv4");
   if (config.capture.ipv6) required.push("ipv6");
   if (config.capture.udp) required.push("udp");
   if (config.capture.dnsCapture) required.push("dns-capture");
-
   const unsupported = required.filter((capability) => runtime[capability] === false);
   if (unsupported.length) {
     return Object.freeze({
@@ -99,7 +89,6 @@ export function evaluateTransparentProxy(config, runtime = {}) {
       unsupported: Object.freeze(unsupported),
     });
   }
-
   if (runtime.permission === false || runtime.ready === false) {
     return Object.freeze({
       state: TRANSPARENT_PROXY_STATES.ERROR,
@@ -108,7 +97,6 @@ export function evaluateTransparentProxy(config, runtime = {}) {
       reason: runtime.permission === false ? "capture-permission-denied" : "capture-runtime-not-ready",
     });
   }
-
   return Object.freeze({
     state: runtime.active === true ? TRANSPARENT_PROXY_STATES.ACTIVE : TRANSPARENT_PROXY_STATES.READY,
     active: runtime.active === true,
@@ -120,29 +108,10 @@ export function evaluateTransparentProxy(config, runtime = {}) {
 export function createTransparentProxyDecision(config, runtime = {}) {
   const evaluation = evaluateTransparentProxy(config, runtime);
   if (evaluation.state === TRANSPARENT_PROXY_STATES.ACTIVE) {
-    return Object.freeze({
-      type: "capture",
-      mode: config.mode,
-      target: "platform-routing",
-      failClosed: true,
-      evaluation,
-    });
+    return Object.freeze({ type: "capture", mode: config.mode, target: "platform-routing", failClosed: true, evaluation });
   }
-
   if (config && config.enabled === true) {
-    return Object.freeze({
-      type: "reject",
-      target: "reject",
-      reason: evaluation.reason || "transparent-proxy-unavailable",
-      failClosed: true,
-      evaluation,
-    });
+    return Object.freeze({ type: "reject", target: "reject", reason: evaluation.reason || "transparent-proxy-unavailable", failClosed: true, evaluation });
   }
-
-  return Object.freeze({
-    type: "disabled",
-    target: "platform-routing",
-    failClosed: true,
-    evaluation,
-  });
+  return Object.freeze({ type: "disabled", target: "platform-routing", failClosed: true, evaluation });
 }
