@@ -48,3 +48,4 @@ export * from "./core/rule-source-update-manager.js";
 export * from "./core/rule-source-refresh-service.js";
 
 export * from "./core/network-evidence.js";
+export * from "./core/path-registry.js";
