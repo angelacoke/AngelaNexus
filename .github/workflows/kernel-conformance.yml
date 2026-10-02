@@ -44,6 +44,13 @@ jobs:
           curl -fsSL -o /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/v${VERSION}/Xray-linux-64.zip"
           unzip -o /tmp/xray.zip xray -d /tmp/xray-bin
           chmod +x /tmp/xray-bin/xray
+      - name: Verify three-kernel synchronization contract
+        run: |
+          node --input-type=module <<'NODE'
+          import { requireKernelSynchronization } from "./src/kernel/kernel-synchronization.js";
+          const report = requireKernelSynchronization();
+          console.log(JSON.stringify(report, null, 2));
+          NODE
       - name: Verify kernel versions
         run: |
           /tmp/mihomo -v
