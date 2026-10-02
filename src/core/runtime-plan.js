@@ -5,6 +5,7 @@ import { builtinProtocolAdapters } from "../adapters/protocol-registry.js";
 import { builtinTransportAdapters } from "../adapters/transport-registry.js";
 import { missingCapabilities, normalizeCapabilities } from "../adapters/capability-negotiation.js";
 import { createDriverSelection } from "./driver-scheduler.js";
+import { resolveKernelRuntimeMode } from "../kernel/runtime-boundary.js";
 
 function clone(value) { return value === undefined ? undefined : structuredClone(value); }
 
@@ -122,10 +123,41 @@ export function createRuntimePlan(nodeInput, options = {}) {
 
   const descriptor = protocolAdapter.describe(node);
   const transportDescriptor = transportAdapter ? transportAdapter.describe(node.transport) : null;
-  const requiredBackendCapabilities = normalizeCapabilities(options.requiredBackendCapabilities);
+
+  let runtime = null;
+  let effectiveBackendCapabilities = normalizeCapabilities(options.requiredBackendCapabilities);
+  if (options.platform !== undefined) {
+    const runtimeResolution = resolveKernelRuntimeMode(protocol, options.platform, {
+      requestedMode: options.requestedRuntimeMode || "auto",
+      requireNative: options.requireNative === true,
+      preferNative: options.preferNative !== false,
+    });
+    if (!runtimeResolution.ok) {
+      return {
+        ok: false,
+        node,
+        protocol,
+        transport,
+        protocolAdapter: protocolAdapter.protocol,
+        transportAdapter: transportAdapter?.type || null,
+        status: "unsupported",
+        reason: runtimeResolution.reason,
+        runtime: runtimeResolution,
+        backend: null,
+      };
+    }
+    runtime = runtimeResolution;
+    if (runtime.selectedMode === "native") {
+      effectiveBackendCapabilities = normalizeCapabilities([
+        ...effectiveBackendCapabilities,
+        "native-runtime",
+      ]);
+    }
+  }
+
   const plan = Object.freeze({
     kind: "runtime-plan",
-    version: 1,
+    version: 2,
     node: clone(node),
     protocol: Object.freeze({
       id: protocolAdapter.protocol,
@@ -134,10 +166,13 @@ export function createRuntimePlan(nodeInput, options = {}) {
     transport: transportAdapter
       ? Object.freeze({ id: transportAdapter.type, descriptor: clone(transportDescriptor) })
       : null,
+    runtime: runtime
+      ? Object.freeze({ ...runtime })
+      : null,
     requirements: Object.freeze({
       protocol: Object.freeze([...requiredProtocolCapabilities]),
       transport: Object.freeze([...requiredTransportCapabilities]),
-      backend: Object.freeze([...requiredBackendCapabilities]),
+      backend: Object.freeze([...effectiveBackendCapabilities]),
     }),
     policy: clone(options.policy || null),
     userAuthorized: options.userAuthorized === true,
@@ -146,7 +181,7 @@ export function createRuntimePlan(nodeInput, options = {}) {
   const selection = createDriverSelection({
     plan,
     drivers: options.executionBackends,
-    requiredCapabilities: requiredBackendCapabilities,
+    requiredCapabilities: effectiveBackendCapabilities,
     fixedDriver: options.fixedDriver,
     allowedDrivers: options.allowedDrivers,
     preferredDrivers: options.preferredDrivers,
