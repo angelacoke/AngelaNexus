@@ -1,6 +1,7 @@
 package app.angelanexus
 
 import java.io.InputStream
+import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 
@@ -29,6 +30,11 @@ object ConfigImportReader {
         val decoder = StandardCharsets.UTF_8.newDecoder()
             .onMalformedInput(CodingErrorAction.REPORT)
             .onUnmappableCharacter(CodingErrorAction.REPORT)
-        return decoder.decode(java.nio.ByteBuffer.wrap(output.toByteArray())).toString()
+
+        return try {
+            decoder.decode(ByteBuffer.wrap(output.toByteArray())).toString()
+        } catch (error: java.nio.charset.CharacterCodingException) {
+            throw IllegalArgumentException("configuration is not valid UTF-8", error)
+        }
     }
 }
