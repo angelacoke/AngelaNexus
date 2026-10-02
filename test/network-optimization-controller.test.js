@@ -177,3 +177,23 @@ test("kernel execution boundary must succeed before optimization is committed", 
   assert.equal(calls[0].action, OptimizationActions.CONSERVATIVE);
   assert.equal(lifecycle.snapshot().state, TransparentLifecycleStates.ACTIVE);
 });
+
+test("implicit executor success is rejected and rolled back", () => {
+  const lifecycle = activeLifecycle();
+  const controller = createNetworkOptimizationController({
+    lifecycle,
+    userEnabled: true,
+    requestedAction: OptimizationActions.CONSERVATIVE,
+  });
+  const result = controller.apply({
+    telemetry: { rttMs: 120, baseRttMs: 100, queueingDelayMs: 2, samples: 20 },
+    capabilityVerified: true,
+    securityHealthy: true,
+    optimizationExecutor: () => undefined,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.phase, "lifecycle");
+  assert.equal(result.reason, "optimization-activation-failed");
+  assert.equal(lifecycle.snapshot().state, TransparentLifecycleStates.ACTIVE);
+  assert.equal(lifecycle.snapshot().activeBackend, "test-backend");
+});
