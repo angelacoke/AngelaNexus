@@ -10,33 +10,24 @@ export const UiRuntimeStates = Object.freeze({
   FAILED: "failed"
 });
 
-const labels = Object.freeze({
-  idle: "idle",
-  preparing: "preparing",
-  validating: "validating",
-  starting: "starting",
-  running: "running",
-  degraded: "degraded",
-  recovering: "recovering",
-  stopped: "stopped",
-  failed: "failed"
+export const UI_RUNTIME_LABEL_KEYS = Object.freeze({
+  idle: "runtime.idle",
+  preparing: "runtime.preparing",
+  validating: "runtime.validating",
+  starting: "runtime.starting",
+  running: "runtime.running",
+  degraded: "runtime.degraded",
+  recovering: "runtime.recovering",
+  stopped: "runtime.stopped",
+  failed: "runtime.failed"
 });
 
 export function toUiRuntimeState(experienceState) {
-  if (!Object.prototype.hasOwnProperty.call(labels, experienceState)) {
+  if (!Object.prototype.hasOwnProperty.call(UI_RUNTIME_LABEL_KEYS, experienceState)) {
     throw new Error("unsupported runtime state: " + experienceState);
   }
-
-  const activeExecution =
-    experienceState === UiRuntimeStates.RUNNING ||
-    experienceState === UiRuntimeStates.DEGRADED;
-
-  return Object.freeze({
-    state: experienceState,
-    label: labels[experienceState],
-    activeExecution,
-    proxyClaimAllowed: activeExecution
-  });
+  const activeExecution = experienceState === UiRuntimeStates.RUNNING || experienceState === UiRuntimeStates.DEGRADED;
+  return Object.freeze({ state: experienceState, labelKey: UI_RUNTIME_LABEL_KEYS[experienceState], activeExecution, proxyClaimAllowed: activeExecution });
 }
 
 export function createRuntimeViewModel({
@@ -49,14 +40,5 @@ export function createRuntimeViewModel({
   syncState = "unknown"
 } = {}) {
   const runtime = toUiRuntimeState(experienceState);
-
-  return Object.freeze({
-    runtime,
-    vpnState,
-    routeState,
-    dnsState,
-    antiLeakState,
-    gfwState,
-    syncState
-  });
+  return Object.freeze({ runtime, vpnState, routeState, dnsState, antiLeakState, gfwState, syncState });
 }
