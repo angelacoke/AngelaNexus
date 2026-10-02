@@ -53,4 +53,5 @@
     <string name="dark_mode">حالت تاریک</string>
     <string name="security">امنیت</string>
     <string name="security_description">سیاست‌های جلوگیری از اتصال مستقیم ناخواسته و DNS/IPv6/QUIC توسط هسته مدیریت می‌شوند</string>
+    <string name="core_label">هسته</string>
 </resources>
