@@ -219,3 +219,7 @@ export {
   ANDROID_NATIVE_TRANSPARENT_BINDING_VERSION,
   createAndroidNativeTransparentBinding,
 } from "./android-native-transparent-binding.js";
+export {
+  ANDROID_TRANSPARENT_RUNTIME_FACTORY_VERSION,
+  createAndroidTransparentRuntimeFactory,
+} from "./android-transparent-runtime-factory.js";
