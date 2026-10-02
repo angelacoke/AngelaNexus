@@ -232,8 +232,8 @@ export function createConnectionPathManager({
       : policy.recoveryPolicy === ConnectionPathRecovery.DEGRADED_OR_FAILURE_THRESHOLD
         ? (counts.failure + counts.degraded) >= policy.failureThreshold
         : false;
-    let registryAction = "none";
-    if (pathRegistry && typeof pathRegistry.update === "function") {
+    let registryAction = "none";\n    let schedulerAction = "none";
+    if (reprobeRecommended && reprobeScheduler && typeof reprobeScheduler.schedule === "function") {\n      const scheduled = reprobeScheduler.schedule(id, { reason: outcome });\n      schedulerAction = scheduled.ok ? (scheduled.scheduled === false ? "already-scheduled" : "scheduled") : `rejected:${scheduled.reason}`;\n    }\n    if (pathRegistry && typeof pathRegistry.update === "function") {
       if (recoveryEligible) {
         const updated = pathRegistry.update(id, { state: "quarantined" });
         registryAction = updated.ok ? "quarantined" : "quarantine-rejected";
