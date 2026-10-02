@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   NetworkEvidenceKinds,
   createNetworkEvidenceStore,
-} from "../src/core/network-evidence.js";
+} from "./network-evidence.js";
 
 test("network evidence is bounded, typed, and queryable", () => {
   let clock = 1000;
