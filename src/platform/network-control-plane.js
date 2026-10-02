@@ -98,7 +98,14 @@ export function createNetworkControlPlane({
         verified: false,
       });
       acceptance = await harness.run(activeScenario, options);
-      if (acceptance.result === "success") {
+      if (acceptance.result === "rejected") {
+        await lifecycle.transition("stopped", {
+          reason: acceptance.failureClass || "execution-rejected",
+          scenarioId: activeScenario.id,
+          decisionId: currentDecision.decisionId,
+          verified: acceptance.verificationState === "failed",
+        });
+      } else if (acceptance.result === "success") {
         await lifecycle.transition("running", {
           reason: "verified-network-acceptance",
           scenarioId: activeScenario.id,
