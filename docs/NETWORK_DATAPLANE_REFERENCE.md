@@ -1,6 +1,6 @@
 # AngelaNexus 网络数据面技术参考共识
 
-版本：AN-TECH-REFERENCE v1.1
+版本：AN-TECH-REFERENCE v1.2
 日期：2026-10-02
 
 ## 目的
@@ -89,6 +89,12 @@ Scheduler 不得绕过 Path Registry 的安全、用户允许、验证和健康�
 新增平台无关的 `Path Probe Executor` 契约。平台实现必须显式声明 `path-probe` 能力，并在执行前通过用户允许、路径安全健康、路径验证三个门禁。Executor 只负责调用已注入的平台探测实现、规范化 `success / degraded / failure / rejected` 结果并隔离异常；不得自行选择节点、绕过 Path Registry 或隐式收集长期网络遥测。
 
 平台侧的真实 socket/route/系统 API 探测由各平台适配层实现；核心层只消费规范化结果，再由 Connection Path Manager 写入 Network Evidence Store 并决定是否恢复路径。
+
+### 10.3 Android Transparent Runtime Factory
+
+Android 透明运行时绑定与通用 Native Driver Factory 保持边界分离。通用 Factory 只负责跨平台 Native Path Driver 的能力契约；Android 专用 Factory 负责把 Android 运行时证据、请求模式和 `probePath` 原生入口组合为独立的透明运行时绑定。
+
+Android Root 模式只有在 Root、授权、TCP、UDP、DNS、IPv4/IPv6、UID identity、策略路由和原子回滚等必要运行时证据全部成立时才可报告可用；证据不完整时必须 fail-closed。System VPN 模式不得宣称 Root 能力。该边界避免平台专用能力反向污染通用 Driver Factory，也便于后续接入真实 Android Native Bridge。
 
 ## 11. 对现有架构的补充
 新增或扩展：Ingress Capability Registry、Path Registry、Network Evidence Store、Optimization Registry、Recovery Controller。
