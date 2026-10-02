@@ -1,13 +1,13 @@
 #include <jni.h>
 #include <dlfcn.h>
 #include <stdint.h>
+#include <mutex>
 
 namespace {
 
-template <typename T>
-T resolve(const char* name) {
-    return reinterpret_cast<T>(dlsym(RTLD_DEFAULT, name));
-}
+JavaVM* g_vm = nullptr;
+jobject g_vpn_service = nullptr;
+std::mutex g_vpn_mutex;
 
 jstring makeString(JNIEnv* env, const char* value) {
     return env->NewStringUTF(value == nullptr ? "" : value);
@@ -18,6 +18,45 @@ void throwState(JNIEnv* env, const char* message) {
 }
 
 }  // namespace
+
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*,) {
+    g_vm = vm;
+    return JNI_VERSION_1_6;
+}
+
+extern "C" __attribute__((visibility("default"))) int
+angelanexus_protect_fd(int fd) {
+    std::lock_guard<std::mutex> lock(g_vpn_mutex);
+    if (g_vm == nullptr || g_vpn_service == nullptr || fd < 0) {
+        return 0;
+    }
+
+    JNIEnv* env = nullptr;
+    bool attached = false;
+    const jint getEnvResult = g_vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+    if (getEnvResult == JNI_EDETACHED) {
+        if (g_vm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
+            return 0;
+        }
+        attached = true;
+    } else if (getEnvResult != JNI_OK) {
+        return 0;
+    }
+
+    const jclass clazz = env->GetObjectClass(g_vpn_service);
+    const jmethodID protect = clazz == nullptr ? nullptr : env->GetMethodID(clazz, "protect", "(I)Z");
+    const jboolean result = protect == nullptr ? JNI_FALSE : env->CallBooleanMethod(g_vpn_service, protect, fd);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+    if (clazz != nullptr) {
+        env->DeleteLocalRef(clazz);
+    }
+    if (attached) {
+        g_vm->DetachCurrentThread();
+    }
+    return result == JNI_TRUE ? 1 : 0;
+}
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_app_angelanexus_MihomoJniNativeHost_nativeApplyConfig(
@@ -35,6 +74,26 @@ Java_app_angelanexus_MihomoJniNativeHost_nativeApplyConfig(
     jstring result = makeString(env, error);
     freeCString(error);
     return result;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_angelanexus_MihomoJniNativeHost_nativeSetVpnService(
+    JNIEnv* env, jobject, jobject service) {
+    std::lock_guard<std::mutex> lock(g_vpn_mutex);
+    if (g_vpn_service != nullptr) {
+        env->DeleteGlobalRef(g_vpn_service);
+        g_vpn_service = nullptr;
+    }
+    if (service != nullptr) {
+        g_vpn_service = env->NewGlobalRef(service);
+    }
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_app_angelanexus_MihomoJniNativeHost_nativeHasVpnProtector(
+    JNIEnv*, jobject) {
+    std::lock_guard<std::mutex> lock(g_vpn_mutex);
+    return (g_vm != nullptr && g_vpn_service != nullptr) ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
