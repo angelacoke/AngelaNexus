@@ -35,7 +35,7 @@ export function selectAndroidTransparentMode(requestedMode = ANDROID_TRANSPARENT
     ? requestedMode
     : ANDROID_TRANSPARENT_MODES.AUTO;
   const rootReady = has(capabilities, "root") && has(capabilities, "root-authorized");
-  const rootComplete = rootReady && ["tcp", "udp", "dns", "ipv4", "ipv6", "uid-identity", "process-identity", "policy-routing", "atomic-rollback"]
+  const rootComplete = rootReady && ["tcp", "udp", "dns", "ipv4", "ipv6", "uid-identity", "policy-routing", "atomic-rollback"]
     .every((key) => has(capabilities, key));
   if (requested === ANDROID_TRANSPARENT_MODES.ROOT) {
     return Object.freeze({
