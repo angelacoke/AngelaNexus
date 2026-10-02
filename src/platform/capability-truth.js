@@ -64,7 +64,7 @@ export function evaluateCapabilityTruth({
 
 export function capabilityTruthFromBackend(backend, evidence = {}, runtime = {}) {
   if (!backend || typeof backend !== "object") throw new Error("backend is required");
-  const verified = backend.maturity === "supported" || evidence[backend.id] === true;
+  const verified = evidence[backend.id] === true || runtime.verified === true;
   const operational = verified && runtime.operational === true;
   const healthy = operational && runtime.healthy === true;
   return evaluateCapabilityTruth({
