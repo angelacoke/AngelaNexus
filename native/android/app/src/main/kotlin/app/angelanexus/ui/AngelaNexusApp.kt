@@ -119,7 +119,7 @@ private fun SettingsScreen(
                 }
             }
         }
-        item { InfoCard(R.string.security, R.string.security_description) }
+        item { InfoCard(R.string.security, stringResource(R.string.security_description)) }
     }
     if (languageDialog) {
         AlertDialog(
