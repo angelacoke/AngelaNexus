@@ -92,3 +92,15 @@ test("cryptographically valid but semantically unsafe source cannot activate", a
   assert.equal(result.stage, "semantic");
   assert.equal(store.getActive(), null);
 });
+
+test("semantic validator rejects broad direct security-boundary bypass", () => {
+  const result = validateRuleSourceSemantics(Buffer.from(JSON.stringify({
+    rules: [{
+      id: "broad-bypass",
+      match: { ip_cidr: "0.0.0.0/0" },
+      action: { type: "bypass", target: "direct" }
+    }]
+  }), "utf8"));
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some(item => item.code === "RULE_SOURCE_BROAD_SECURITY_BYPASS"));
+});
