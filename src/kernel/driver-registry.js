@@ -17,14 +17,25 @@ function createDriver(kernel) {
   const adapter = adapterFor(kernel);
   if (!adapter) throw new Error("kernel adapter is unavailable: " + kernel);
 
+  const nativePlatforms = kernel === Kernels.MIHOMO ? new Set(["android"]) : new Set();
+
   return createKernelDriver({
     kernel,
     capabilities: [
       KernelDriverCapabilities.NODE_COMPILE,
       KernelDriverCapabilities.PIPELINE_COMPILE,
       KernelDriverCapabilities.PROCESS_RUNTIME,
+      ...(nativePlatforms.size ? [KernelDriverCapabilities.NATIVE_RUNTIME] : []),
     ],
     adapter,
+    match(plan) {
+      const runtime = plan?.runtime;
+      if (!runtime || runtime.selectedMode !== "native") return { preference: "compatible", reason: "process runtime or unspecified runtime" };
+      if (!nativePlatforms.has(String(runtime.platform || "").toLowerCase())) {
+        return { compatible: false, reason: "native runtime is not implemented for this kernel/platform" };
+      }
+      return { preference: "native-runtime", reason: "registered native runtime capability matches the selected platform" };
+    },
     compileNode(node, context = {}) {
       return compileSingleNode(node, kernel, context);
     },
@@ -45,6 +56,15 @@ function createDriver(kernel) {
       });
     },
     createRuntime(options = {}) {
+      if (options.runtimeMode === "native") {
+        if (!nativePlatforms.has(String(options.platform || "").toLowerCase())) {
+          throw new Error("native runtime is not implemented for kernel/platform: " + kernel + "/" + options.platform);
+        }
+        if (typeof options.nativeRuntimeFactory !== "function") {
+          throw new Error("native runtime selected but nativeRuntimeFactory is unavailable");
+        }
+        return options.nativeRuntimeFactory(kernel, options);
+      }
       return createKernelRuntime(kernel, options);
     },
   });
