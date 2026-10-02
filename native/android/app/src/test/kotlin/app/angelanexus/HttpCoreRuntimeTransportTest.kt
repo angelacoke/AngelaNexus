@@ -28,8 +28,8 @@ class HttpCoreRuntimeTransportTest {
         transport.sendConfigurationImport("""{"type":"angelanexus.config-import"}""")
 
         method = connection.requestMethod
-        contentType = connection.requestProperty("Content-Type")
-        accept = connection.requestProperty("Accept")
+        contentType = connection.getRequestProperty("Content-Type")
+        accept = connection.getRequestProperty("Accept")
         body = connection.body
 
         assertEquals("POST", method)
@@ -40,7 +40,7 @@ class HttpCoreRuntimeTransportTest {
     }
 
     @Test
-    fun failsClosedWhenCoreRejectsImport() = kotlinx.coroutines.test.runTest {
+    fun failsClosedWhenCoreRejectsImport() = runSuspend {
         val connection = RecordingConnection(
             URI("http://127.0.0.1:18181/v1/runtime/import"),
             responseCode = 503
