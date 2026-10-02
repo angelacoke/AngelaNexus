@@ -109,13 +109,17 @@ jobs:
           MIHOMO_COMMIT: "88dcbf7f1614a67c3b36b848ee3592dfa92ada36"
           MIHOMO_VERSION: "1.19.32"
           NDK_VERSION: "28.0.13004108"
+          ANDROID_NDK_ROOT: "/usr/local/lib/android/sdk/ndk/28.0.13004108"
         run: |
           set -euo pipefail
           ARTIFACT="$RUNNER_TEMP/libclash-${{ matrix.abi }}.so"
           ARTIFACT_SHA256="$(sha256sum "$ARTIFACT" | awk '{print $1}')"
           BRIDGE_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge.go" | awk '{print $1}')"
           GO_VERSION="$(go version | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
-          COMPILER_VERSION="$("$CC" --version | head -n 1 | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+          NDK_BIN="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          CC_PATH="$NDK_BIN/${{ matrix.cc }}"
+          test -x "$CC_PATH"
+          COMPILER_VERSION="$("$CC_PATH" --version | head -n 1 | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
           SOURCE_HEAD="$(git -C "$RUNNER_TEMP/mihomo" rev-parse HEAD)"
           test "$SOURCE_HEAD" = "$MIHOMO_COMMIT"
           python3 - <<PY
