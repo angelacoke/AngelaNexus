@@ -46,8 +46,6 @@ const REQUIRED_TRUE = Object.freeze([
   "secretProtection", "configIntegrityProtection", "runtimeVerification",
   "ruleSourceProtection", "ruleSourceRequireSignature", "ruleSourceRequireDigest",
   "ruleSourceRequireFreshness", "applicationIntegrityProtection",
-  "ruleSourceProtection", "ruleSourceRequireSignature", "ruleSourceRequireDigest",
-  "ruleSourceRequireFreshness", "applicationIntegrityProtection",
   "blockWebRTC3478", "ipv6LeakBlackhole", "encryptedDns"
 ]);
 
@@ -57,6 +55,8 @@ const SECURITY_KEYS = Object.freeze([
   "tunBypassPrevention", "systemProxyBypassPrevention", "appBypassPrevention",
   "secureDnsBootstrap", "startupRaceProtection", "subscriptionUpdateProtection",
   "secretProtection", "configIntegrityProtection", "runtimeVerification",
+  "ruleSourceProtection", "ruleSourceRequireSignature", "ruleSourceRequireDigest",
+  "ruleSourceRequireFreshness", "applicationIntegrityProtection",
   "blockWebRTC3478", "ipv6LeakBlackhole", "encryptedDns", "gfwResilience"
 ]);
 
