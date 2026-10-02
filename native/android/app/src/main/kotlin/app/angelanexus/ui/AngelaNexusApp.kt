@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -30,7 +31,9 @@ fun AngelaNexusApp(
     rootAvailable: Boolean,
     onTransparentModeChange: (AndroidTransparentMode) -> Unit,
     onImportConfig: () -> Unit,
-    onStartVpn: () -> Unit
+    onStartVpn: () -> Unit,
+    currentLocaleTag: String,
+    onLocaleSelected: (String?) -> Unit
 ) {
     var selected by remember { mutableIntStateOf(0) }
     Scaffold(
@@ -47,7 +50,7 @@ fun AngelaNexusApp(
             1 -> ProfilesScreen(padding, onImportConfig)
             2 -> ProxiesScreen(padding)
             3 -> RulesScreen(padding)
-            else -> SettingsScreen(padding, darkTheme)
+            else -> SettingsScreen(padding, darkTheme, currentLocaleTag, onLocaleSelected)
         }
     }
 }
@@ -87,7 +90,64 @@ private fun ConnectionCard(mode: AndroidTransparentMode, rootAvailable: Boolean,
 @Composable private fun ProfilesScreen(padding: PaddingValues, onImport: () -> Unit) { LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { item { PageHeader("配置", "订阅、文件和单节点统一进入自动识别流水线") }; item { FilledTonalButton(onClick = onImport, Modifier.fillMaxWidth()) { Text("添加配置") } }; item { ProfileCard("尚未导入配置", "支持订阅链接、本地文件、单节点及多节点") } } }
 @Composable private fun ProxiesScreen(padding: PaddingValues) { LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp)) { item { PageHeader("代理", "统一展示不同内核的节点与策略组") } } }
 @Composable private fun RulesScreen(padding: PaddingValues) { LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp)) { item { PageHeader("规则", "路由、防泄露、中国网络环境与 GFW 感知") } } }
-@Composable private fun SettingsScreen(padding: PaddingValues, darkTheme: Boolean) { LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp)) { item { PageHeader("设置", "平台能力与用户偏好") }; item { InfoCard("外观", if (darkTheme) "深色模式" else "跟随系统") }; item { InfoCard("安全", "零意外直连、DNS/IPv6/QUIC 等策略由 Core 统一管理") } } }
+@Composable
+private fun SettingsScreen(
+    padding: PaddingValues,
+    darkTheme: Boolean,
+    currentLocaleTag: String,
+    onLocaleSelected: (String?) -> Unit
+) {
+    var languageDialog by remember { mutableStateOf(false) }
+    val languageName = when (currentLocaleTag) {
+        "zh-CN" -> stringResource(R.string.language_chinese)
+        "ru" -> stringResource(R.string.language_russian)
+        "fa" -> stringResource(R.string.language_persian)
+        else -> stringResource(R.string.language_english)
+    }
+    LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp)) {
+        item { PageHeader("设置", "平台能力与用户偏好") }
+        item { InfoCard("外观", if (darkTheme) "深色模式" else "跟随系统") }
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(18.dp)) {
+                    Text(stringResource(R.string.language), style = MaterialTheme.typography.labelLarge)
+                    Text(languageName, style = MaterialTheme.typography.bodyLarge)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = { languageDialog = true }) {
+                        Text(stringResource(R.string.language))
+                    }
+                }
+            }
+        }
+        item { InfoCard("安全", "零意外直连、DNS/IPv6/QUIC 等策略由 Core 统一管理") }
+    }
+    if (languageDialog) {
+        AlertDialog(
+            onDismissRequest = { languageDialog = false },
+            title = { Text(stringResource(R.string.language)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf(
+                        null to stringResource(R.string.follow_system),
+                        "en" to stringResource(R.string.language_english),
+                        "zh-CN" to stringResource(R.string.language_chinese),
+                        "ru" to stringResource(R.string.language_russian),
+                        "fa" to stringResource(R.string.language_persian)
+                    ).forEach { (tag, label) ->
+                        TextButton(
+                            onClick = {
+                                languageDialog = false
+                                onLocaleSelected(tag)
+                            },
+                            Modifier.fillMaxWidth()
+                        ) { Text(label) }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { languageDialog = false }) { Text(stringResource(android.R.string.cancel)) } }
+        )
+    }
+}
 @Composable private fun PageHeader(title: String, subtitle: String) { Column(Modifier.padding(vertical = 8.dp)) { Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text(subtitle, style = MaterialTheme.typography.bodyMedium) } }
 @Composable private fun SectionTitle(text: String) { Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
 @Composable private fun ProfileCard(title: String, subtitle: String) { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(18.dp)) { Text(title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(subtitle, style = MaterialTheme.typography.bodySmall) } } }
