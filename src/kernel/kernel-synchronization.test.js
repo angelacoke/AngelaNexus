@@ -23,7 +23,9 @@ test("all three execution kernels are registered and synchronized", () => {
     assert.equal(kernel.capabilities.includes("process-runtime"), true);
     assert.equal(kernel.upstreamStable, true);
     assert.equal(kernel.upstreamRepository, true);
-    assert.equal(kernel.conformanceVerification, true);\n    assert.deepEqual(kernel.conformance.fixtures, ["vless-reality"]);\n    assert.equal(typeof kernel.conformance.capabilityProbes.wireguard, "string");
+    assert.equal(kernel.conformanceVerification, true);
+    assert.deepEqual(kernel.conformance.fixtures, ["vless-reality"]);
+    assert.equal(typeof kernel.conformance.capabilityProbes.wireguard, "string");
     assert.equal(kernel.runtimeDeclared, true);
     assert.equal(Object.prototype.hasOwnProperty.call(kernel.runtime, "reloadSignal"), true);
   }
