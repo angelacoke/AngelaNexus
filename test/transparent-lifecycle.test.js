@@ -35,3 +35,36 @@ test("failed activation can roll back to the previous backend", () => {
   assert.equal(lifecycle.snapshot().activeBackend, "linux-tun");
   assert.equal(canAdmitNewFlows(lifecycle.snapshot()), true);
 });
+
+test("failed lifecycle cannot silently re-enter admission or activation", () => {
+  const lifecycle = createTransparentLifecycle();
+  lifecycle.beginAdmission("linux-tun");
+  lifecycle.activate();
+  lifecycle.fail("kernel-rollback-failed");
+
+  const failed = lifecycle.snapshot();
+  assert.equal(failed.state, TransparentLifecycleStates.FAILED);
+  assert.equal(failed.admitted, false);
+  assert.equal(canAdmitNewFlows(failed), false);
+
+  assert.throws(
+    () => lifecycle.beginAdmission("linux-tproxy"),
+    /cannot begin admission from failed/,
+  );
+  assert.throws(
+    () => lifecycle.activate(),
+    /cannot activate from failed/,
+  );
+  assert.throws(
+    () => lifecycle.beginDrain(),
+    /cannot drain from failed/,
+  );
+  assert.throws(
+    () => lifecycle.recover(),
+    /cannot recover from failed/,
+  );
+
+  assert.equal(lifecycle.snapshot().state, TransparentLifecycleStates.FAILED);
+  assert.equal(canAdmitNewFlows(lifecycle.snapshot()), false);
+});
+
