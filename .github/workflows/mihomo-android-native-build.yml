@@ -94,7 +94,7 @@ jobs:
             -o "$RUNNER_TEMP/libclash-${{ matrix.abi }}.so" \
             .
 
-      - name: Verify native artifact
+      - name: Verify native artifact and generate provenance
         shell: bash
         run: |
           set -euo pipefail
@@ -103,10 +103,48 @@ jobs:
           sha256sum "$RUNNER_TEMP/libclash-${{ matrix.abi }}.so"
           nm -D --defined-only "$RUNNER_TEMP/libclash-${{ matrix.abi }}.so" | grep -E "angelaInit|angelaApplyConfig|startTUN|stopTun|suspend|forceGC|getTraffic|getTotalTraffic|freeCString"
 
-      - name: Upload verified native artifact
+      - name: Generate native build provenance evidence
+        shell: bash
+        env:
+          MIHOMO_COMMIT: "88dcbf7f1614a67c3b36b848ee3592dfa92ada36"
+          MIHOMO_VERSION: "1.19.32"
+          NDK_VERSION: "28.0.13004108"
+        run: |
+          set -euo pipefail
+          ARTIFACT="$RUNNER_TEMP/libclash-${{ matrix.abi }}.so"
+          ARTIFACT_SHA256="$(sha256sum "$ARTIFACT" | awk '{print $1}')"
+          BRIDGE_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge.go" | awk '{print $1}')"
+          GO_VERSION="$(go version | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+          COMPILER_VERSION="$("$CC" --version | head -n 1 | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+          SOURCE_HEAD="$(git -C "$RUNNER_TEMP/mihomo" rev-parse HEAD)"
+          test "$SOURCE_HEAD" = "$MIHOMO_COMMIT"
+          python3 - <<PY
+          import json
+          from pathlib import Path
+          out = Path("$RUNNER_TEMP/mihomo-provenance-${{ matrix.abi }}.json")
+          data = {
+              "version": 1,
+              "kernel": "mihomo",
+              "kernelVersion": "$MIHOMO_VERSION",
+              "source": {"repository": "https://github.com/MetaCubeX/mihomo", "commit": "$SOURCE_HEAD"},
+              "platform": "android",
+              "abi": "${{ matrix.abi }}",
+              "toolchain": {"go": "$GO_VERSION", "androidNdk": "$NDK_VERSION", "compiler": "$COMPILER_VERSION", "goos": "android", "goarch": "${{ matrix.goarch }}", "goarm": "7" if "${{ matrix.goarch }}" == "arm" else None, "cgoEnabled": True},
+              "build": {"trimpath": True, "buildmode": "c-shared", "tags": ["with_gvisor", "cmfa"], "versionLdflag": "github.com/metacubex/mihomo/constant.Version=v1.19.32"},
+              "bridge": {"path": "native/android/mihomo-bridge/bridge.go", "sha256": "$BRIDGE_SHA256"},
+              "artifact": {"name": "libclash-${{ matrix.abi }}.so", "sha256": "$ARTIFACT_SHA256"},
+          }
+          out.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+          test -s "$RUNNER_TEMP/mihomo-provenance-${{ matrix.abi }}.json"
+          cat "$RUNNER_TEMP/mihomo-provenance-${{ matrix.abi }}.json"
+
+      - name: Upload verified native artifact and provenance
         uses: actions/upload-artifact@v4
         with:
           name: mihomo-v1.19.32-${{ matrix.abi }}
-          path: ${{ runner.temp }}/libclash-${{ matrix.abi }}.so
+          path: |
+            ${{ runner.temp }}/libclash-${{ matrix.abi }}.so
+            ${{ runner.temp }}/mihomo-provenance-${{ matrix.abi }}.json
           if-no-files-found: error
           retention-days: 14
