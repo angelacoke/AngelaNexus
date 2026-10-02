@@ -6,7 +6,6 @@ import android.app.NotificationManager
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
-import androidx.core.app.NotificationCompat
 
 /**
  * System VPN execution boundary.
@@ -104,12 +103,22 @@ class AngelaNexusVpnService : VpnService() {
                 ),
             )
         }
-        return NotificationCompat.Builder(this, channelId)
-            .setSmallIcon(R.drawable.angelanexus_logo)
-            .setContentTitle(getString(R.string.app_name))
-            .setContentText(getString(R.string.status_vpn_boundary_started))
-            .setOngoing(true)
-            .build()
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, channelId)
+                .setSmallIcon(R.drawable.angelanexus_logo)
+                .setContentTitle(getString(R.string.app_name))
+                .setContentText(getString(R.string.status_vpn_boundary_started))
+                .setOngoing(true)
+                .build()
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+                .setSmallIcon(R.drawable.angelanexus_logo)
+                .setContentTitle(getString(R.string.app_name))
+                .setContentText(getString(R.string.status_vpn_boundary_started))
+                .setOngoing(true)
+                .build()
+        }
     }
 
     companion object {
