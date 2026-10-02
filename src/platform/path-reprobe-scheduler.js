@@ -28,7 +28,7 @@ export function createPathReprobeScheduler({
 
   const policy = Object.freeze({
     enabled: userPolicy.enabled === true,
-    minIntervalMs: positiveNumber(userPolicy.minIntervalMs, 30_000, 86_400_000),
+    minIntervalMs: positiveNumber(userPolicy.minIntervalMs, 1_000, 86_400_000),
     baseBackoffMs: positiveNumber(userPolicy.baseBackoffMs, 30_000, 86_400_000),
     maxBackoffMs: positiveNumber(userPolicy.maxBackoffMs, 15 * 60_000, 7 * 86_400_000),
     cooldownMs: positiveNumber(userPolicy.cooldownMs, 60_000, 7 * 86_400_000),
