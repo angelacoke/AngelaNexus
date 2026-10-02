@@ -9,7 +9,11 @@ JavaVM* g_vm = nullptr;
 jobject g_vpn_service = nullptr;
 std::mutex g_vpn_mutex;
 
-template <typename T>\nT resolve(const char* name) {\n    return reinterpret_cast<T>(dlsym(RTLD_DEFAULT, name));\n}\n
+template <typename T>
+T resolve(const char* name) {
+    return reinterpret_cast<T>(dlsym(RTLD_DEFAULT, name));
+}
+
 jstring makeString(JNIEnv* env, const char* value) {
     return env->NewStringUTF(value == nullptr ? "" : value);
 }
