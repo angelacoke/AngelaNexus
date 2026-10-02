@@ -6,10 +6,14 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.EmptyCoroutineContext
+import kotlin.coroutines.startCoroutine
+
 
 class HttpCoreRuntimeTransportTest {
     @Test
-    fun sendsSerializedEnvelopeToCoreEndpoint() = kotlinx.coroutines.test.runTest {
+    fun sendsSerializedEnvelopeToCoreEndpoint() = runSuspend {
         var method: String? = null
         var contentType: String? = null
         var accept: String? = null
@@ -50,6 +54,20 @@ class HttpCoreRuntimeTransportTest {
             transport.sendConfigurationImport("{}")
         }
         assertTrue(connection.disconnected)
+    }
+
+    private fun runSuspend(block: suspend () -> Unit) {
+        var failure: Throwable? = null
+        var completed = false
+        block.startCoroutine(object : Continuation<Unit> {
+            override val context = EmptyCoroutineContext
+            override fun resumeWith(result: Result<Unit>) {
+                completed = true
+                failure = result.exceptionOrNull()
+            }
+        })
+        assertTrue(completed)
+        failure?.let { throw it }
     }
 
     private class RecordingConnection(url: URI, private val responseCode: Int = 204) :
