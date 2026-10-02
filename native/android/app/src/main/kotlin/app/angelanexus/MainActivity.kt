@@ -92,7 +92,7 @@ private fun AngelaNexusRoot() {
             AndroidTransparentMode.SYSTEM -> {
                 val intent = VpnService.prepare(context)
                 if (intent == null) {
-                    status = "vpn-runtime-not-ready"
+                    status = AndroidUiStatus.VPN_RUNTIME_NOT_READY
                 } else {
                     vpnLauncher.launch(intent)
                 }
