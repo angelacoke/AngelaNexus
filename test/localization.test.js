@@ -1,0 +1,7 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { SUPPORTED_LOCALES, DEFAULT_LOCALE, LOCALE_METADATA, isSupportedLocale, resolveLocale, createLocaleState } from "../src/ui/localization.js";
+test("supports the four product UI locales",()=>{assert.deepEqual(SUPPORTED_LOCALES,["en","zh-CN","ru","fa"]);assert.equal(DEFAULT_LOCALE,"en");assert.equal(LOCALE_METADATA["zh-CN"].nativeName,"简体中文");assert.equal(LOCALE_METADATA.ru.nativeName,"Русский");assert.equal(LOCALE_METADATA.fa.nativeName,"فارسی");});
+test("accepts common regional locale identifiers",()=>{assert.equal(isSupportedLocale("en-US"),true);assert.equal(isSupportedLocale("zh"),true);assert.equal(isSupportedLocale("zh_CN"),true);assert.equal(isSupportedLocale("ru-RU"),true);assert.equal(isSupportedLocale("fa-IR"),true);assert.equal(resolveLocale("en-US"),"en");assert.equal(resolveLocale("zh"),"zh-CN");assert.equal(resolveLocale("zh_CN"),"zh-CN");assert.equal(resolveLocale("ru-RU"),"ru");assert.equal(resolveLocale("fa-IR"),"fa");});
+test("locale resolution falls back to English",()=>{assert.equal(resolveLocale("de"),"en");assert.equal(resolveLocale(null),"en");assert.equal(resolveLocale("de-DE","ru-RU"),"ru");assert.equal(resolveLocale("de-DE","unsupported"),"en");});
+test("Persian is right-to-left",()=>{assert.equal(createLocaleState("fa").direction,"rtl");assert.equal(createLocaleState("fa-IR").direction,"rtl");assert.equal(createLocaleState("en").direction,"ltr");});
