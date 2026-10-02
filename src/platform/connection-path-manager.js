@@ -104,11 +104,19 @@ export function createConnectionPathManager({
     });
   }
 
+  function evaluateRegistry(registry) {
+    if (!registry || typeof registry.list !== "function") {
+      return evaluate([]);
+    }
+    return evaluate(registry.list());
+  }
+
   return Object.freeze({
     version: CONNECTION_PATH_MANAGER_VERSION,
     snapshot() {
       return Object.freeze({ version: CONNECTION_PATH_MANAGER_VERSION, policy });
     },
     evaluate,
+    evaluateRegistry,
   });
 }
