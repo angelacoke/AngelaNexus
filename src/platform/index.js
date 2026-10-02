@@ -204,3 +204,9 @@ export {
   PLATFORM_NATIVE_PROBE_BINDING_VERSION,
   createPlatformNativeProbeBinding,
 } from "./platform-native-probe-binding.js";
+export {
+  PLATFORM_NATIVE_PATH_DRIVER_VERSION,
+  NativePathDriverIds,
+  inspectNativePathDriver,
+  createNativePathDriverBinding,
+} from "./platform-native-path-drivers.js";
