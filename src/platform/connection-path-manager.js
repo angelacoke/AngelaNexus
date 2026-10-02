@@ -182,6 +182,7 @@ export function createConnectionPathManager({
     decisionId = null,
     attributes = {},
     pathRegistry = null,
+    reprobeScheduler = null,
   } = {}) {
     const id = typeof pathId === "string" ? pathId.trim() : "";
     const allowedOutcomes = new Set(["success", "degraded", "failure"]);
