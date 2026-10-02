@@ -6,7 +6,7 @@ import {
   createConnectionPathManager,
 } from "./connection-path-manager.js";
 import { createPathRegistry } from "../core/path-registry.js";
-import { createNetworkEvidenceStore } from "../core/network-evidence.js";
+import { createNetworkEvidenceStore } from "../core/network-evidence.js";\nimport { createPathReprobeScheduler } from "./path-reprobe-scheduler.js";
 
 function path(id) {
   return {
@@ -170,4 +170,26 @@ test("recovery remains disabled by default", () => {
   const result = manager.recordOutcome({ pathId: "relay-c", outcome: "failure", evidenceStore: evidence, pathRegistry: registry });
   assert.equal(result.recoveryEligible, false);
   assert.equal(registry.get("relay-c").state, "active");
+});
+
+
+test("outcome feedback schedules a bounded re-probe only when the scheduler is enabled", () => {
+  const evidence = createNetworkEvidenceStore({ now: () => 8000 });
+  const scheduler = createPathReprobeScheduler({
+    now: () => 8000,
+    userPolicy: { enabled: true, lowPower: false, baseBackoffMs: 1000 },
+  });
+  const manager = createConnectionPathManager({
+    now: () => 8000,
+    userPolicy: { reprobePolicy: "on-failure" },
+  });
+  const result = manager.recordOutcome({
+    pathId: "direct",
+    outcome: "failure",
+    evidenceStore: evidence,
+    reprobeScheduler: scheduler,
+  });
+  assert.equal(result.reprobeRecommended, true);
+  assert.equal(result.schedulerAction, "scheduled");
+  assert.equal(scheduler.get("direct").state, "scheduled");
 });
