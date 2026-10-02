@@ -32,3 +32,16 @@ test("transparent proxy configuration remains fail-closed", () => {
   assert.equal(config.security.failClosed, true);
   assert.equal(config.security.allowDirectFallback, false);
 });
+
+test("transparent runtime exposes capability truth instead of overclaiming health", () => {
+  const result = resolveTransparentBackend({
+    platform: "linux",
+    requiredCapabilities: ["tcp", "udp", "original-destination", "policy-routing"],
+    evidence: { "linux-tproxy": true },
+    runtime: { operational: true, healthy: false },
+    preferred: ["linux-tproxy"],
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.truth.state, "operational");
+  assert.equal(result.truth.rank, 3);
+});
