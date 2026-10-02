@@ -8,6 +8,11 @@ export {
   getKernelRuntimeCapabilities,
   supportsKernelRuntime,
 } from "./runtime-capabilities.js";
+export {
+  RUNTIME_BOUNDARY_VERSION,
+  resolveKernelRuntimeMode,
+  requireKernelRuntimeMode,
+} from "./runtime-boundary.js";
 
 export {
   KernelDriverCapabilities,
@@ -20,4 +25,10 @@ export {
   describeKernelDrivers,
 } from "./driver-registry.js";
 
-export { KERNEL_SYNCHRONIZATION_VERSION, REQUIRED_KERNELS, KERNEL_SYNC_REQUIREMENTS, inspectKernelSynchronization, requireKernelSynchronization } from "./kernel-synchronization.js";
+export {
+  KERNEL_SYNCHRONIZATION_VERSION,
+  REQUIRED_KERNELS,
+  KERNEL_SYNC_REQUIREMENTS,
+  inspectKernelSynchronization,
+  requireKernelSynchronization,
+} from "./kernel-synchronization.js";
