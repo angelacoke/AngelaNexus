@@ -67,6 +67,7 @@ jobs:
           grep -q "func startTUN" ./angelanexus_android_bridge.go
           grep -q "angelanexusProtectFd" ./angelanexus_android_bridge.go
           gofmt -w ./angelanexus_android_bridge.go
+          test -z "$(gofmt -d ./angelanexus_android_bridge.go)"
 
       - name: Build native shared object
         shell: bash
