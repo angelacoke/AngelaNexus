@@ -6,6 +6,7 @@ import yaml from "js-yaml";
 import { compileUnifiedConfig } from "../src/core/config-compiler.js";
 import { Kernels } from "../src/core/model.js";
 import { classifyRuntimeProbeResult } from "../src/core/runtime-probe.js";
+import { getKernelUpstream } from "../src/core/kernel-registry.js";
 
 const fixtures = {
   [Kernels.MIHOMO]: {
@@ -205,11 +206,9 @@ try {
     });
   }
 
-  const expectedWireguard = {
-    [Kernels.MIHOMO]: "supported",
-    [Kernels.SING_BOX]: "rejected",
-    [Kernels.XRAY]: "supported"
-  };
+  const expectedWireguard = Object.fromEntries(
+    Object.values(Kernels).map(kernel => [kernel, getKernelUpstream(kernel).conformance.capabilityProbes.wireguard])
+  );
 
   for (const item of wireguardReport) {
     if (item.status === "not-run") continue;
