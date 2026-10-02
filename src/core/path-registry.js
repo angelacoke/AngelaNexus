@@ -63,7 +63,9 @@ export function createPathRegistry({ maxEntries = 128 } = {}) {
   }
 
   function remove(id) {
-    return Object.freeze({ ok: entries.delete(id), reason: entries.has(id) ? null : "path-not-found" });
+    const existed = entries.has(id);
+    if (existed) entries.delete(id);
+    return Object.freeze({ ok: existed, reason: existed ? null : "path-not-found" });
   }
 
   function get(id) {
