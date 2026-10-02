@@ -59,7 +59,8 @@ test("factory binds Android transparent capability only when runtime evidence is
     { mode: "root", androidTransparentRuntime: androidRuntime() },
   );
   assert.equal(factory.supported, true);
-  assert.equal(factory.transparentBinding.mode, "root");
+  assert.equal(factory.mode, "root");
+  assert.equal(factory.transparentBinding.supported, true);
   const result = await factory.transparentBinding.probePath({ pathId: "p-root" });
   assert.equal(result.result, "success");
   assert.equal(result.mode, "root");
