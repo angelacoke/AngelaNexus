@@ -55,3 +55,4 @@ export * from "./ui/locale-state.js";
 export * from "./ui/translations.js";
 export * from "./ui/semantic-localization.js";
 export * from "./ui/locale-preference.js";
+export * from "./ui/locale-preference-state.js";
