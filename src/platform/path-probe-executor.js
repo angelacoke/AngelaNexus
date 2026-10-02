@@ -1,4 +1,4 @@
-export const PATH_PROBE_EXECUTOR_VERSION = 1;
+export const PATH_PROBE_EXECUTOR_VERSION = 2;
 
 export const PathProbeResults = Object.freeze({
   SUCCESS: "success",
@@ -6,6 +6,16 @@ export const PathProbeResults = Object.freeze({
   FAILURE: "failure",
   REJECTED: "rejected",
 });
+
+function normalizeProbeResult(result) {
+  if (typeof result === "string") {
+    return Object.freeze({ result });
+  }
+  if (!result || typeof result !== "object") {
+    return Object.freeze({ result: PathProbeResults.FAILURE });
+  }
+  return Object.freeze({ ...result });
+}
 
 export function createPathProbeExecutor({
   platform,
@@ -71,16 +81,17 @@ export function createPathProbeExecutor({
 
     const startedAt = Date.now();
     try {
-      const result = await probe(Object.freeze({
+      const nativeResult = await probe(Object.freeze({
         pathId: gate.pathId,
         reason: task.reason,
         attempt: task.attempts,
         platform: snapshot.platform,
       }));
-      const normalized = result === PathProbeResults.SUCCESS ||
-        result === PathProbeResults.DEGRADED ||
-        result === PathProbeResults.FAILURE
-        ? result
+      const normalizedNativeResult = normalizeProbeResult(nativeResult);
+      const normalized = normalizedNativeResult.result === PathProbeResults.SUCCESS ||
+        normalizedNativeResult.result === PathProbeResults.DEGRADED ||
+        normalizedNativeResult.result === PathProbeResults.FAILURE
+        ? normalizedNativeResult.result
         : PathProbeResults.FAILURE;
 
       return Object.freeze({
@@ -88,6 +99,11 @@ export function createPathProbeExecutor({
         result: normalized,
         pathId: gate.pathId,
         durationMs: Math.max(0, Date.now() - startedAt),
+        ...(normalizedNativeResult.result === normalized
+          ? Object.fromEntries(
+              Object.entries(normalizedNativeResult).filter(([key]) => key !== "result"),
+            )
+          : {}),
       });
     } catch (error) {
       return Object.freeze({
