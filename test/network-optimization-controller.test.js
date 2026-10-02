@@ -133,3 +133,45 @@ test("unverified capability cannot trigger kernel-affecting optimization", () =>
   assert.equal(result.decision.reason, "optimization-capability-not-verified");
   assert.equal(lifecycle.snapshot().state, TransparentLifecycleStates.ACTIVE);
 });
+
+test("kernel execution boundary is mandatory for optimization activation", () => {
+  const lifecycle = activeLifecycle();
+  const controller = createNetworkOptimizationController({
+    lifecycle,
+    userEnabled: true,
+    requestedAction: OptimizationActions.CONSERVATIVE,
+  });
+  const result = controller.apply({
+    telemetry: { rttMs: 120, baseRttMs: 100, queueingDelayMs: 2, samples: 20 },
+    capabilityVerified: true,
+    securityHealthy: true,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.phase, "executor");
+  assert.equal(result.reason, "optimization-executor-not-bound");
+  assert.equal(lifecycle.snapshot().state, TransparentLifecycleStates.ACTIVE);
+});
+
+test("kernel execution boundary must succeed before optimization is committed", () => {
+  const lifecycle = activeLifecycle();
+  const calls = [];
+  const controller = createNetworkOptimizationController({
+    lifecycle,
+    userEnabled: true,
+    requestedAction: OptimizationActions.CONSERVATIVE,
+  });
+  const result = controller.apply({
+    telemetry: { rttMs: 120, baseRttMs: 100, queueingDelayMs: 2, samples: 20 },
+    capabilityVerified: true,
+    securityHealthy: true,
+    optimizationExecutor: (request) => {
+      calls.push(request);
+      return true;
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.action, OptimizationActions.CONSERVATIVE);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].action, OptimizationActions.CONSERVATIVE);
+  assert.equal(lifecycle.snapshot().state, TransparentLifecycleStates.ACTIVE);
+});
