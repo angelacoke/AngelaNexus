@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">AngelaNexus</string>
+    <string name="app_subtitle">Интеллектуальная сетевая прокси-платформа</string>
+    <string name="status_ready">Состояние: уровень приложения запущен; интеграция среды выполнения ядра ожидается</string>
+    <string name="status_select_config">Состояние: ожидается выбор конфигурации</string>
+    <string name="status_vpn_boundary_started">Состояние: граница Android VPN запущена</string>
+    <string name="import_config">Импорт конфигурации</string>
+    <string name="test_vpn_boundary">Запустить границу VPN</string>
+    <string name="kernel_status">Среды выполнения: Mihomo / sing-box / Xray (единый уровень платформы; интеграция Android ожидается)</string>
+    <string name="vpn_boundary_notice">Сейчас проверена только граница VpnService Android; это не означает, что прокси-трафик уже перехватывается.</string>
+    <string name="language">Язык</string>
+</resources>
