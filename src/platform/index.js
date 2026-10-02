@@ -192,3 +192,9 @@ export { PLATFORM_PATH_PROBE_ADAPTER_VERSION, createPlatformPathProbeAdapter } f
 export { PATH_REPROBE_RUNTIME_VERSION, createPathReprobeRuntime } from "./path-reprobe-runtime.js";
 
 export { PLATFORM_PATH_PROBE_PROFILES, createPlatformPathProbeBinding, inspectPlatformPathProbeCapability } from "./platform-path-probe-bindings.js";
+\nexport {
+  NATIVE_PATH_PROBE_DRIVER_VERSION,
+  NativePathProbeStates,
+  createNativePathProbeDriver,
+  getNativePathProbeDriverModes,
+} from "./native-path-probe-driver.js";
