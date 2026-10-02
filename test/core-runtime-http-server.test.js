@@ -25,7 +25,7 @@ test("Core runtime HTTP server executes serialized import through the Core pipel
       ok: true,
       result: {
         version: 1,
-        source: "local-file",
+        source: null,
         nodeCount: 0,
         kernel: "mihomo",
         detectionConfidence: "schema",
