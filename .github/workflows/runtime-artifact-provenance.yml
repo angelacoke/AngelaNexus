@@ -1,0 +1,59 @@
+name: runtime-artifact-provenance
+
+on:
+  push:
+    paths:
+      - "docs/upstream/*RUNTIME*"
+      - "docs/upstream/*COMPLIANCE*"
+      - ".github/workflows/runtime-artifact-provenance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  manifest:
+    name: Verify runtime artifact compliance manifests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s docs/upstream/MIHOMO_ANDROID_RUNTIME_COMPLIANCE.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          p = Path("docs/upstream/MIHOMO_ANDROID_RUNTIME_COMPLIANCE.json")
+          d = json.loads(p.read_text(encoding="utf-8"))
+
+          assert d["version"] == 1
+          runtime = d["runtime"]
+          assert runtime["kernel"] == "mihomo"
+          assert runtime["version"] == "1.19.32"
+          assert runtime["platform"] == "android"
+          assert runtime["linkage"] in {"embedded", "ipc", "process"}
+          assert len(runtime["abis"]) == 3
+
+          source = d["source"]
+          assert source["repository"].startswith("https://github.com/")
+          assert len(source["pinnedCommit"]) == 40
+          assert d["declaredLicense"] == "GPL-3.0"
+
+          assert d["policy"]["failClosed"] is True
+          assert d["policy"]["noSilentFallback"] is True
+          print("Mihomo Android compliance manifest: structurally valid")
+          print("distributionStatus:", d["distributionStatus"])
+          PY
+
+      - name: Ensure blocked native distribution remains blocked
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q '"distributionStatus": "blocked"' docs/upstream/MIHOMO_ANDROID_RUNTIME_COMPLIANCE.json
+          grep -q '"status": "required"' docs/upstream/MIHOMO_ANDROID_RUNTIME_COMPLIANCE.json
