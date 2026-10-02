@@ -105,7 +105,12 @@ export function createNetworkOptimizationController({
         classification: decision.classification,
         previousAction: activeAction,
       });
-      if (execution === false) throw new Error("optimization executor rejected activation");
+      const executionSucceeded =
+        execution === true ||
+        (execution !== null &&
+          typeof execution === "object" &&
+          execution.ok === true);
+      if (!executionSucceeded) throw new Error("optimization executor rejected activation");
       const healthy = healthCheck({
         action: decision.action,
         previousAction: activeAction,
