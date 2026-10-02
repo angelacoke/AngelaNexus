@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "runtime": {
+    "kernel": "mihomo",
+    "version": "1.19.32",
+    "platform": "android",
+    "abis": ["arm64-v8a", "armeabi-v7a", "x86_64"],
+    "linkage": "embedded",
+    "artifact": "libclash.so"
+  },
+  "declaredLicense": "GPL-3.0",
+  "distributionStatus": "blocked",
+  "licenseReview": {
+    "status": "required",
+    "reason": "The native artifact is built from Mihomo and embedded into the Android application. The current application license is Apache-2.0. A release distribution model and license compatibility review must be completed before this artifact is distributed."
+  },
+  "source": {
+    "repository": "https://github.com/MetaCubeX/mihomo",
+    "pinnedCommit": "88dcbf7f1614a67c3b36b848ee3592dfa92ada36"
+  },
+  "policy": {
+    "failClosed": true,
+    "noSilentFallback": true
+  }
+}
