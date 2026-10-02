@@ -1,4 +1,4 @@
-import { NodeProtocols, normalizeNode } from "./model.js";
+import { Kernels, NodeProtocols, normalizeNode } from "./model.js";
 import { findProtocolAdapter } from "../adapters/protocol-contract.js";
 import { findTransportAdapter } from "../adapters/transport-contract.js";
 import { builtinProtocolAdapters } from "../adapters/protocol-registry.js";
@@ -30,6 +30,7 @@ export function createRuntimePlan(nodeInput, options = {}) {
   if (!node) throw new Error("runtime plan requires a valid canonical node");
 
   const protocol = protocolOf(node);
+  const runtimeKernel = options.kernel || node.kernel || null;
   if (!Object.values(NodeProtocols).includes(protocol)) {
     throw new Error("unsupported node protocol: " + protocol);
   }
@@ -112,6 +113,7 @@ export function createRuntimePlan(nodeInput, options = {}) {
         protocol,
         transport,
         protocolAdapter: protocolAdapter.protocol,
+        kernel: runtimeKernel,
         transportAdapter: transportAdapter.type,
         status: "unsupported",
         reason: "transport adapter lacks required capabilities",
@@ -127,7 +129,18 @@ export function createRuntimePlan(nodeInput, options = {}) {
   let runtime = null;
   let effectiveBackendCapabilities = normalizeCapabilities(options.requiredBackendCapabilities);
   if (options.platform !== undefined) {
-    const runtimeResolution = resolveKernelRuntimeMode(protocol, options.platform, {
+    if (!runtimeKernel || !Object.values(Kernels).includes(runtimeKernel)) {
+      return {
+        ok: false,
+        node,
+        protocol,
+        transport,
+        status: "unsupported",
+        reason: "runtime platform selection requires an explicit supported kernel",
+        backend: null,
+      };
+    }
+    const runtimeResolution = resolveKernelRuntimeMode(runtimeKernel, options.platform, {
       requestedMode: options.requestedRuntimeMode || "auto",
       requireNative: options.requireNative === true,
       preferNative: options.preferNative !== false,
@@ -159,6 +172,7 @@ export function createRuntimePlan(nodeInput, options = {}) {
     kind: "runtime-plan",
     version: 2,
     node: clone(node),
+    kernel: runtimeKernel,
     protocol: Object.freeze({
       id: protocolAdapter.protocol,
       descriptor: clone(descriptor),
