@@ -42,8 +42,8 @@ class AndroidTransparentRuntimeBridgeTest {
         inspector.active = true
         assertTrue(bridge.apply().ok)
         val verified = bridge.verify()
-        val rolledBack = bridge.rollback()
         inspector.active = false
+        val rolledBack = bridge.rollback()
 
         assertTrue(verified.ok)
         assertEquals("verified", verified.reason)
