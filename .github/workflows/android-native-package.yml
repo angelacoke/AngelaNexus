@@ -46,9 +46,6 @@ jobs:
     name: Package verified Mihomo runtime into Android release
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    name: Package verified Mihomo runtime into Android release
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
     env:
       ANGELANEXUS_RELEASE_KEYSTORE_B64: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_B64 }}
       ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD }}
