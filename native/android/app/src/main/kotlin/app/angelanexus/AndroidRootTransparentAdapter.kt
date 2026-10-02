@@ -9,7 +9,7 @@ import android.content.Context
  * This adapter only binds verified Android/Linux interception capabilities.
  */
 class AndroidRootTransparentAdapter(
-    private val context: Context,
+    private val context: Context?,
     private val backend: Backend = AndroidRootBackend(context),
 ) {
     data class Capabilities(
