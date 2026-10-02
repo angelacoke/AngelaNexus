@@ -170,3 +170,7 @@ export {
   OptimizationActions,
   evaluateNetworkOptimizationPreflight,
 } from "./network-optimization-preflight.js";
+export {
+  NETWORK_OPTIMIZATION_CONTROLLER_VERSION,
+  createNetworkOptimizationController,
+} from "./network-optimization-controller.js";
