@@ -15,11 +15,12 @@ permissions:
 
 jobs:
   compliance-gate:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ always() }}
     name: Verify native runtime distribution gate
     runs-on: ubuntu-24.04
     outputs:
       approved: ${{ steps.gate.outputs.approved }}
+      upstream_conclusion: ${{ steps.gate.outputs.upstream_conclusion }}
     steps:
       - name: Checkout triggering commit
         uses: actions/checkout@v4
@@ -34,8 +35,14 @@ jobs:
           import json
           from pathlib import Path
           data = json.loads(Path("docs/upstream/MIHOMO_ANDROID_RUNTIME_COMPLIANCE.json").read_text(encoding="utf-8"))
-          approved = data["distributionStatus"] == "approved" and data["licenseReview"]["status"] == "approved"
+          upstream_conclusion = "${{ github.event.workflow_run.conclusion }}"
+          approved = (
+              upstream_conclusion == "success"
+              and data["distributionStatus"] == "approved"
+              and data["licenseReview"]["status"] == "approved"
+          )
           print(f"approved={'true' if approved else 'false'}")
+          print(f"upstream_conclusion={upstream_conclusion}")
           print(f"distributionStatus={data['distributionStatus']}")
           print(f"licenseReview={data['licenseReview']['status']}")
           PY
