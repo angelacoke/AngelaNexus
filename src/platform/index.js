@@ -210,3 +210,8 @@ export {
   inspectNativePathDriver,
   createNativePathDriverBinding,
 } from "./platform-native-path-drivers.js";
+export {
+  PLATFORM_NATIVE_DRIVER_FACTORY_VERSION,
+  inspectPlatformNativeDriver,
+  createPlatformNativeDriverFactory,
+} from "./platform-native-driver-factory.js";
