@@ -84,6 +84,12 @@ Re-probe Scheduler 只负责产生受策略约束的探测任务，不直接建�
 
 Scheduler 不得绕过 Path Registry 的安全、用户允许、验证和健康门禁；实际网络探测由平台适配器执行，Scheduler 保持平台无关。
 
+### 10.2 Path Probe Executor
+
+新增平台无关的 `Path Probe Executor` 契约。平台实现必须显式声明 `path-probe` 能力，并在执行前通过用户允许、路径安全健康、路径验证三个门禁。Executor 只负责调用已注入的平台探测实现、规范化 `success / degraded / failure / rejected` 结果并隔离异常；不得自行选择节点、绕过 Path Registry 或隐式收集长期网络遥测。
+
+平台侧的真实 socket/route/系统 API 探测由各平台适配层实现；核心层只消费规范化结果，再由 Connection Path Manager 写入 Network Evidence Store 并决定是否恢复路径。
+
 ## 11. 对现有架构的补充
 新增或扩展：Ingress Capability Registry、Path Registry、Network Evidence Store、Optimization Registry、Recovery Controller。
 
