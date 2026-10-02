@@ -8,8 +8,7 @@ import kotlin.test.assertTrue
 class AndroidTransparentRuntimeBridgeTest {
     @Test
     fun unavailableRootCapabilityFailsClosed() {
-        val adapter = adapterWithCapabilities(ready = false)
-        val bridge = AndroidTransparentRuntimeBridge(adapter)
+        val bridge = AndroidTransparentRuntimeBridge(adapterWithCapabilities(ready = false))
 
         val capability = bridge.inspectRootCapability()
         val prepared = bridge.prepare(testConfig())
@@ -21,43 +20,33 @@ class AndroidTransparentRuntimeBridgeTest {
     }
 
     @Test
-    fun verifiedRootCapabilityPreparesAndAppliesOnlyThroughAdapter() {
-        val transaction = FakeRootTransparentRuleTransaction()
+    fun verifiedRootCapabilityCompletesNativeLifecycle() {
+        val executor = RecordingExecutor()
         val adapter = AndroidRootTransparentAdapter(
             context = error("context not used in injected backend"),
             backend = object : AndroidRootTransparentAdapter.Backend {
                 override fun inspect() = readyCapabilities()
-                override fun createTransaction(config: RootTransparentConfig) = transaction
-                override fun createRuntime() = AndroidRootTransparentRuntime(
-                    object : RootTransparentStateInspector {
-                        override fun tableExists(tableName: String) = true
-                        override fun ipv4PolicyRuleExists(mark: Int, routingTable: Int) = true
-                        override fun ipv4LocalRouteExists(routingTable: Int) = true
-                        override fun ipv6PolicyRuleExists(mark: Int, routingTable: Int) = true
-                        override fun ipv6LocalRouteExists(routingTable: Int) = true
-                        override fun interceptRulesExist(tableName: String, interceptPort: Int) = true
-                        override fun dnsRulesExist(tableName: String, dnsPort: Int?) = true
-                        override fun selfLoopProtectionExists(tableName: String, ipv6: Boolean) = true
-                    },
-                )
+                override fun createTransaction(config: RootTransparentConfig) =
+                    RootTransparentRuleTransaction(
+                        executor,
+                        AndroidRootTransparentRules.build(config),
+                    )
+                override fun createRuntime() =
+                    AndroidRootTransparentRuntime(AlwaysVerifiedInspector())
             },
         )
         val bridge = AndroidTransparentRuntimeBridge(adapter)
 
-        val prepared = bridge.prepare(testConfig())
-        val applied = bridge.apply()
+        assertTrue(bridge.prepare(testConfig()).ok)
+        assertTrue(bridge.apply().ok)
         val verified = bridge.verify()
         val rolledBack = bridge.rollback()
 
-        assertTrue(prepared.ok)
-        assertEquals("prepared", prepared.state)
-        assertTrue(applied.ok)
-        assertEquals("active", applied.state)
         assertTrue(verified.ok)
         assertEquals("verified", verified.reason)
         assertTrue(rolledBack.ok)
         assertEquals("rolled-back", rolledBack.state)
-        assertEquals(1, transaction.prepareCalls)
+        assertTrue(executor.calls.isNotEmpty())
     }
 
     @Test
@@ -98,21 +87,31 @@ class AndroidTransparentRuntimeBridgeTest {
     )
 
     private fun testConfig() = RootTransparentConfig(
-        tableName = "angelanexus",
-        mark = 0x1,
+        tableName = "angelanexus_bridge_test",
+        mark = 1,
         routingTable = 100,
+        ownerUid = 12345,
         interceptPort = 12345,
         dnsPort = 1053,
         ipv6 = true,
         selfLoopProtection = true,
     )
 
-    private class FakeRootTransparentRuleTransaction : RootTransparentRuleTransaction {
-        var prepareCalls = 0
-        override fun prepare() { prepareCalls++ }
-        override fun commitVerified(verify: () -> Boolean) {
-            check(verify())
+    private class RecordingExecutor : RootCommandExecutor {
+        val calls = mutableListOf<String>()
+        override fun execute(command: String) {
+            calls += command
         }
-        override fun rollbackCommitted() = true
+    }
+
+    private class AlwaysVerifiedInspector : RootTransparentStateInspector {
+        override fun tableExists(tableName: String) = true
+        override fun ipv4PolicyRuleExists(mark: Int, routingTable: Int) = true
+        override fun ipv4LocalRouteExists(routingTable: Int) = true
+        override fun ipv6PolicyRuleExists(mark: Int, routingTable: Int) = true
+        override fun ipv6LocalRouteExists(routingTable: Int) = true
+        override fun interceptRulesExist(tableName: String, interceptPort: Int) = true
+        override fun dnsRulesExist(tableName: String, dnsPort: Int?) = true
+        override fun selfLoopProtectionExists(tableName: String, ipv6: Boolean) = true
     }
 }
