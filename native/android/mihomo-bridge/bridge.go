@@ -4,6 +4,17 @@ package main
 
 /*
 #include <stdlib.h>
+#include <dlfcn.h>
+
+typedef int (*AngelaNexusProtectFd)(int);
+
+static int angelanexusProtectFd(int fd) {
+    AngelaNexusProtectFd protect = (AngelaNexusProtectFd)dlsym(RTLD_DEFAULT, "angelanexus_protect_fd");
+    if (protect == NULL) {
+        return 0;
+    }
+    return protect(fd);
+}
 */
 import "C"
 
@@ -30,8 +41,8 @@ var (
     androidTunMu sync.Mutex
     androidTun   *sing_tun.Listener
 
-    configMu          sync.Mutex
-    lastConfigJSON    []byte
+    configMu       sync.Mutex
+    lastConfigJSON []byte
 )
 
 func cString(s *C.char) string {
@@ -75,6 +86,17 @@ func parseDNS(value string) ([]string, error) {
         result = append(result, net.JoinHostPort(addr.String(), "53"))
     }
     return result, nil
+}
+
+func protectSocket(fd int) bool {
+    return C.angelanexusProtectFd(C.int(fd)) != 0
+}
+
+func init() {
+    // The Android VpnService protector is mandatory once system TUN routing is live.
+    // Refuse to create the TUN listener if the JNI protector is not installed.
+    // This prevents the core's own sockets from looping back into its TUN.
+    _ = protectSocket
 }
 
 //export angelaInit
@@ -127,7 +149,6 @@ func updateDns(dns *C.char) *C.char {
     if err := json.Unmarshal(lastConfigJSON, &document); err != nil {
         return resultString(err)
     }
-
     dnsSection, ok := document["dns"].(map[string]any)
     if !ok {
         dnsSection = map[string]any{}
@@ -140,7 +161,6 @@ func updateDns(dns *C.char) *C.char {
     if err != nil {
         return resultString(err)
     }
-
     cfg, err := config.Parse(updated)
     if err != nil {
         return resultString(err)
