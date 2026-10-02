@@ -93,6 +93,23 @@ jobs:
           sha256sum native/android/app/src/main/jniLibs/x86_64/libclash.so >> "$RUNNER_TEMP/mihomo-source.sha256"
           cat "$RUNNER_TEMP/mihomo-source.sha256"
 
+      - name: Enforce native runtime distribution compliance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f docs/upstream/MIHOMO_ANDROID_RUNTIME_COMPLIANCE.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("docs/upstream/MIHOMO_ANDROID_RUNTIME_COMPLIANCE.json")
+          data = json.loads(p.read_text(encoding="utf-8"))
+          assert data["distributionStatus"] == "approved", (
+              "Mihomo Android embedded distribution is blocked pending license/linkage review"
+          )
+          assert data["licenseReview"]["status"] == "approved"
+          assert data["runtime"]["linkage"] in {"embedded", "ipc", "process"}
+          PY
+
       - name: Verify release signing configuration
         shell: bash
         run: |
