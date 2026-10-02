@@ -52,3 +52,39 @@ test("root transaction rolls back after commit failure", () => {
   assert.throws(() => transaction.commit(), /apply failed/);
   assert.deepEqual(calls, ["prepare", "commit", "rollback"]);
 });
+
+test("explicit root request remains unavailable when a required routing capability is missing", () => {
+  const result = selectAndroidTransparentMode(ANDROID_TRANSPARENT_MODES.ROOT, {
+    root: true,
+    "root-authorized": true,
+    tcp: true,
+    udp: true,
+    dns: true,
+    ipv4: true,
+    ipv6: true,
+    "uid-identity": true,
+    "policy-routing": false,
+    "atomic-rollback": true,
+    systemVpn: true,
+  });
+  assert.equal(result.selected, "unavailable");
+  assert.equal(result.failClosed, true);
+});
+
+test("auto mode falls back to system VPN only when root evidence is incomplete", () => {
+  const result = selectAndroidTransparentMode(ANDROID_TRANSPARENT_MODES.AUTO, {
+    root: true,
+    "root-authorized": true,
+    tcp: true,
+    udp: true,
+    dns: true,
+    ipv4: true,
+    ipv6: true,
+    "uid-identity": true,
+    "policy-routing": false,
+    "atomic-rollback": true,
+    systemVpn: true,
+  });
+  assert.equal(result.selected, "system");
+  assert.equal(result.failClosed, true);
+});
