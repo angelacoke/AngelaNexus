@@ -74,24 +74,24 @@ Outcome 至少区分：Success、Degraded、Failure。反馈必须保留有限�
 
 健康状态采用分级探测：Healthy 低频、Degraded 增强、Failed 恢复探测、Recovered backoff。不得为了智能化长期高频探测全部节点。
 
-## 10. 对现有架构的补充
+## 11. 对现有架构的补充
 新增或扩展：Ingress Capability Registry、Path Registry、Network Evidence Store、Optimization Registry、Recovery Controller。
 
 它们均属于平台层，不得绑定 Mihomo、sing-box 或 Xray 中的任何一个。三者继续作为平行 Compatibility Execution Backends。
 
-## 11. 阶段性审计
+## 12. 阶段性审计
 每个同质实现完成后必须检查 Platform First、Kernel Lock-in、Canonical Model、用户控制、安全泄露、Capability 真实性、健康检查、故障回退、性能回归、可维护性和第三方品牌污染。
 
 验证失败必须修复并重新验证；未验证成功不得进入下一阶段。
 
-## 12. 实施优先级
+## 13. 实施优先级
 P0：Capability Registry、Path Registry、Network Evidence、Ingress 抽象、规则源 Anti-Poisoning、Recovery Controller、自动行为解释。
 
 P1：Android Root Adapter、Linux socket/eBPF prototype、Windows WFP boundary、macOS Network Extension boundary、DNS observation、IPv4/IPv6 leak verification、path health。
 
 P2：eBPF 性能优化、拥塞感知优化、direct/relay 实验、自适应低功耗探测、高级链式路径调度。P2 不得成为基础代理硬依赖。
 
-## 13. 参考与致谢
+## 14. 参考与致谢
 tunless：https://github.com/bojieli/tunless/
 Skyline Speeder：https://github.com/CYBERVERSE-Research/skyline-speeder
 Tailscale：https://tailscale.com/
