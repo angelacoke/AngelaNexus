@@ -186,3 +186,5 @@ export {
   ReprobeStates,
   createPathReprobeScheduler,
 } from "./path-reprobe-scheduler.js";
+
+export { PLATFORM_PATH_PROBE_ADAPTER_VERSION, createPlatformPathProbeAdapter } from "./platform-path-probe-adapter.js";
