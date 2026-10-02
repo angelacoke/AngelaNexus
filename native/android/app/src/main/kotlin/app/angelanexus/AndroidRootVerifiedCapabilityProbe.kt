@@ -67,7 +67,7 @@ class AndroidRootVerifiedCapabilityProbe(
             nft add table inet "${'$'}table"
             trap 'nft delete table inet "${'$'}table" >/dev/null 2>&1 || true' EXIT
             nft add chain inet "${'$'}table" output { type filter hook output priority -150; policy accept; }
-            nft add rule inet "${'$'}table" output ${'$'}rule
+            nft add rule inet "${'$'}table" output ${rule}
         """.trimIndent()
         return runner.run(command).succeeded
     }
@@ -79,7 +79,7 @@ class AndroidRootVerifiedCapabilityProbe(
             nft add table inet "${'$'}table"
             trap 'nft delete table inet "${'$'}table" >/dev/null 2>&1 || true' EXIT
             nft add chain inet "${'$'}table" prerouting { type filter hook prerouting priority -150; policy accept; }
-            nft add rule inet "${'$'}table" prerouting ${'$'}rule
+            nft add rule inet "${'$'}table" prerouting ${rule}
         """.trimIndent()
         return runner.run(command).succeeded
     }
