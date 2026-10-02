@@ -136,3 +136,38 @@ test("invalid outcome cannot mutate evidence", () => {
   assert.equal(result.ok, false);
   assert.equal(evidence.get("direct", "path"), null);
 });
+
+
+test("failure threshold quarantines a path only when user policy enables it", () => {
+  const registry = createPathRegistry();
+  registry.register({ id: "relay-a", type: "relay", verified: true, securityHealthy: true });
+  const evidence = createNetworkEvidenceStore({ now: () => 5000 });
+  const manager = createConnectionPathManager({ userPolicy: { recoveryPolicy: "failure-threshold", failureThreshold: 2 }, now: () => 5000 });
+  const first = manager.recordOutcome({ pathId: "relay-a", outcome: "failure", evidenceStore: evidence, pathRegistry: registry });
+  assert.equal(first.recoveryEligible, false);
+  assert.equal(registry.get("relay-a").state, "active");
+  const second = manager.recordOutcome({ pathId: "relay-a", outcome: "failure", evidenceStore: evidence, pathRegistry: registry });
+  assert.equal(second.recoveryEligible, true);
+  assert.equal(second.registryAction, "quarantined");
+  assert.equal(registry.get("relay-a").state, "quarantined");
+});
+
+test("successful observation can reinstate a quarantined path", () => {
+  const registry = createPathRegistry();
+  registry.register({ id: "relay-b", type: "relay", state: "quarantined", verified: true, securityHealthy: true });
+  const evidence = createNetworkEvidenceStore({ now: () => 6000 });
+  const manager = createConnectionPathManager({ userPolicy: { recoveryPolicy: "failure-threshold", failureThreshold: 1 }, now: () => 6000 });
+  const result = manager.recordOutcome({ pathId: "relay-b", outcome: "success", evidenceStore: evidence, pathRegistry: registry });
+  assert.equal(result.registryAction, "reinstated");
+  assert.equal(registry.get("relay-b").state, "active");
+});
+
+test("recovery remains disabled by default", () => {
+  const registry = createPathRegistry();
+  registry.register({ id: "relay-c", type: "relay", verified: true, securityHealthy: true });
+  const evidence = createNetworkEvidenceStore({ now: () => 7000 });
+  const manager = createConnectionPathManager({ now: () => 7000 });
+  const result = manager.recordOutcome({ pathId: "relay-c", outcome: "failure", evidenceStore: evidence, pathRegistry: registry });
+  assert.equal(result.recoveryEligible, false);
+  assert.equal(registry.get("relay-c").state, "active");
+});
