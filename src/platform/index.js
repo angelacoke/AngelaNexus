@@ -190,3 +190,5 @@ export {
 export { PLATFORM_PATH_PROBE_ADAPTER_VERSION, createPlatformPathProbeAdapter } from "./platform-path-probe-adapter.js";
 
 export { PATH_REPROBE_RUNTIME_VERSION, createPathReprobeRuntime } from "./path-reprobe-runtime.js";
+
+export { PLATFORM_PATH_PROBE_PROFILES, createPlatformPathProbeBinding, inspectPlatformPathProbeCapability } from "./platform-path-probe-bindings.js";
