@@ -10,7 +10,7 @@ import android.content.Context
  */
 class AndroidRootTransparentAdapter(
     private val context: Context?,
-    private val backend: Backend = AndroidRootBackend(context),
+    private val backend: Backend = AndroidRootBackend(requireNotNull(context) { "context is required for the default Android Root backend" }),
 ) {
     data class Capabilities(
         val rootAvailable: Boolean,
