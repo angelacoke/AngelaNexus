@@ -58,7 +58,18 @@ Root 生命周期：Preflight -> Apply -> Verify -> Health -> Rollback。
 
 能力真实性继续遵循：Declared -> Supported -> Verified -> Operational -> Healthy。不得跨级推断。
 
-## 9. 低功耗
+## 9. Path Outcome Feedback
+路径选择不能停留在“选中即结束”。每次新建连接的路径决策应产生可追踪的 Decision ID，并在执行后将实际结果反馈到 Network Evidence Store。
+
+统一反馈模型：
+
+`Evaluate -> Decision ID -> Execute -> Observe -> Record Outcome -> Update Evidence -> Re-evaluate`
+
+Outcome 至少区分：Success、Degraded、Failure。反馈必须保留有限的样本计数、结果计数和必要的网络指标；不得无限缓存流量遥测。
+
+重新探测仅产生明确、可解释、受用户策略约束的 Re-probe recommendation，不得因为单次失败就绕过安全门禁或静默切换 Driver / Path。安全、用户允许、Capability 与 Health 门禁始终先于自适应选择。
+
+## 10. 低功耗
 持续控制 CPU、RAM、wakeups、battery、network probes、DNS queries、logging、telemetry 和 duplicate connections。
 
 健康状态采用分级探测：Healthy 低频、Degraded 增强、Failed 恢复探测、Recovered backoff。不得为了智能化长期高频探测全部节点。
