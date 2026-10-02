@@ -7,6 +7,7 @@ import { Kernels } from "./model.js";
 import { createKernelRuntime } from "../kernel/runtime-registry.js";
 import { resolveKernelRuntimeMode } from "../kernel/runtime-boundary.js";
 import { createKernelRuntimeProvider } from "../kernel/runtime-provider.js";
+import { requireRuntimeArtifactCompliance } from "../kernel/runtime-artifact-compliance.js";
 
 const CONFIG_NAMES = Object.freeze({
   [Kernels.MIHOMO]: "config.yaml",
@@ -58,7 +59,10 @@ export async function createKernelExecution(config, options = {}) {
     runtimeMode = resolution.selectedMode;
   }
   if (runtimeMode === "process" && (!options.binary || typeof options.binary !== "string")) throw new TypeError("runtime binary is required for process runtime");
-  if (runtimeMode === "native" && typeof options.nativeRuntimeFactory !== "function") throw new Error("native runtime selected but nativeRuntimeFactory is unavailable");
+  if (runtimeMode === "native") {
+    if (typeof options.nativeRuntimeFactory !== "function") throw new Error("native runtime selected but nativeRuntimeFactory is unavailable");
+    requireRuntimeArtifactCompliance(options.runtimeArtifactCompliance);
+  }
 
   const compiled = compileUnifiedConfig(config, kernel);
   const managedWorkdir = !options.workdir;
