@@ -67,6 +67,10 @@ export function createTransparentProxyConfig(options = {}) {
   return Object.freeze(config);
 }
 
+export function resolveTransparentBackend({ platform, requiredCapabilities = [], evidence = {}, preferred = [] } = {}) {
+  return selectTransparentBackend({ platform, requiredCapabilities, evidence, preferred });
+}
+
 export function evaluateTransparentProxy(config, runtime = {}) {
   if (!config || config.enabled !== true) {
     return Object.freeze({
