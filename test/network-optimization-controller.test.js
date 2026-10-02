@@ -83,7 +83,7 @@ test("verified optimization switches through drain and activation", () => {
     },
     capabilityVerified: true,
     securityHealthy: true,
-    optimizationExecutor: () => true,
+    optimizationExecutor: () => ({ ok: true, rollback: () => true }),
   });
   assert.equal(result.ok, true);
   assert.equal(result.phase, "activated");
@@ -168,7 +168,7 @@ test("kernel execution boundary must succeed before optimization is committed", 
     securityHealthy: true,
     optimizationExecutor: (request) => {
       calls.push(request);
-      return true;
+      return { ok: true, rollback: () => true };
     },
   });
   assert.equal(result.ok, true);
@@ -259,6 +259,26 @@ test("failed kernel rollback isolates the lifecycle instead of reporting active"
   assert.equal(result.originalError, "optimization health check failed");
   assert.equal(rollbackCalls, 1);
   assert.equal(lifecycle.snapshot().state, TransparentLifecycleStates.FAILED);
+});
+
+test("successful execution without rollback boundary is isolated", () => {
+  const lifecycle = activeLifecycle();
+  const controller = createNetworkOptimizationController({
+    lifecycle,
+    userEnabled: true,
+    requestedAction: OptimizationActions.CONSERVATIVE,
+  });
+  const result = controller.apply({
+    telemetry: { rttMs: 120, baseRttMs: 100, queueingDelayMs: 2, samples: 20 },
+    capabilityVerified: true,
+    securityHealthy: true,
+    optimizationExecutor: () => ({ ok: true }),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.phase, "executor");
+  assert.equal(result.reason, "optimization-rollback-boundary-missing");
+  assert.equal(lifecycle.snapshot().state, TransparentLifecycleStates.FAILED);
+  assert.equal(lifecycle.snapshot().admitted, false);
 });
 
 test("implicit executor success is rejected and rolled back", () => {
