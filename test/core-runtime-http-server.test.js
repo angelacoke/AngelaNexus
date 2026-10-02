@@ -27,8 +27,8 @@ test("Core runtime HTTP server executes serialized import through the Core pipel
         version: 1,
         source: "local-file",
         nodeCount: 0,
-        kernel: null,
-        detectionConfidence: "low",
+        kernel: "mihomo",
+        detectionConfidence: "schema",
       },
     });
   } finally {
