@@ -138,17 +138,21 @@ export function createNetworkOptimizationController({
         previousAction: activeAction,
       });
       const executionSucceeded =
-        execution === true ||
-        (execution !== null &&
-          typeof execution === "object" &&
-          execution.ok === true);
-      if (!executionSucceeded) throw new Error("optimization executor rejected activation");
-      optimizationRollback =
         execution !== null &&
         typeof execution === "object" &&
-        typeof execution.rollback === "function"
-          ? execution.rollback
-          : null;
+        execution.ok === true;
+      if (!executionSucceeded) throw new Error("optimization executor rejected activation");
+      if (typeof execution.rollback !== "function") {
+        lifecycle.fail("optimization-rollback-boundary-missing");
+        return Object.freeze({
+          ok: false,
+          phase: "executor",
+          reason: "optimization-rollback-boundary-missing",
+          decision,
+          snapshot: snapshot(),
+        });
+      }
+      optimizationRollback = execution.rollback;
       const healthy = healthCheck({
         action: decision.action,
         previousAction: activeAction,
