@@ -113,7 +113,6 @@ export function createRuntimePlan(nodeInput, options = {}) {
         protocol,
         transport,
         protocolAdapter: protocolAdapter.protocol,
-        kernel: runtimeKernel,
         transportAdapter: transportAdapter.type,
         status: "unsupported",
         reason: "transport adapter lacks required capabilities",
