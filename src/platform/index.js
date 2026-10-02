@@ -128,7 +128,7 @@ export { createChainHealthMonitor } from "./chain-health-monitor.js";
 export { createPipelineRuntime } from "./pipeline-runtime.js";
 export { createPipelineLinkPlan, PIPELINE_LINK_TRANSPORTS } from "./pipeline-linker.js";
 
-export { compileLinkedPipeline } from "./pipeline-kernel-linker.js
+export { compileLinkedPipeline } from "./pipeline-kernel-linker.js";
 export {
   TRANSPARENT_BACKEND_CAPABILITY_VERSION,
   TransparentBackendIds,
