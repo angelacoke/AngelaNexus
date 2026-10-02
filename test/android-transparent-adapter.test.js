@@ -88,3 +88,20 @@ test("auto mode falls back to system VPN only when root evidence is incomplete",
   assert.equal(result.selected, "system");
   assert.equal(result.failClosed, true);
 });
+
+test("android root selection exposes verified but not operational truth", () => {
+  const result = selectAndroidTransparentMode(ANDROID_TRANSPARENT_MODES.ROOT, {
+    root: true,
+    "root-authorized": true,
+    tcp: true,
+    udp: true,
+    dns: true,
+    ipv4: true,
+    ipv6: true,
+    "uid-identity": true,
+    "policy-routing": true,
+    "atomic-rollback": true,
+  });
+  assert.equal(result.truth.state, "verified");
+  assert.equal(result.truth.ok, true);
+});
