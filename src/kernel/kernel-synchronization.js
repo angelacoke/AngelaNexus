@@ -1,6 +1,7 @@
 import { Kernels } from "../core/model.js";
 import { adapterFor } from "../adapters/index.js";
 import { driverFor } from "./driver-registry.js";
+import { KernelDriverCapabilities } from "./driver-contract.js";
 import { getKernelRuntimeSpec } from "./runtime-registry.js";
 
 export const KERNEL_SYNCHRONIZATION_VERSION = 1;
@@ -29,6 +30,7 @@ function inspectKernel(kernel) {
     driver: Boolean(driver),
     capabilities: Object.freeze(driver ? [...driver.capabilities] : []),
     runtime: Object.freeze({ ...runtime }),
+    runtimeDeclared: Boolean(runtime && Object.prototype.hasOwnProperty.call(runtime, "reloadSignal")),
     configCompile: Boolean(adapter?.compileConfig),
     chainCompile: Boolean(adapter?.compileChain),
   });
@@ -42,7 +44,11 @@ export function inspectKernelSynchronization() {
     if (!item.driver) missing.push(item.kernel + ":driver");
     if (!item.configCompile) missing.push(item.kernel + ":config-compile");
     if (!item.chainCompile) missing.push(item.kernel + ":chain-compile");
-    if (!item.capabilities.includes("process-runtime")) missing.push(item.kernel + ":process-runtime");
+    if (!item.capabilities.includes(KernelDriverCapabilities.NODE_COMPILE)) missing.push(item.kernel + ":node-compile");
+    if (!item.capabilities.includes(KernelDriverCapabilities.PIPELINE_COMPILE)) missing.push(item.kernel + ":pipeline-compile");
+    if (!item.capabilities.includes(KernelDriverCapabilities.PROCESS_RUNTIME)) missing.push(item.kernel + ":process-runtime");
+    if (!item.runtimeDeclared) missing.push(item.kernel + ":runtime-spec");
+    if (item.runtime?.reloadSignal === undefined) missing.push(item.kernel + ":reload-signal");
   }
   return Object.freeze({
     version: KERNEL_SYNCHRONIZATION_VERSION,
@@ -50,6 +56,7 @@ export function inspectKernelSynchronization() {
     requiredKernels: REQUIRED_KERNELS,
     kernels: Object.freeze(kernels),
     missing: Object.freeze(missing),
+    requirements: KERNEL_SYNC_REQUIREMENTS,
   });
 }
 
