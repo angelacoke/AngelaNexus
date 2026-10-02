@@ -19,3 +19,5 @@ export {
   driverFor,
   describeKernelDrivers,
 } from "./driver-registry.js";
+
+export { KERNEL_SYNCHRONIZATION_VERSION, REQUIRED_KERNELS, KERNEL_SYNC_REQUIREMENTS, inspectKernelSynchronization, requireKernelSynchronization } from "./kernel-synchronization.js";
