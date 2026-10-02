@@ -97,6 +97,37 @@ export function createNetworkOptimizationController({
     }
 
     let optimizationRollback = null;
+
+    function rollbackKernel() {
+      const rollback = optimizationRollback;
+      optimizationRollback = null;
+      if (!rollback) return true;
+      rollback();
+      return true;
+    }
+
+    function isolateRollbackFailure(error, decisionPhase, originalError = null) {
+      try {
+        lifecycle.fail("optimization-rollback-failed");
+      } catch {
+        // Preserve the rollback failure when lifecycle isolation is unavailable.
+      }
+      return Object.freeze({
+        ok: false,
+        phase: decisionPhase,
+        reason: "optimization-rollback-failed",
+        error: error instanceof Error ? error.message : String(error),
+        originalError:
+          originalError === null
+            ? undefined
+            : originalError instanceof Error
+              ? originalError.message
+              : String(originalError),
+        decision,
+        snapshot: snapshot(),
+      });
+    }
+
     try {
       lifecycle.beginDrain();
       lifecycle.markDrained();
@@ -124,7 +155,15 @@ export function createNetworkOptimizationController({
         classification: decision.classification,
       }) === true;
       if (!healthy) {
-        if (optimizationRollback) optimizationRollback();
+        try {
+          rollbackKernel();
+        } catch (rollbackError) {
+          return isolateRollbackFailure(
+            rollbackError,
+            "health-check",
+            new Error("optimization health check failed"),
+          );
+        }
         lifecycle.rollback("optimization-health-check-failed");
         lifecycle.recover();
         return Object.freeze({
@@ -137,6 +176,7 @@ export function createNetworkOptimizationController({
         });
       }
       lifecycle.activate();
+      optimizationRollback = null;
       activeAction = decision.action;
       return Object.freeze({
         ok: true,
@@ -147,9 +187,9 @@ export function createNetworkOptimizationController({
       });
     } catch (error) {
       try {
-        if (optimizationRollback) optimizationRollback();
-      } catch {
-        // Lifecycle recovery below remains authoritative if kernel rollback fails.
+        rollbackKernel();
+      } catch (rollbackError) {
+        return isolateRollbackFailure(rollbackError, "lifecycle", error);
       }
       try {
         lifecycle.rollback("optimization-activation-failed");
