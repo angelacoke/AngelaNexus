@@ -52,14 +52,14 @@ private fun AngelaNexusRoot() {
     val rootAdapter = remember { AndroidRootTransparentAdapter(context) }
     val rootCapabilities = remember { rootAdapter.inspect() }
     var selectedMode by remember { mutableStateOf(AndroidTransparentMode.AUTO) }
-    var status by remember { mutableStateOf("ready") }
+    var status by remember { mutableStateOf(AndroidUiStatus.READY) }
 
     val documentLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) {
-            status = "ready"
+            status = AndroidUiStatus.READY
             return@rememberLauncherForActivityResult
         }
-        status = "importing-config"
+        status = AndroidUiStatus.IMPORTING_CONFIG
         scope.launch {
             runCatching {
                 context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -67,27 +67,27 @@ private fun AngelaNexusRoot() {
                     importCoordinator.importLocalFile(stream, uri.lastPathSegment)
                 } ?: throw IllegalStateException("selected configuration cannot be opened")
             }.fold(
-                onSuccess = { status = "config-delivered-to-core" },
-                onFailure = { status = "core-runtime-unavailable" }
+                onSuccess = { status = AndroidUiStatus.CONFIG_DELIVERED_TO_CORE },
+                onFailure = { status = AndroidUiStatus.CORE_RUNTIME_UNAVAILABLE }
             )
         }
     }
 
     val vpnLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
-            status = "vpn-runtime-not-ready"
+            status = AndroidUiStatus.VPN_RUNTIME_NOT_READY
         }
     }
 
     fun startSelectedMode() {
         val mode = selectAndroidTransparentMode(selectedMode, rootCapabilities)
         if (mode == null) {
-            status = "transparent-mode-unavailable"
+            status = AndroidUiStatus.TRANSPARENT_MODE_UNAVAILABLE
             return
         }
         when (mode) {
             AndroidTransparentMode.ROOT -> {
-                status = "root-mode-backend-pending"
+                status = AndroidUiStatus.ROOT_MODE_BACKEND_PENDING
             }
             AndroidTransparentMode.SYSTEM -> {
                 val intent = VpnService.prepare(context)
@@ -118,7 +118,7 @@ private fun AngelaNexusRoot() {
         rootAvailable = rootCapabilities.rootAvailable && rootCapabilities.rootAuthorized,
         onTransparentModeChange = { selectedMode = it },
         onImportConfig = {
-            status = "selecting-config"
+            status = AndroidUiStatus.SELECTING_CONFIG
             documentLauncher.launch(arrayOf("*/*"))
         },
         onStartVpn = ::startSelectedMode,
