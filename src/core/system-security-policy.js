@@ -20,6 +20,11 @@ export const SystemSecurityDefaults = Object.freeze({
   secretProtection: true,
   configIntegrityProtection: true,
   runtimeVerification: true,
+  ruleSourceProtection: true,
+  ruleSourceRequireSignature: true,
+  ruleSourceRequireDigest: true,
+  ruleSourceRequireFreshness: true,
+  applicationIntegrityProtection: true,
   blockWebRTC3478: true,
   ipv6LeakBlackhole: true,
   encryptedDns: true,
@@ -39,6 +44,10 @@ const REQUIRED_TRUE = Object.freeze([
   "tunBypassPrevention", "systemProxyBypassPrevention", "appBypassPrevention",
   "secureDnsBootstrap", "startupRaceProtection", "subscriptionUpdateProtection",
   "secretProtection", "configIntegrityProtection", "runtimeVerification",
+  "ruleSourceProtection", "ruleSourceRequireSignature", "ruleSourceRequireDigest",
+  "ruleSourceRequireFreshness", "applicationIntegrityProtection",
+  "ruleSourceProtection", "ruleSourceRequireSignature", "ruleSourceRequireDigest",
+  "ruleSourceRequireFreshness", "applicationIntegrityProtection",
   "blockWebRTC3478", "ipv6LeakBlackhole", "encryptedDns"
 ]);
 
