@@ -5,16 +5,12 @@ Status: verified Android native-runtime packaging baseline; physical-device runt
 ## Verified runtime baseline
 
 - Current verified runtime release: v1.19.32
-- Release commit: 88dcbf7f1614a67c3b36b848ee3592dfa92ada36
 - Release revision pinned by CI: 88dcbf7f1614a67c3b36b848ee3592dfa92ada36
-- Android arm64-v8a artifact: mihomo-android-arm64-v8-v1.19.31.gz
-  SHA-256: de00bc53ed15163636b48ea7b9e305f14c39248d6bffd9cd04466fee94492f99
-- Android armv7 artifact: mihomo-android-armv7-v1.19.31.gz
-  SHA-256: c2658644e44a61136bca28ae8accf0922065c143b57f8c8fc07bbd31997ca5e00
-- Android amd64 artifact: mihomo-android-amd64-v1.19.31.gz
-  SHA-256: 6f6ebcb3646d3ece36b48ea7b9e305f14c39248d6bffd9cd04466fee94492f99
+- Android arm64-v8a shipped `libclash.so` SHA-256: 667c94964d0a60f86cdcc130b2cdf3b385b02d9f2c5d3b324b3ed7a6b7326007
+- Android armeabi-v7a shipped `libclash.so` SHA-256: 3ae94d7defb1778cd611eceffcff6884407893d28c42a4350af2b49108ac9a09
+- Android x86_64 shipped `libclash.so` SHA-256: da7bcdbf165cc1e3457d3560b51e703cb3a478dd83f0c1cfe42ccf676d6c1f42
 
-These are compressed Android executable artifacts, not hashes for a c-shared JNI library. They must not be substituted for native .so integrity values.
+These are the exact SHA-256 values verified by the Android native packaging workflow for the shipped shared libraries.
 
 ## Integration boundary
 
