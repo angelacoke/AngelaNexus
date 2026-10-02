@@ -23,6 +23,7 @@ class MihomoJniNativeHost(
     override fun startTun(tunFd: Int, stack: String, address: String, dns: String): Boolean {
         require(tunFd >= 0) { "tunFd must be non-negative" }
         ensureLoaded()
+        check(nativeHasVpnProtector()) { "Android VpnService protector is not installed" }
         return nativeStartTun(tunFd, stack, address, dns)
     }
 
@@ -66,7 +67,24 @@ class MihomoJniNativeHost(
         return nativeGetTotalTraffic(onlyStatisticsProxy)
     }
 
+    fun setVpnService(service: android.net.VpnService) {
+        ensureLoaded()
+        nativeSetVpnService(service)
+    }
+
+    fun clearVpnService() {
+        if (!loaded) return
+        nativeSetVpnService(null)
+    }
+
+    fun hasVpnProtector(): Boolean {
+        ensureLoaded()
+        return nativeHasVpnProtector()
+    }
+
     private external fun nativeApplyConfig(configJson: String): String?
+    private external fun nativeSetVpnService(service: android.net.VpnService?)
+    private external fun nativeHasVpnProtector(): Boolean
     private external fun nativeStartTun(tunFd: Int, stack: String, address: String, dns: String): Boolean
     private external fun nativeStopTun()
     private external fun nativeUpdateDns(dns: String)
