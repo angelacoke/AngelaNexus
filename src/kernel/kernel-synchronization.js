@@ -29,8 +29,8 @@ function inspectKernel(kernel) {
   return Object.freeze({
     kernel,
     upstreamStable: Boolean(upstream?.stable),
-    upstreamRepository: Boolean(upstream?.repository),
-    conformanceVerification: true,
+    upstreamRepository: Boolean(upstream?.repository),\n    conformance: Object.freeze({ ...upstream?.conformance }),
+    conformanceVerification: Boolean(\n      upstream?.conformance?.fixtures?.length &&\n      upstream?.conformance?.capabilityProbes &&\n      typeof upstream.conformance.capabilityProbes === "object"\n    ),
     adapter: Boolean(adapter),
     driver: Boolean(driver),
     capabilities: Object.freeze(driver ? [...driver.capabilities] : []),
