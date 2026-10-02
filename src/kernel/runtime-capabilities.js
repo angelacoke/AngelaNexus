@@ -1,21 +1,21 @@
 const CAPABILITIES = Object.freeze({
   mihomo: Object.freeze({
-    android: Object.freeze({ process: true, native: false }),
+    android: Object.freeze({ process: true, native: true }),
     ios: Object.freeze({ process: false, native: false }),
     windows: Object.freeze({ process: true, native: false }),
     macos: Object.freeze({ process: true, native: false }),
     linux: Object.freeze({ process: true, native: false }),
   }),
   "sing-box": Object.freeze({
-    android: Object.freeze({ process: true, native: true }),
-    ios: Object.freeze({ process: true, native: true }),
+    android: Object.freeze({ process: true, native: false }),
+    ios: Object.freeze({ process: true, native: false }),
     windows: Object.freeze({ process: true, native: false }),
     macos: Object.freeze({ process: true, native: false }),
     linux: Object.freeze({ process: true, native: false }),
   }),
   xray: Object.freeze({
-    android: Object.freeze({ process: true, native: true }),
-    ios: Object.freeze({ process: true, native: true }),
+    android: Object.freeze({ process: true, native: false }),
+    ios: Object.freeze({ process: true, native: false }),
     windows: Object.freeze({ process: true, native: false }),
     macos: Object.freeze({ process: true, native: false }),
     linux: Object.freeze({ process: true, native: false }),
