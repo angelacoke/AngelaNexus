@@ -5,6 +5,7 @@ import yaml from "js-yaml";
 import { compileUnifiedConfig } from "./config-compiler.js";
 import { Kernels } from "./model.js";
 import { createKernelRuntime } from "../kernel/runtime-registry.js";
+import { resolveKernelRuntimeMode } from "../kernel/runtime-boundary.js";
 
 const CONFIG_NAMES = Object.freeze({
   [Kernels.MIHOMO]: "config.yaml",
@@ -38,6 +39,20 @@ export async function createKernelExecution(config, options = {}) {
   const kernel = config && config.kernel;
   if (!Object.values(Kernels).includes(kernel)) throw new Error("unsupported kernel: " + kernel);
 
+  let runtimeMode = "process";
+  if (options.platform !== undefined) {
+    const resolution = resolveKernelRuntimeMode(kernel, options.platform, {
+      requestedMode: options.requestedRuntimeMode || "auto",
+      requireNative: options.requireNative === true,
+      preferNative: options.preferNative !== false,
+    });
+    if (!resolution.ok) throw new Error(resolution.reason);
+    runtimeMode = resolution.selectedMode;
+    if (runtimeMode === "native" && typeof options.nativeRuntimeFactory !== "function") {
+      throw new Error("native runtime selected but nativeRuntimeFactory is unavailable");
+    }
+  }
+
   const compiled = compileUnifiedConfig(config, kernel);
   const managedWorkdir = !options.workdir;
   const baseDir = options.workdir || await mkdtemp(join(tmpdir(), "angela-nexus-"));
@@ -48,7 +63,9 @@ export async function createKernelExecution(config, options = {}) {
   await writeFile(configPath, content, { encoding: "utf8", mode: 0o600 });
   await chmod(configPath, 0o600);
 
-  const runtimeFactory = options.runtimeFactory || createKernelRuntime;
+  const runtimeFactory = runtimeMode === "native"
+    ? options.nativeRuntimeFactory
+    : (options.runtimeFactory || createKernelRuntime);
   let runtime;
   try {
     runtime = runtimeFactory(kernel, {
@@ -76,6 +93,7 @@ export async function createKernelExecution(config, options = {}) {
 
   return Object.freeze({
     kernel,
+    runtimeMode,
     configPath,
     compiled,
     async start() {
