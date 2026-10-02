@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { ANDROID_TRANSPARENT_MODES } from "./android-transparent-adapter.js";
 import {
-  ANDROID_TRANSPARENT_MODES,
   createAndroidNativeTransparentBinding,
 } from "./android-native-transparent-binding.js";
 
