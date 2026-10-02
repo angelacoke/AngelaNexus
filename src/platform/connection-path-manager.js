@@ -1,4 +1,4 @@
-export const CONNECTION_PATH_MANAGER_VERSION = 2;
+export const CONNECTION_PATH_MANAGER_VERSION = 3;
 
 export const ConnectionPathTypes = Object.freeze({
   DIRECT: "direct",
@@ -84,7 +84,9 @@ function chooseByOrder(candidates, order, evidenceById = new Map(), adaptive = f
 export function createConnectionPathManager({
   userPolicy = {},
   failClosed = true,
+  now = () => Date.now(),
 } = {}) {
+  if (typeof now !== "function") throw new Error("now must be a function");
   const policy = Object.freeze({
     failClosed: Boolean(failClosed),
     allowedTypes: Array.isArray(userPolicy.allowedTypes)
@@ -92,10 +94,22 @@ export function createConnectionPathManager({
       : null,
     evidenceMode: userPolicy.evidenceMode === "required" ? "required" : "advisory",
     evidenceSelection: userPolicy.evidenceSelection === "adaptive" ? "adaptive" : "user-order",
+    reprobePolicy: userPolicy.reprobePolicy === "disabled"
+      ? "disabled"
+      : userPolicy.reprobePolicy === "on-failure"
+        ? "on-failure"
+        : "on-degraded-or-failure",
     preferredOrder: Array.isArray(userPolicy.preferredOrder)
       ? Object.freeze([...new Set(userPolicy.preferredOrder.filter((type) => DEFAULT_ALLOWED_TYPES.includes(type)))])
       : Object.freeze([]),
   });
+
+  let decisionSequence = 0;
+
+  function nextDecisionId() {
+    decisionSequence += 1;
+    return "path-decision-" + String(decisionSequence);
+  }
 
   function evaluate(candidates = [], { evidenceStore = null } = {}) {
     const normalized = (Array.isArray(candidates) ? candidates : [])
@@ -117,8 +131,13 @@ export function createConnectionPathManager({
     );
 
     if (selected) {
+      const selectedEvidence = evidenceById.get(selected.id) || null;
+      const decisionId = nextDecisionId();
       return Object.freeze({
         ok: true,
+        decisionId,
+        evaluatedAt: now(),
+        selectedEvidenceScore: evidenceScore(selectedEvidence),
         mode: "verified-path",
         selected,
         eligible: Object.freeze(evidenceEligible),
@@ -129,11 +148,77 @@ export function createConnectionPathManager({
 
     return Object.freeze({
       ok: false,
+      decisionId: nextDecisionId(),
+      evaluatedAt: now(),
       mode: policy.failClosed ? "fail-closed" : "no-verified-path",
       selected: null,
       eligible: Object.freeze([]),
       rejected: Object.freeze(normalized),
       reason: policy.failClosed ? "no-verified-path-fail-closed" : "no-verified-path",
+    });
+  }
+
+  function recordOutcome({
+    pathId,
+    outcome,
+    evidenceStore = null,
+    metrics = {},
+    confidence = null,
+    source = "path-outcome",
+    decisionId = null,
+    attributes = {},
+  } = {}) {
+    const id = typeof pathId === "string" ? pathId.trim() : "";
+    const allowedOutcomes = new Set(["success", "degraded", "failure"]);
+    if (!id || !allowedOutcomes.has(outcome)) {
+      return Object.freeze({ ok: false, reason: "invalid-outcome" });
+    }
+    if (!evidenceStore || typeof evidenceStore.record !== "function") {
+      return Object.freeze({ ok: false, reason: "evidence-store-required" });
+    }
+
+    const previous = typeof evidenceStore.get === "function" ? evidenceStore.get(id, "path") : null;
+    const previousAttributes = previous?.attributes || {};
+    const previousSamples = Number.isFinite(previous?.metrics?.sampleCount) ? previous.metrics.sampleCount : 0;
+    const counts = {
+      success: Number.isFinite(previousAttributes.successCount) ? previousAttributes.successCount : 0,
+      degraded: Number.isFinite(previousAttributes.degradedCount) ? previousAttributes.degradedCount : 0,
+      failure: Number.isFinite(previousAttributes.failureCount) ? previousAttributes.failureCount : 0,
+    };
+    counts[outcome] += 1;
+    const mergedMetrics = {
+      ...(previous?.metrics || {}),
+      ...(metrics && typeof metrics === "object" && !Array.isArray(metrics) ? metrics : {}),
+      sampleCount: previousSamples + 1,
+    };
+    const result = evidenceStore.record({
+      id,
+      kind: "path",
+      observedAt: now(),
+      source,
+      confidence: confidence ?? previous?.confidence ?? 0.5,
+      metrics: mergedMetrics,
+      attributes: {
+        ...previousAttributes,
+        ...attributes,
+        decisionId: decisionId || previousAttributes.decisionId || null,
+        lastOutcome: outcome,
+        successCount: counts.success,
+        degradedCount: counts.degraded,
+        failureCount: counts.failure,
+      },
+    });
+    if (!result.ok) return result;
+
+    const reprobeRecommended = policy.reprobePolicy !== "disabled" &&
+      (outcome === "failure" || (outcome === "degraded" && policy.reprobePolicy === "on-degraded-or-failure"));
+    return Object.freeze({
+      ok: true,
+      outcome,
+      pathId: id,
+      decisionId,
+      reprobeRecommended,
+      evidence: result.evidence,
     });
   }
 
@@ -151,5 +236,6 @@ export function createConnectionPathManager({
     },
     evaluate,
     evaluateRegistry,
+    recordOutcome,
   });
 }
