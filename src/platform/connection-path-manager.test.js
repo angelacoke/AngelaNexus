@@ -102,3 +102,37 @@ test("required evidence prevents unmeasured paths from being selected", () => {
   assert.equal(result.selected.id, "measured");
   assert.equal(result.eligible.length, 1);
 });
+
+
+test("selected path decisions are identifiable and outcome feedback updates evidence", () => {
+  const registry = createPathRegistry();
+  registry.register(path("direct"));
+  const evidence = createNetworkEvidenceStore({ now: () => 2000 });
+  const manager = createConnectionPathManager({ now: () => 2000, userPolicy: { reprobePolicy: "on-failure" } });
+  const decision = manager.evaluateRegistry(registry, evidence);
+  assert.equal(decision.ok, true);
+  assert.match(decision.decisionId, /^path-decision-/);
+  const outcome = manager.recordOutcome({ pathId: decision.selected.id, outcome: "failure", evidenceStore: evidence, decisionId: decision.decisionId, metrics: { rttMs: 900, lossRatio: 0.4 } });
+  assert.equal(outcome.ok, true);
+  assert.equal(outcome.reprobeRecommended, true);
+  assert.equal(outcome.evidence.attributes.lastOutcome, "failure");
+  assert.equal(outcome.evidence.attributes.failureCount, 1);
+  assert.equal(outcome.evidence.metrics.sampleCount, 1);
+});
+
+test("outcome feedback is policy-bound and supports degraded results", () => {
+  const evidence = createNetworkEvidenceStore({ now: () => 3000 });
+  const manager = createConnectionPathManager({ now: () => 3000, userPolicy: { reprobePolicy: "disabled" } });
+  const outcome = manager.recordOutcome({ pathId: "direct", outcome: "degraded", evidenceStore: evidence, metrics: { rttMs: 300 } });
+  assert.equal(outcome.ok, true);
+  assert.equal(outcome.reprobeRecommended, false);
+  assert.equal(outcome.evidence.attributes.lastOutcome, "degraded");
+});
+
+test("invalid outcome cannot mutate evidence", () => {
+  const evidence = createNetworkEvidenceStore({ now: () => 4000 });
+  const manager = createConnectionPathManager({ now: () => 4000 });
+  const result = manager.recordOutcome({ pathId: "direct", outcome: "unknown", evidenceStore: evidence });
+  assert.equal(result.ok, false);
+  assert.equal(evidence.get("direct", "path"), null);
+});
