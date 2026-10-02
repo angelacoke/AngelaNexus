@@ -205,6 +205,62 @@ test("health-check failure invokes the kernel rollback boundary", () => {
   assert.equal(lifecycle.snapshot().state, TransparentLifecycleStates.ACTIVE);
 });
 
+test("kernel rollback is invoked exactly once when health check fails", () => {
+  const lifecycle = activeLifecycle();
+  let rollbackCalls = 0;
+  const controller = createNetworkOptimizationController({
+    lifecycle,
+    userEnabled: true,
+    requestedAction: OptimizationActions.CONSERVATIVE,
+  });
+  const result = controller.apply({
+    telemetry: { rttMs: 120, baseRttMs: 100, queueingDelayMs: 2, samples: 20 },
+    capabilityVerified: true,
+    securityHealthy: true,
+    optimizationExecutor: () => ({
+      ok: true,
+      rollback: () => {
+        rollbackCalls += 1;
+      },
+    }),
+    healthCheck: () => false,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "optimization-health-check-failed");
+  assert.equal(rollbackCalls, 1);
+  assert.equal(lifecycle.snapshot().state, TransparentLifecycleStates.ACTIVE);
+});
+
+test("failed kernel rollback isolates the lifecycle instead of reporting active", () => {
+  const lifecycle = activeLifecycle();
+  let rollbackCalls = 0;
+  const controller = createNetworkOptimizationController({
+    lifecycle,
+    userEnabled: true,
+    requestedAction: OptimizationActions.CONSERVATIVE,
+  });
+  const result = controller.apply({
+    telemetry: { rttMs: 120, baseRttMs: 100, queueingDelayMs: 2, samples: 20 },
+    capabilityVerified: true,
+    securityHealthy: true,
+    optimizationExecutor: () => ({
+      ok: true,
+      rollback: () => {
+        rollbackCalls += 1;
+        throw new Error("kernel rollback failed");
+      },
+    }),
+    healthCheck: () => false,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.phase, "health-check");
+  assert.equal(result.reason, "optimization-rollback-failed");
+  assert.equal(result.error, "kernel rollback failed");
+  assert.equal(result.originalError, "optimization health check failed");
+  assert.equal(rollbackCalls, 1);
+  assert.equal(lifecycle.snapshot().state, TransparentLifecycleStates.FAILED);
+});
+
 test("implicit executor success is rejected and rolled back", () => {
   const lifecycle = activeLifecycle();
   const controller = createNetworkOptimizationController({
