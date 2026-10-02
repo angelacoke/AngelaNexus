@@ -111,12 +111,19 @@ export function createNetworkOptimizationController({
           typeof execution === "object" &&
           execution.ok === true);
       if (!executionSucceeded) throw new Error("optimization executor rejected activation");
+      const optimizationRollback =
+        execution !== null &&
+        typeof execution === "object" &&
+        typeof execution.rollback === "function"
+          ? execution.rollback
+          : null;
       const healthy = healthCheck({
         action: decision.action,
         previousAction: activeAction,
         classification: decision.classification,
       }) === true;
       if (!healthy) {
+        if (optimizationRollback) optimizationRollback();
         lifecycle.rollback("optimization-health-check-failed");
         lifecycle.recover();
         return Object.freeze({
@@ -139,12 +146,14 @@ export function createNetworkOptimizationController({
       });
     } catch (error) {
       try {
-        if (lifecycle.snapshot().state === TransparentLifecycleStates.ACTIVATING) {
-          lifecycle.rollback("optimization-activation-failed");
-          lifecycle.recover();
-        }
+        lifecycle.rollback("optimization-activation-failed");
+        lifecycle.recover();
       } catch {
-        lifecycle.fail("optimization-activation-failed");
+        try {
+          lifecycle.fail("optimization-activation-failed");
+        } catch {
+          // Preserve the original activation error when recovery is unavailable.
+        }
       }
       return Object.freeze({
         ok: false,
@@ -155,8 +164,6 @@ export function createNetworkOptimizationController({
         snapshot: snapshot(),
       });
     }
-  }
-
   return Object.freeze({
     snapshot,
     setUserEnabled,
