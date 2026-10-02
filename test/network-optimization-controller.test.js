@@ -83,6 +83,7 @@ test("verified optimization switches through drain and activation", () => {
     },
     capabilityVerified: true,
     securityHealthy: true,
+    optimizationExecutor: () => true,
   });
   assert.equal(result.ok, true);
   assert.equal(result.phase, "activated");
