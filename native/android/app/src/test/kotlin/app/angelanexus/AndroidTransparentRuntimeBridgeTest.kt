@@ -64,7 +64,7 @@ class AndroidTransparentRuntimeBridgeTest {
 
     private fun adapterWithCapabilities(ready: Boolean): AndroidRootTransparentAdapter =
         AndroidRootTransparentAdapter(
-            context = error("context not used in injected backend"),
+            context = null,
             backend = object : AndroidRootTransparentAdapter.Backend {
                 override fun inspect() = if (ready) readyCapabilities() else unavailableCapabilities()
                 override fun createTransaction(config: RootTransparentConfig) =
