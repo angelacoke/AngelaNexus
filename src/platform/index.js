@@ -223,3 +223,4 @@ export {
   ANDROID_TRANSPARENT_RUNTIME_FACTORY_VERSION,
   createAndroidTransparentRuntimeFactory,
 } from "./android-transparent-runtime-factory.js";
+export { createNetworkControlPlane } from "./network-control-plane.js";
