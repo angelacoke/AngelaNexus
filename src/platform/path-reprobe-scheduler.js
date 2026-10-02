@@ -69,7 +69,7 @@ export function createPathReprobeScheduler({
 
     const lastCompletedAt = current?.lastCompletedAt || 0;
     const earliest = lastCompletedAt + effectiveInterval();
-    const nextAttemptAt = Math.max(timestamp, earliest, timestamp + backoff(policy.baseBackoffMs, policy.maxBackoffMs, attempt + 1));
+    const nextAttemptAt = Math.max(earliest, timestamp + effectiveInterval(), timestamp + backoff(policy.baseBackoffMs, policy.maxBackoffMs, attempt + 1));
 
     const task = {
       pathId: id,
