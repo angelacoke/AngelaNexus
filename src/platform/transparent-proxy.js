@@ -1,3 +1,5 @@
+import { selectTransparentBackend } from "./transparent-backend-capability.js";
+
 export const TRANSPARENT_PROXY_MODES = Object.freeze({
   TUN: "tun",
   SYSTEM_VPN: "system-vpn",
