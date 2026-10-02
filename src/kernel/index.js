@@ -13,6 +13,14 @@ export {
   resolveKernelRuntimeMode,
   requireKernelRuntimeMode,
 } from "./runtime-boundary.js";
+export {
+  RUNTIME_ARTIFACT_COMPLIANCE_VERSION,
+  RUNTIME_LINKAGE_MODELS,
+  RUNTIME_ARTIFACT_VERIFICATION_STATES,
+  createRuntimeArtifactCompliance,
+  requireRuntimeArtifactCompliance,
+  isRuntimeArtifactReleaseReady,
+} from "./runtime-artifact-compliance.js";
 
 export {
   KernelDriverCapabilities,
