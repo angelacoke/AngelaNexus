@@ -1,4 +1,5 @@
 import { selectTransparentBackend } from "./transparent-backend-capability.js";
+import { capabilityTruthFromBackend } from "./capability-truth.js";
 
 export const ANDROID_TRANSPARENT_MODES = Object.freeze({
   AUTO: "auto",
@@ -52,6 +53,8 @@ export function selectAndroidTransparentMode(requestedMode = ANDROID_TRANSPARENT
       selected: rootComplete ? ANDROID_TRANSPARENT_MODES.ROOT : "unavailable",
       failClosed: true,
       reason: rootComplete ? "root-capability-ready" : "root-capability-incomplete",
+      backend: rootComplete ? rootSelection.backend : null,
+      truth: rootComplete ? capabilityTruthFromBackend(rootSelection.backend, { "android-root": true }) : null,
     });
   }
   if (requested === ANDROID_TRANSPARENT_MODES.SYSTEM) {
@@ -67,6 +70,8 @@ export function selectAndroidTransparentMode(requestedMode = ANDROID_TRANSPARENT
     selected: rootComplete ? ANDROID_TRANSPARENT_MODES.ROOT : (capabilities.systemVpn ? ANDROID_TRANSPARENT_MODES.SYSTEM : "unavailable"),
     failClosed: true,
     reason: rootComplete ? "auto-selected-root" : (capabilities.systemVpn ? "auto-selected-system" : "no-transparent-mode-available"),
+    backend: rootComplete ? rootSelection.backend : null,
+    truth: rootComplete ? capabilityTruthFromBackend(rootSelection.backend, { "android-root": true }) : null,
   });
 }
 
