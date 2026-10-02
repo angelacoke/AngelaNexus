@@ -53,4 +53,5 @@
     <string name="dark_mode">Тёмная тема</string>
     <string name="security">Безопасность</string>
     <string name="security_description">Политики защиты от непреднамеренного прямого доступа и DNS/IPv6/QUIC управляются ядром</string>
+    <string name="core_label">Ядро</string>
 </resources>
