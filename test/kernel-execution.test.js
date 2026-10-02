@@ -105,3 +105,57 @@ test("explicit process runtime remains available when requested", async () => {
   assert.equal(execution.runtimeMode, "process");
   await execution.stop();
 });
+
+
+test("execution honors a ready runtime plan without re-resolving runtime mode", async () => {
+  const execution = await createKernelExecution({
+    kernel: Kernels.MIHOMO,
+    nodes: [{
+      id: "exit",
+      protocol: "socks",
+      server: "192.0.2.1",
+      port: 1080
+    }]
+  }, {
+    binary: "/usr/bin/mihomo",
+    runtimePlan: {
+      ok: true,
+      plan: {
+        kind: "runtime-plan",
+        version: 2,
+        kernel: Kernels.MIHOMO,
+        runtime: { platform: "android", selectedMode: "process" }
+      }
+    },
+    runtimeFactory: fakeRuntimeFactory
+  });
+  assert.equal(execution.runtimeMode, "process");
+  await execution.stop();
+});
+
+test("execution rejects a runtime plan that conflicts with the kernel", async () => {
+  await assert.rejects(
+    createKernelExecution({
+      kernel: Kernels.MIHOMO,
+      nodes: [{
+        id: "exit",
+        protocol: "socks",
+        server: "192.0.2.1",
+        port: 1080
+      }]
+    }, {
+      binary: "/usr/bin/mihomo",
+      runtimePlan: {
+        ok: true,
+        plan: {
+          kind: "runtime-plan",
+          version: 2,
+          kernel: Kernels.SING_BOX,
+          runtime: { platform: "android", selectedMode: "process" }
+        }
+      },
+      runtimeFactory: fakeRuntimeFactory
+    }),
+    /runtimePlan kernel does not match execution kernel/
+  );
+});
