@@ -174,3 +174,10 @@ export {
   NETWORK_OPTIMIZATION_CONTROLLER_VERSION,
   createNetworkOptimizationController,
 } from "./network-optimization-controller.js";
+
+export {
+  CONNECTION_PATH_MANAGER_VERSION,
+  ConnectionPathTypes,
+  ConnectionPathTrust,
+  createConnectionPathManager,
+} from "./connection-path-manager.js";
