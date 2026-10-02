@@ -138,3 +138,24 @@ export {
   missingTransparentBackendCapabilities,
   selectTransparentBackend,
 } from "./transparent-backend-capability.js";
+export {
+  CAPABILITY_TRUTH_VERSION,
+  CapabilityTruthStates,
+  evaluateCapabilityTruth,
+  capabilityTruthFromBackend,
+  requireCapabilityTruth,
+} from "./capability-truth.js";
+export {
+  NETWORK_TELEMETRY_VERSION,
+  NETWORK_TELEMETRY_LIMITS,
+  FlowEvidenceSources,
+  createFlowEvidence,
+  createFlowTelemetry,
+  summarizeFlowTelemetry,
+} from "./network-telemetry.js";
+export {
+  TRANSPARENT_LIFECYCLE_VERSION,
+  TransparentLifecycleStates,
+  createTransparentLifecycle,
+  canAdmitNewFlows,
+} from "./transparent-lifecycle.js";
