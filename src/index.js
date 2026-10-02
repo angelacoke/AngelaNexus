@@ -43,5 +43,6 @@ export * from "./core/runtime-plan.js";
 export * from "./adapters/capability-negotiation.js";
 
 export * from "./core/rule-source-security.js";
+export * from "./core/rule-source-semantic-validator.js";
 export * from "./core/rule-source-update-manager.js";
 export * from "./core/rule-source-refresh-service.js";
