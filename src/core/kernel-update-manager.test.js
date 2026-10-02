@@ -7,6 +7,7 @@ import {
   analyzeKernelAdapterImpact,
   buildKernelAdapterTestPlan,
   compareKernelVersions,
+  validateReleaseProvenance,
   createKernelUpdateCandidate,
   validateKernelUpdateGates,
 } from "./kernel-update-manager.js";
@@ -97,4 +98,31 @@ test("update approval cannot bypass required gates", () => {
 
   assert.equal(complete.ok, true);
   assert.deepEqual(complete.missing, []);
+});
+
+
+test("release provenance requires the expected repository and exact GitHub release tag", () => {
+  const valid = validateReleaseProvenance({
+    repository: "SagerNet/sing-box",
+    expectedRepository: "SagerNet/sing-box",
+    tag: "v1.14.2",
+    releaseUrl: "https://github.com/SagerNet/sing-box/releases/tag/v1.14.2",
+  });
+  assert.equal(valid.ok, true);
+
+  const wrongRepository = validateReleaseProvenance({
+    repository: "attacker/sing-box",
+    expectedRepository: "SagerNet/sing-box",
+    tag: "v1.14.2",
+    releaseUrl: "https://github.com/SagerNet/sing-box/releases/tag/v1.14.2",
+  });
+  assert.equal(wrongRepository.ok, false);
+
+  const wrongTag = validateReleaseProvenance({
+    repository: "SagerNet/sing-box",
+    expectedRepository: "SagerNet/sing-box",
+    tag: "v1.14.3",
+    releaseUrl: "https://github.com/SagerNet/sing-box/releases/tag/v1.14.2",
+  });
+  assert.equal(wrongTag.ok, false);
 });
