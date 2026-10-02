@@ -32,7 +32,23 @@ export async function createKernelExecution(config, options = {}) {
   const kernel = config && config.kernel;
   if (!Object.values(Kernels).includes(kernel)) throw new Error("unsupported kernel: " + kernel);
   let runtimeMode = "process";
-  if (options.platform !== undefined) {
+  if (options.runtimePlan !== undefined) {
+    const runtimePlan = options.runtimePlan;
+    if (!runtimePlan || runtimePlan.ok !== true || !runtimePlan.plan || runtimePlan.plan.kind !== "runtime-plan") {
+      throw new Error("runtimePlan must be a ready runtime plan");
+    }
+    if (runtimePlan.plan.kernel !== kernel) {
+      throw new Error("runtimePlan kernel does not match execution kernel");
+    }
+    const selectedMode = runtimePlan.plan.runtime?.selectedMode;
+    if (selectedMode !== "process" && selectedMode !== "native") {
+      throw new Error("runtimePlan does not contain a valid selected runtime mode");
+    }
+    if (options.platform !== undefined && String(runtimePlan.plan.runtime?.platform || "").toLowerCase() !== String(options.platform).toLowerCase()) {
+      throw new Error("runtimePlan platform does not match execution platform");
+    }
+    runtimeMode = selectedMode;
+  } else if (options.platform !== undefined) {
     const resolution = resolveKernelRuntimeMode(kernel, options.platform, {
       requestedMode: options.requestedRuntimeMode || "auto",
       requireNative: options.requireNative === true,
