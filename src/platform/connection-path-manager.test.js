@@ -6,7 +6,8 @@ import {
   createConnectionPathManager,
 } from "./connection-path-manager.js";
 import { createPathRegistry } from "../core/path-registry.js";
-import { createNetworkEvidenceStore } from "../core/network-evidence.js";\nimport { createPathReprobeScheduler } from "./path-reprobe-scheduler.js";
+import { createNetworkEvidenceStore } from "../core/network-evidence.js";
+import { createPathReprobeScheduler } from "./path-reprobe-scheduler.js";
 
 function path(id) {
   return {
