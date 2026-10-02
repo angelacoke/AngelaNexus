@@ -1,0 +1,60 @@
+import { Kernels } from "../core/model.js";
+import { adapterFor } from "../adapters/index.js";
+import { driverFor } from "./driver-registry.js";
+import { getKernelRuntimeSpec } from "./runtime-registry.js";
+
+export const KERNEL_SYNCHRONIZATION_VERSION = 1;
+
+export const REQUIRED_KERNELS = Object.freeze([
+  Kernels.MIHOMO,
+  Kernels.SING_BOX,
+  Kernels.XRAY,
+]);
+
+export const KERNEL_SYNC_REQUIREMENTS = Object.freeze({
+  configCompile: true,
+  chainCompile: true,
+  processRuntime: true,
+  capabilityDeclaration: true,
+  conformanceVerification: true,
+});
+
+function inspectKernel(kernel) {
+  const adapter = adapterFor(kernel);
+  const driver = driverFor(kernel);
+  const runtime = getKernelRuntimeSpec(kernel);
+  return Object.freeze({
+    kernel,
+    adapter: Boolean(adapter),
+    driver: Boolean(driver),
+    capabilities: Object.freeze(driver ? [...driver.capabilities] : []),
+    runtime: Object.freeze({ ...runtime }),
+    configCompile: Boolean(adapter?.compileConfig),
+    chainCompile: Boolean(adapter?.compileChain),
+  });
+}
+
+export function inspectKernelSynchronization() {
+  const kernels = REQUIRED_KERNELS.map(inspectKernel);
+  const missing = [];
+  for (const item of kernels) {
+    if (!item.adapter) missing.push(item.kernel + ":adapter");
+    if (!item.driver) missing.push(item.kernel + ":driver");
+    if (!item.configCompile) missing.push(item.kernel + ":config-compile");
+    if (!item.chainCompile) missing.push(item.kernel + ":chain-compile");
+    if (!item.capabilities.includes("process-runtime")) missing.push(item.kernel + ":process-runtime");
+  }
+  return Object.freeze({
+    version: KERNEL_SYNCHRONIZATION_VERSION,
+    ok: missing.length === 0,
+    requiredKernels: REQUIRED_KERNELS,
+    kernels: Object.freeze(kernels),
+    missing: Object.freeze(missing),
+  });
+}
+
+export function requireKernelSynchronization() {
+  const report = inspectKernelSynchronization();
+  if (!report.ok) throw new Error("kernel synchronization incomplete: " + report.missing.join(", "));
+  return report;
+}
