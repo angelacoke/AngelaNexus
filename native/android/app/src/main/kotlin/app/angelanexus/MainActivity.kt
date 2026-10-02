@@ -101,6 +101,17 @@ private fun AngelaNexusRoot() {
         }
     }
 
+    val currentLocaleTag = remember {
+        context.resources.configuration.locales[0].toLanguageTag().let { tag ->
+            when {
+                tag.equals("zh-CN", ignoreCase = true) || tag.startsWith("zh-", ignoreCase = true) -> "zh-CN"
+                tag.startsWith("ru", ignoreCase = true) -> "ru"
+                tag.startsWith("fa", ignoreCase = true) -> "fa"
+                else -> "en"
+            }
+        }
+    }
+
     AngelaNexusApp(
         darkTheme = darkTheme,
         transparentMode = selectedMode,
@@ -110,7 +121,16 @@ private fun AngelaNexusRoot() {
             status = "selecting-config"
             documentLauncher.launch(arrayOf("*/*"))
         },
-        onStartVpn = ::startSelectedMode
+        onStartVpn = ::startSelectedMode,
+        currentLocaleTag = currentLocaleTag,
+        onLocaleSelected = { tag ->
+            if (tag == null) {
+                AndroidLocalePreference.clear(context)
+            } else {
+                AndroidLocalePreference.save(context, tag)
+            }
+            (context as? MainActivity)?.recreate()
+        }
     )
 
     if (LocalInspectionMode.current) {
