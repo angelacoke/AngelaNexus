@@ -1,0 +1,25 @@
+name: security-integrity
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install dependencies without lifecycle scripts
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Dependency vulnerability gate
+        run: npm audit --audit-level=high
+      - name: Syntax validation
+        run: npm run syntax:check
+      - name: Security unit tests
+        run: node --test test/config-integrity.test.js test/update-trust-policy.test.js test/rule-source-security.test.js test/application-integrity.test.js test/security-policy.test.js
