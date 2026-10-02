@@ -61,6 +61,29 @@ Native Platform Implementation
    `-- Linux
 ~~~
 
+## Platform control-plane integration
+
+The platform-neutral execution path is now represented by a concrete control-plane contract:
+
+~~~text
+Identity / request context
+        |
+Device Policy Engine
+        |
+Route Decision (direct / proxy / block / chain)
+        |
+Network Control Plane
+        |------------------|
+Network Lifecycle   Network Acceptance Harness
+        |------------------|
+        |
+Kernel / platform adapters
+~~~
+
+The control plane is responsible for orchestration, not packet execution. It propagates the deterministic policy decision into the injected kernel adapter, gates execution through capability and user/security checks, records lifecycle evidence, and requires live verification plus traffic acceptance before entering the running state. Rejected or failed operations do not silently downgrade policy; failures return explicit evidence and use recovery/cleanup verification before restoration.
+
+The implementation is platform-neutral in `src/platform/network-control-plane.js`. Android, iOS, Windows, macOS and Linux implementations remain adapter responsibilities.
+
 ## Unified capability center
 
 The primary UI must expose common behavior once. Users should not need separate Mihomo, sing-box and Xray operating concepts.
