@@ -22,6 +22,7 @@ class AndroidTransparentRuntimeBridgeTest {
     @Test
     fun verifiedRootCapabilityCompletesNativeLifecycle() {
         val executor = RecordingExecutor()
+        val inspector = MutableTransparentInspector()
         val adapter = AndroidRootTransparentAdapter(
             context = error("context not used in injected backend"),
             backend = object : AndroidRootTransparentAdapter.Backend {
@@ -32,15 +33,17 @@ class AndroidTransparentRuntimeBridgeTest {
                         AndroidRootTransparentRules.build(config),
                     )
                 override fun createRuntime() =
-                    AndroidRootTransparentRuntime(AlwaysVerifiedInspector())
+                    AndroidRootTransparentRuntime(inspector)
             },
         )
         val bridge = AndroidTransparentRuntimeBridge(adapter)
 
         assertTrue(bridge.prepare(testConfig()).ok)
+        inspector.active = true
         assertTrue(bridge.apply().ok)
         val verified = bridge.verify()
         val rolledBack = bridge.rollback()
+        inspector.active = false
 
         assertTrue(verified.ok)
         assertEquals("verified", verified.reason)
@@ -104,14 +107,15 @@ class AndroidTransparentRuntimeBridgeTest {
         }
     }
 
-    private class AlwaysVerifiedInspector : RootTransparentStateInspector {
-        override fun tableExists(tableName: String) = true
-        override fun ipv4PolicyRuleExists(mark: Int, routingTable: Int) = true
-        override fun ipv4LocalRouteExists(routingTable: Int) = true
-        override fun ipv6PolicyRuleExists(mark: Int, routingTable: Int) = true
-        override fun ipv6LocalRouteExists(routingTable: Int) = true
-        override fun interceptRulesExist(tableName: String, interceptPort: Int) = true
-        override fun dnsRulesExist(tableName: String, dnsPort: Int?) = true
-        override fun selfLoopProtectionExists(tableName: String, ipv6: Boolean) = true
+    private class MutableTransparentInspector : RootTransparentStateInspector {
+        var active = false
+        override fun tableExists(tableName: String) = active
+        override fun ipv4PolicyRuleExists(mark: Int, routingTable: Int) = active
+        override fun ipv4LocalRouteExists(routingTable: Int) = active
+        override fun ipv6PolicyRuleExists(mark: Int, routingTable: Int) = active
+        override fun ipv6LocalRouteExists(routingTable: Int) = active
+        override fun interceptRulesExist(tableName: String, interceptPort: Int) = active
+        override fun dnsRulesExist(tableName: String, dnsPort: Int?) = active
+        override fun selfLoopProtectionExists(tableName: String, ipv6: Boolean) = active
     }
 }
