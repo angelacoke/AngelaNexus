@@ -122,7 +122,7 @@ export function createConnectionPathManager({
         mode: "verified-path",
         selected,
         eligible: Object.freeze(evidenceEligible),
-        rejected: Object.freeze(normalized.filter((candidate) => !evidenceEligible.includes(candidate))), Object.freeze(normalized.filter((candidate) => candidate !== selected && !eligible.includes(candidate))),
+        rejected: Object.freeze(normalized.filter((candidate) => !evidenceEligible.includes(candidate))),
         reason: "verified-path-available",
       });
     }
