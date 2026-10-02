@@ -152,6 +152,16 @@ function validateRule(rule, index) {
   return errors;
 }
 
+function isBroadMatch(match) {
+  if (!match || typeof match !== "object") return false;
+  const values = (value) => Array.isArray(value) ? value.map(item => String(item).trim().toLowerCase()) : [String(value ?? "").trim().toLowerCase()];
+  if (values(match.ip_cidr).some(value => value === "0.0.0.0/0" || value === "::/0")) return true;
+  if (values(match.domain_suffix).some(value => value === "." || value === "")) return true;
+  if (values(match.protocol).some(value => value === "any" || value === "*")) return true;
+  if (values(match.network).some(value => value === "any" || value === "*")) return true;
+  return false;
+}
+
 function validateSemanticModel(document, limits) {
   const rules = extractRules(document);
   if (!rules) {
@@ -163,7 +173,27 @@ function validateSemanticModel(document, limits) {
 
   const errors = [];
   for (let index = 0; index < rules.length; index += 1) {
-    errors.push(...validateRule(rules[index], index));
+    const rule = rules[index];
+    errors.push(...validateRule(rule, index));
+    if (
+      rule &&
+      typeof rule === "object" &&
+      rule.action &&
+      typeof rule.action === "object" &&
+      isBroadMatch(rule.match) &&
+      (
+        (String(rule.action.type || "").toLowerCase() === "bypass" &&
+          String(rule.action.target || "").trim().toLowerCase() === "direct") ||
+        (String(rule.action.type || "").toLowerCase() === "dns" &&
+          ["direct", "plain", "system"].includes(String(rule.action.target || "").trim().toLowerCase()))
+      )
+    ) {
+      errors.push(error(
+        "RULE_SOURCE_BROAD_SECURITY_BYPASS",
+        "broad-match rule crosses a direct routing or resolver security boundary",
+        "$.rules[" + index + "]"
+      ));
+    }
     if (errors.length >= 100) break;
   }
   if (errors.length) return { ok: false, errors };
