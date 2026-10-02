@@ -27,6 +27,7 @@ export {
   createTransparentProxyConfig,
   evaluateTransparentProxy,
   createTransparentProxyDecision,
+  resolveTransparentBackend,
 } from "./transparent-proxy.js";
 export {
   TRANSPARENT_INGRESS_VERSION,
