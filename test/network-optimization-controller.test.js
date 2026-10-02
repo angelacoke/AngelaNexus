@@ -178,6 +178,33 @@ test("kernel execution boundary must succeed before optimization is committed", 
   assert.equal(lifecycle.snapshot().state, TransparentLifecycleStates.ACTIVE);
 });
 
+
+test("health-check failure invokes the kernel rollback boundary", () => {
+  const lifecycle = activeLifecycle();
+  let rollbackCalls = 0;
+  const controller = createNetworkOptimizationController({
+    lifecycle,
+    userEnabled: true,
+    requestedAction: OptimizationActions.CONSERVATIVE,
+  });
+  const result = controller.apply({
+    telemetry: { rttMs: 120, baseRttMs: 100, queueingDelayMs: 2, samples: 20 },
+    capabilityVerified: true,
+    securityHealthy: true,
+    optimizationExecutor: () => ({
+      ok: true,
+      rollback: () => {
+        rollbackCalls += 1;
+      },
+    }),
+    healthCheck: () => false,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.phase, "health-check");
+  assert.equal(rollbackCalls, 1);
+  assert.equal(lifecycle.snapshot().state, TransparentLifecycleStates.ACTIVE);
+});
+
 test("implicit executor success is rejected and rolled back", () => {
   const lifecycle = activeLifecycle();
   const controller = createNetworkOptimizationController({
