@@ -67,3 +67,41 @@ test("does not create an execution when unified config preflight fails", async (
     /configuration preflight failed/
   );
 });
+
+test("native runtime selection requires an actual native runtime factory", async () => {
+  await assert.rejects(
+    createKernelExecution({
+      kernel: Kernels.MIHOMO,
+      nodes: [{
+        id: "exit",
+        protocol: "socks",
+        server: "192.0.2.1",
+        port: 1080
+      }]
+    }, {
+      binary: "/usr/bin/mihomo",
+      platform: "android",
+      runtimeFactory: fakeRuntimeFactory
+    }),
+    /native runtime selected but nativeRuntimeFactory is unavailable/
+  );
+});
+
+test("explicit process runtime remains available when requested", async () => {
+  const execution = await createKernelExecution({
+    kernel: Kernels.MIHOMO,
+    nodes: [{
+      id: "exit",
+      protocol: "socks",
+      server: "192.0.2.1",
+      port: 1080
+    }]
+  }, {
+    binary: "/usr/bin/mihomo",
+    platform: "android",
+    requestedRuntimeMode: "process",
+    runtimeFactory: fakeRuntimeFactory
+  });
+  assert.equal(execution.runtimeMode, "process");
+  await execution.stop();
+});
