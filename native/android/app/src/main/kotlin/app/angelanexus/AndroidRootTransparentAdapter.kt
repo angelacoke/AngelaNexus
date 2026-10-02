@@ -68,8 +68,23 @@ class AndroidRootTransparentAdapter(
      */
     fun activate(config: RootTransparentConfig): AndroidRootTransparentRuntime {
         check(inspect().rootBackendReady) { "root transparent backend is not ready" }
+        return activate(config, backend.createTransaction(config))
+    }
+
+    /**
+     * Activates a transaction prepared by [begin].
+     *
+     * Keeping the prepared transaction across the bridge lifecycle ensures the
+     * exact transaction that passed the preparation boundary is the one that
+     * reaches commit/verified activation.
+     */
+    fun activate(
+        config: RootTransparentConfig,
+        transaction: RootTransparentRuleTransaction,
+    ): AndroidRootTransparentRuntime {
+        check(inspect().rootBackendReady) { "root transparent backend is not ready" }
         val runtime = backend.createRuntime()
-        runtime.activate(config, backend.createTransaction(config))
+        runtime.activate(config, transaction)
         return runtime
     }
 }
