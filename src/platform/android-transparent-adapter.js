@@ -1,3 +1,5 @@
+import { selectTransparentBackend } from "./transparent-backend-capability.js";
+
 export const ANDROID_TRANSPARENT_MODES = Object.freeze({
   AUTO: "auto",
   SYSTEM: "system",
@@ -35,8 +37,15 @@ export function selectAndroidTransparentMode(requestedMode = ANDROID_TRANSPARENT
     ? requestedMode
     : ANDROID_TRANSPARENT_MODES.AUTO;
   const rootReady = has(capabilities, "root") && has(capabilities, "root-authorized");
-  const rootComplete = rootReady && ["tcp", "udp", "dns", "ipv4", "ipv6", "uid-identity", "policy-routing", "atomic-rollback"]
+  const rootEvidence = rootReady && ["tcp", "udp", "dns", "ipv4", "ipv6", "uid-identity", "policy-routing", "atomic-rollback"]
     .every((key) => has(capabilities, key));
+  const rootSelection = selectTransparentBackend({
+    platform: "android",
+    requiredCapabilities: ["tcp", "udp", "dns-interception", "ipv4", "ipv6", "uid-identity", "policy-routing", "atomic-rollback"],
+    evidence: { "android-root": rootEvidence },
+    preferred: ["android-root"],
+  });
+  const rootComplete = rootSelection.ok && rootSelection.backend.id === "android-root";
   if (requested === ANDROID_TRANSPARENT_MODES.ROOT) {
     return Object.freeze({
       requested,
