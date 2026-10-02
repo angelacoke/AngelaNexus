@@ -1,4 +1,5 @@
 import { evaluateRuleSource } from "./rule-source-security.js";
+import { validateRuleSourceSemantics } from "./rule-source-semantic-validator.js";
 
 export const RULE_SOURCE_UPDATE_VERSION = 1;
 
@@ -16,8 +17,8 @@ function normalizeCandidate(candidate = {}) {
   });
 }
 
-function defaultSemanticValidator() {
-  return { ok: true, errors: [] };
+function defaultSemanticValidator(content, metadata) {
+  return validateRuleSourceSemantics(content, metadata);
 }
 
 export function createRuleSourceStore({
