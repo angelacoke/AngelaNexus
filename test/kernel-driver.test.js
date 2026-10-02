@@ -34,6 +34,40 @@ test("driver registry has no default or main kernel", () => {
   assert.equal("mainKernel" in Object.fromEntries(descriptions.map((item) => [item.kernel, item])), false);
 });
 
+test("Mihomo native runtime capability is platform-scoped", () => {
+  const driver = driverFor(Kernels.MIHOMO);
+  assert.equal(driver.capabilities.includes(KernelDriverCapabilities.NATIVE_RUNTIME), true);
+  assert.deepEqual(driver.match({
+    runtime: { selectedMode: "native", platform: "android" },
+  }), {
+    preference: "native-runtime",
+    reason: "registered native runtime capability matches the selected platform",
+  });
+  assert.equal(driver.match({
+    runtime: { selectedMode: "native", platform: "windows" },
+  }).compatible, false);
+});
+
+test("sing-box and Xray do not advertise native runtime capability", () => {
+  for (const kernel of [Kernels.SING_BOX, Kernels.XRAY]) {
+    const driver = driverFor(kernel);
+    assert.equal(driver.capabilities.includes(KernelDriverCapabilities.NATIVE_RUNTIME), false);
+    assert.equal(driver.match({
+      runtime: { selectedMode: "native", platform: "android" },
+    }).compatible, false);
+  }
+});
+
+test("native runtime creation is fail-closed without the platform factory", () => {
+  assert.throws(
+    () => driverFor(Kernels.MIHOMO).createRuntime({
+      runtimeMode: "native",
+      platform: "android",
+    }),
+    /nativeRuntimeFactory is unavailable/,
+  );
+});
+
 test("platform NodeProfile is kernel-neutral", () => {
   const profile = createNodeProfile(node);
   assert.equal(profile.protocol, "vless");
