@@ -19,6 +19,7 @@ static int angelanexusProtectFd(int fd) {
 import "C"
 
 import (
+    "errors"
     "encoding/json"
     "net"
     "net/netip"
@@ -26,9 +27,11 @@ import (
     "runtime"
     "strings"
     "sync"
+    "sync/atomic"
     "syscall"
     "unsafe"
 
+    "github.com/metacubex/mihomo/component/dialer"
     "github.com/metacubex/mihomo/config"
     "github.com/metacubex/mihomo/constant"
     "github.com/metacubex/mihomo/hub/executor"
@@ -40,6 +43,7 @@ import (
 var (
     androidTunMu sync.Mutex
     androidTun   *sing_tun.Listener
+    vpnProtectionRequired atomic.Bool
 
     configMu       sync.Mutex
     lastConfigJSON []byte
@@ -93,10 +97,20 @@ func protectSocket(fd int) bool {
 }
 
 func init() {
-    // The Android VpnService protector is mandatory once system TUN routing is live.
-    // Refuse to create the TUN listener if the JNI protector is not installed.
-    // This prevents the core's own sockets from looping back into its TUN.
-    _ = protectSocket
+    dialer.DefaultSocketHook = func(network, address string, conn syscall.RawConn) error {
+        if !vpnProtectionRequired.Load() {
+            return nil
+        }
+        var protectErr error
+        if err := conn.Control(func(fd uintptr) {
+            if !protectSocket(int(fd)) {
+                protectErr = errors.New("Android VpnService.protect refused the core socket")
+            }
+        }); err != nil {
+            return err
+        }
+        return protectErr
+    }
 }
 
 //export angelaInit
@@ -179,6 +193,7 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
         _ = androidTun.Close()
         androidTun = nil
     }
+    vpnProtectionRequired.Store(false)
     if fd < 0 {
         return 0
     }
@@ -215,6 +230,8 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
     }
     defer func() { _ = syscall.Close(int(fd)) }()
 
+    vpnProtectionRequired.Store(true)
+
     options := LC.Tun{
         Enable:                true,
         Stack:                 tunStackValue(cString(stack)),
@@ -230,6 +247,7 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
 
     listener, err := sing_tun.New(options, tunnel.Tunnel)
     if err != nil {
+        vpnProtectionRequired.Store(false)
         return 0
     }
     androidTun = listener
