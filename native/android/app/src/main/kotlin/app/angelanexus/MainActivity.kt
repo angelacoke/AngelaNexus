@@ -148,7 +148,9 @@ private fun AngelaNexusPreview() {
             rootAvailable = false,
             onTransparentModeChange = {},
             onImportConfig = {},
-            onStartVpn = {}
+            onStartVpn = {},
+            currentLocaleTag = "en",
+            onLocaleSelected = {}
         )
     }
 }
