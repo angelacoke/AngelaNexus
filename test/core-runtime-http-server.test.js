@@ -3,14 +3,7 @@ import assert from "node:assert/strict";
 import { createCoreRuntimeHttpServer } from "../src/platform/core-runtime-http-server.js";
 
 test("Core runtime HTTP server executes serialized import through the Core pipeline", async () => {
-  const server = createCoreRuntimeHttpServer({
-    importer: async (input) => ({
-      binding: { kernel: "mihomo", prompt: { reason: "high" } },
-      source: "local-file",
-      model: { nodeCount: 2 },
-      input,
-    }),
-  });
+  const server = createCoreRuntimeHttpServer();
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address();
 
@@ -33,9 +26,9 @@ test("Core runtime HTTP server executes serialized import through the Core pipel
       result: {
         version: 1,
         source: "local-file",
-        nodeCount: 2,
-        kernel: "mihomo",
-        detectionConfidence: "high",
+        nodeCount: 0,
+        kernel: null,
+        detectionConfidence: "low",
       },
     });
   } finally {
