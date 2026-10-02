@@ -27,6 +27,44 @@ export function normalizeKernelVersion(value) {
   return String(value || "").trim().replace(/^v/i, "");
 }
 
+
+export function validateReleaseProvenance({
+  repository,
+  expectedRepository,
+  tag,
+  releaseUrl,
+} = {}) {
+  const actualRepository = String(repository || "").trim();
+  const expected = String(expectedRepository || "").trim();
+  const normalizedTag = normalizeKernelVersion(tag);
+  const url = String(releaseUrl || "").trim();
+  let parsed = null;
+  try {
+    parsed = new URL(url);
+  } catch {
+    parsed = null;
+  }
+  const expectedPath = expected && normalizedTag
+    ? `/\${expected}/releases/tag/v\${normalizedTag}`
+    : null;
+  return Object.freeze({
+    ok: Boolean(
+      actualRepository &&
+      expected &&
+      actualRepository === expected &&
+      normalizedTag &&
+      parsed &&
+      parsed.protocol === "https:" &&
+      parsed.hostname === "github.com" &&
+      parsed.pathname === expectedPath
+    ),
+    repository: actualRepository || null,
+    expectedRepository: expected || null,
+    tag: normalizedTag || null,
+    releaseUrl: url || null,
+  });
+}
+
 export function versionParts(value) {
   const normalized = normalizeKernelVersion(value);
   const match = normalized.match(/^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[-+].*)?$/);
