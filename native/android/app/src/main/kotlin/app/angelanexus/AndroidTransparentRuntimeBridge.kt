@@ -24,6 +24,7 @@ class AndroidTransparentRuntimeBridge(
     )
 
     private var preparedConfig: RootTransparentConfig? = null
+    private var preparedTransaction: RootTransparentRuleTransaction? = null
     private var runtime: AndroidRootTransparentRuntime? = null
 
     fun inspectRootCapability(): Capability {
@@ -41,7 +42,7 @@ class AndroidTransparentRuntimeBridge(
             return LifecycleResult(false, "idle", "root-capability-unavailable")
         }
         return try {
-            rootAdapter.begin(config)
+            preparedTransaction = rootAdapter.begin(config)
             preparedConfig = config
             LifecycleResult(true, "prepared", "prepared")
         } catch (_: Throwable) {
@@ -52,18 +53,22 @@ class AndroidTransparentRuntimeBridge(
 
     fun apply(): LifecycleResult {
         val config = preparedConfig ?: return LifecycleResult(false, "idle", "not-prepared")
+        val transaction = preparedTransaction ?: return LifecycleResult(false, "idle", "not-prepared")
         if (!inspectRootCapability().supported) {
             preparedConfig = null
+            preparedTransaction = null
             return LifecycleResult(false, "idle", "root-capability-lost")
         }
 
         return try {
-            runtime = rootAdapter.activate(config)
+            runtime = rootAdapter.activate(config, transaction)
             preparedConfig = null
+            preparedTransaction = null
             LifecycleResult(true, "active", "applied")
         } catch (_: Throwable) {
             runtime = null
             preparedConfig = null
+            preparedTransaction = null
             LifecycleResult(false, "rolled-back", "apply-failed")
         }
     }
@@ -83,6 +88,7 @@ class AndroidTransparentRuntimeBridge(
         val active = runtime
         if (active == null) {
             preparedConfig = null
+            preparedTransaction = null
             return LifecycleResult(true, "idle", "noop")
         }
 
