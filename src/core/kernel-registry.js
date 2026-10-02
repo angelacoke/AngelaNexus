@@ -6,6 +6,7 @@ export const UpstreamKernelRegistry = Object.freeze({
     channel: "stable",
     preview: null,
     releases: "https://github.com/MetaCubeX/mihomo/releases",
+    conformance: Object.freeze({ fixtures: Object.freeze(["vless-reality"]), capabilityProbes: Object.freeze({ wireguard: "supported" }) }),
     docs: "https://wiki.metacubex.one/en/config/proxies/"
   }),
   "sing-box": Object.freeze({
@@ -15,6 +16,7 @@ export const UpstreamKernelRegistry = Object.freeze({
     channel: "stable",
     preview: "1.15.0-alpha.9",
     releases: "https://github.com/SagerNet/sing-box/releases",
+    conformance: Object.freeze({ fixtures: Object.freeze(["vless-reality"]), capabilityProbes: Object.freeze({ wireguard: "rejected" }) }),
     docs: "https://sing-box.sagernet.org/configuration/outbound/"
   }),
   xray: Object.freeze({
@@ -24,6 +26,7 @@ export const UpstreamKernelRegistry = Object.freeze({
     channel: "stable",
     preview: "26.9.30",
     releases: "https://github.com/XTLS/Xray-core/releases",
+    conformance: Object.freeze({ fixtures: Object.freeze(["vless-reality"]), capabilityProbes: Object.freeze({ wireguard: "supported" }) }),
     docs: "https://xtls.github.io/en/config/outbounds/"
   })
 });
