@@ -41,3 +41,13 @@ test("unsupported evidence cannot manufacture support", () => {
   assert.equal(result.ok, false);
   assert.equal(result.state, null);
 });
+
+test("supported platform boundary is not reported verified without runtime evidence", () => {
+  const result = capabilityTruthFromBackend(
+    { id: "android-vpn", maturity: "supported" },
+    {},
+    {}
+  );
+  assert.equal(result.state, CapabilityTruthStates.SUPPORTED);
+  assert.equal(requireCapabilityTruth(result, CapabilityTruthStates.VERIFIED), false);
+});
