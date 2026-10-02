@@ -75,7 +75,17 @@ export function createNetworkOptimizationController({
       return Object.freeze({ ok: true, phase: "unchanged", action: activeAction, decision, snapshot: snapshot() });
     }
 
-    if (typeof optimizationExecutor !== "function") {\n      return Object.freeze({\n        ok: false,\n        phase: "executor",\n        reason: "optimization-executor-not-bound",\n        decision,\n        snapshot: snapshot(),\n      });\n    }\n\n    const before = lifecycle.snapshot();
+    if (typeof optimizationExecutor !== "function") {
+      return Object.freeze({
+        ok: false,
+        phase: "executor",
+        reason: "optimization-executor-not-bound",
+        decision,
+        snapshot: snapshot(),
+      });
+    }
+
+    const before = lifecycle.snapshot();
     if (before.state !== TransparentLifecycleStates.ACTIVE || before.activeBackend === null) {
       return Object.freeze({
         ok: false,
@@ -90,6 +100,12 @@ export function createNetworkOptimizationController({
       lifecycle.beginDrain();
       lifecycle.markDrained();
       lifecycle.beginActivation(before.activeBackend);
+      const execution = optimizationExecutor({
+        action: decision.action,
+        classification: decision.classification,
+        previousAction: activeAction,
+      });
+      if (execution === false) throw new Error("optimization executor rejected activation");
       const healthy = healthCheck({
         action: decision.action,
         previousAction: activeAction,
