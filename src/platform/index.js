@@ -159,3 +159,14 @@ export {
   createTransparentLifecycle,
   canAdmitNewFlows,
 } from "./transparent-lifecycle.js";
+export {
+  NETWORK_CONDITION_VERSION,
+  NetworkConditions,
+  classifyNetworkCondition,
+  isSafeForLossCompensation,
+} from "./network-condition-classifier.js";
+export {
+  NETWORK_OPTIMIZATION_PREFLIGHT_VERSION,
+  OptimizationActions,
+  evaluateNetworkOptimizationPreflight,
+} from "./network-optimization-preflight.js";
