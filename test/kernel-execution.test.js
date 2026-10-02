@@ -87,6 +87,63 @@ test("native runtime selection requires an actual native runtime factory", async
   );
 });
 
+test("native runtime is gated by verified artifact compliance", async () => {
+  const nativeRuntimeFactory = () => fakeRuntimeFactory(Kernels.MIHOMO, { runtimeMode: "native" });
+  const compliance = {
+    kernel: "mihomo",
+    version: "1.19.32",
+    commit: "88dcbf7f1614a67c3b36b848ee3592dfa92ada36",
+    platform: "android",
+    abi: "arm64-v8a",
+    sourceUrl: "https://github.com/MetaCubeX/mihomo",
+    sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    license: "GPL-3.0",
+    linkage: "embedded",
+    verification: "verified",
+    sourceAvailable: true,
+    provenanceVerified: true,
+    licenseReviewed: true,
+  };
+  const execution = await createKernelExecution({
+    kernel: Kernels.MIHOMO,
+    nodes: [{ id: "exit", protocol: "socks", server: "192.0.2.1", port: 1080 }]
+  }, {
+    platform: "android",
+    nativeRuntimeFactory,
+    runtimeArtifactCompliance: compliance,
+  });
+  assert.equal(execution.runtimeMode, "native");
+  await execution.stop();
+});
+
+test("native runtime rejects an unverified artifact even when a factory exists", async () => {
+  await assert.rejects(
+    createKernelExecution({
+      kernel: Kernels.MIHOMO,
+      nodes: [{ id: "exit", protocol: "socks", server: "192.0.2.1", port: 1080 }]
+    }, {
+      platform: "android",
+      nativeRuntimeFactory: () => fakeRuntimeFactory(Kernels.MIHOMO, { runtimeMode: "native" }),
+      runtimeArtifactCompliance: {
+        kernel: "mihomo",
+        version: "1.19.32",
+        commit: "88dcbf7f1614a67c3b36b848ee3592dfa92ada36",
+        platform: "android",
+        abi: "arm64-v8a",
+        sourceUrl: "https://github.com/MetaCubeX/mihomo",
+        sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        license: "GPL-3.0",
+        linkage: "embedded",
+        verification: "unverified",
+        sourceAvailable: true,
+        provenanceVerified: true,
+        licenseReviewed: true,
+      },
+    }),
+    /runtime artifact is not release-ready: verification/
+  );
+});
+
 test("explicit process runtime remains available when requested", async () => {
   const execution = await createKernelExecution({
     kernel: Kernels.MIHOMO,
