@@ -55,7 +55,7 @@ export async function createKernelExecution(config, options = {}) {
   const provider = createKernelRuntimeProvider({
     kernel,
     mode: runtimeMode,
-    processFactory: (selectedKernel, runtimeOptions) => createKernelRuntime(selectedKernel, runtimeOptions),
+    processFactory: (selectedKernel, runtimeOptions) =>\n      (options.runtimeFactory || createKernelRuntime)(selectedKernel, runtimeOptions),
     nativeFactory: options.nativeRuntimeFactory,
   });
   let runtime;
