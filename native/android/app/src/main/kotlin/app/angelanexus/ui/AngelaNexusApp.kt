@@ -40,7 +40,7 @@ fun AngelaNexusApp(
         topBar = { TopAppBar(title = { Row(verticalAlignment = Alignment.CenterVertically) {
             Image(painterResource(R.drawable.angelanexus_logo), null, Modifier.size(34.dp))
             Spacer(Modifier.width(10.dp)); Column { Text(stringResource(R.string.app_name), fontWeight = FontWeight.SemiBold); Text(stringResource(R.string.app_subtitle), style = MaterialTheme.typography.labelSmall) }
-        }}, actions = { AssistChip(onClick = {}, label = { Text("Core") }, leadingIcon = { Icon(Icons.Default.CheckCircle, null, Modifier.size(16.dp)) }) }) },
+        }}, actions = { AssistChip(onClick = {}, label = { Text(stringResource(R.string.core_label)) }, leadingIcon = { Icon(Icons.Default.CheckCircle, null, Modifier.size(16.dp)) }) }) },
         bottomBar = { NavigationBar { destinations.forEachIndexed { index, destination ->
             NavigationBarItem(selected == index, { selected = index }, { Icon(destination.icon, stringResource(destination.label)) }, label = { Text(stringResource(destination.label)) })
         } } }
