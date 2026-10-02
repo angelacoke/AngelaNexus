@@ -1391,3 +1391,158 @@ AngelaNexus 的资源效率正式定义为：
 
 > **高效率、低内存、低耗能不是 AngelaNexus 的附加优化目标，而是实际用户体验、系统稳定性和长期可维护性的基础架构要求。**
 
+
+## 第二十五章：规则源抗投毒与项目/应用抗侵入原则
+
+### 第五十一条：平台规则源必须经过独立信任验证
+
+平台规则源属于安全边界，不得把“能够下载”视为“可信”。
+
+远程规则源进入平台前至少必须经过：
+
+```
+Transport Security
+      ↓
+Source Allowlist
+      ↓
+Size Limit
+      ↓
+SHA-256 Integrity
+      ↓
+Independent Publisher Signature
+      ↓
+Version / Anti-Rollback
+      ↓
+Expiry / Freshness
+      ↓
+Schema / Semantic Validation
+      ↓
+Rule Conflict / Risk Analysis
+      ↓
+Atomic Activation
+```
+
+任何关键验证失败均必须：
+
+- Reject
+- 保留当前已验证版本
+- 不覆盖运行中的可信规则
+- 记录可诊断错误
+- 不把失败源降级为“可用”
+
+### 第五十二条：信任锚不得来自被验证对象本身
+
+规则源携带的公钥、摘要、授权信息不能自行成为自己的信任根。
+
+平台必须通过独立于待验证内容的信任锚提供：
+
+- Publisher ID
+- Ed25519 公钥
+- Source Allowlist
+- 必要时的固定 SHA-256
+- 当前已接受版本
+
+规则源可以提供证明材料，但不能自行授予自己可信身份。
+
+### 第五十三条：规则源必须防重放与回滚
+
+平台必须记录已接受规则源版本，并拒绝：
+
+- 旧版本回滚
+- 同版本重放（在策略要求严格新版本时）
+- 已过期规则
+- 无有效有效期的强制签名源
+
+更新必须采用：
+
+```
+Candidate
+  ↓
+Verify
+  ↓
+Validate
+  ↓
+Stage
+  ↓
+Atomic Commit
+```
+
+不得在验证完成前直接替换当前生效规则。
+
+### 第五十四条：规则内容必须进行语义安全检查
+
+签名正确只证明“内容由可信签名者签署”，不能证明内容没有错误或错误配置。
+
+因此平台仍必须进行：
+
+- Schema Validation
+- Rule Relationship Analysis
+- Conflict Detection
+- Dangerous Broad-Match Detection
+- Route / DNS / Security Boundary Validation
+- User-visible Change Summary
+
+签名通过不得跳过语义安全检查。
+
+### 第五十五条：应用与项目必须建立多层抗侵入边界
+
+AngelaNexus 的项目与应用安全不能只依赖单一签名。
+
+至少形成：
+
+```
+Source / Dependency Integrity
+        ↓
+CI Security Gate
+        ↓
+Build Artifact Integrity
+        ↓
+Release Signing
+        ↓
+Runtime Integrity Verification
+        ↓
+Secure Update / Anti-Rollback
+        ↓
+Fail Closed
+```
+
+必须重点防止：
+
+- 未授权代码进入主分支
+- 恶意依赖或依赖供应链污染
+- 构建阶段注入
+- 发布产物替换
+- 更新包降级
+- 运行时关键文件被篡改
+- 规则源成为代码/策略注入入口
+
+### 第五十六条：项目安全验证不得依赖单一 CI 结果
+
+关键安全边界至少应具有独立验证证据。
+
+安全 Gate 至少覆盖：
+
+- 依赖漏洞检查
+- 生命周期脚本隔离
+- 完整性测试
+- 签名验证测试
+- Anti-Rollback 测试
+- 规则源抗投毒测试
+- 应用产物完整性测试
+
+### 第五十七条：规则源与执行层必须隔离
+
+规则源即使通过来源认证，也只能产生平台规则数据。
+
+不得直接：
+
+- 执行 shell
+- 执行 JavaScript
+- 加载动态代码
+- 修改应用二进制
+- 修改安全基线
+- 修改信任锚
+- 修改签名公钥
+
+规则数据必须经过 Canonical Model 与平台安全验证后才能进入 Execution Plan。
+
