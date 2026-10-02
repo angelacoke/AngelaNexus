@@ -189,3 +189,49 @@ test("explicit empty registries still disable built-in discovery", () => {
   assert.equal(result.ok, false);
   assert.equal(result.reason, "no protocol adapter available");
 });
+
+const nativeBackend = createExecutionBackend({
+  id: "native-backend",
+  capabilities: ["stream-execution", "native-runtime"],
+  canExecute: (plan) => plan.runtime?.selectedMode === "native",
+  execute: async () => ({ started: true }),
+});
+
+test("runtime plan integrates platform runtime capability selection", () => {
+  const result = createRuntimePlan(node({ transport: { type: "tcp" } }), {
+    kernel: "mihomo",
+    platform: "android",
+    protocolAdapters: [protocol],
+    transportAdapters: [tcp],
+    executionBackends: [nativeBackend],
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.plan.kernel, "mihomo");
+  assert.equal(result.plan.runtime.selectedMode, "native");
+  assert.equal(result.plan.requirements.backend.includes("native-runtime"), true);
+});
+
+test("runtime plan fails closed when native mode is selected but backend has no native capability", () => {
+  const result = createRuntimePlan(node({ transport: { type: "tcp" } }), {
+    kernel: "mihomo",
+    platform: "android",
+    protocolAdapters: [protocol],
+    transportAdapters: [tcp],
+    executionBackends: [backend],
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.plan.runtime.selectedMode, "native");
+  assert.equal(result.plan.requirements.backend.includes("native-runtime"), true);
+  assert.match(result.reason, /No available driver/i);
+});
+
+test("runtime plan rejects platform runtime selection without a supported kernel", () => {
+  const result = createRuntimePlan(node(), {
+    platform: "android",
+    protocolAdapters: [protocol],
+    transportAdapters: [],
+    executionBackends: [backend],
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "runtime platform selection requires an explicit supported kernel");
+});
