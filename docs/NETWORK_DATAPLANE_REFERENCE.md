@@ -1,6 +1,6 @@
 # AngelaNexus 网络数据面技术参考共识
 
-版本：AN-TECH-REFERENCE v1.0
+版本：AN-TECH-REFERENCE v1.1
 日期：2026-10-02
 
 ## 目的
@@ -74,6 +74,16 @@ Outcome 至少区分：Success、Degraded、Failure。反馈必须保留有限�
 
 健康状态采用分级探测：Healthy 低频、Degraded 增强、Failed 恢复探测、Recovered backoff。不得为了智能化长期高频探测全部节点。
 
+### 10.1 Re-probe Scheduler
+
+Re-probe Scheduler 只负责产生受策略约束的探测任务，不直接建立 socket、发送网络数据或执行内核操作。其输入是 Path Outcome 的 `reprobeRecommended`，输出是可取消、可观察的探测任务。
+
+调度约束：默认关闭；启用后具有最小间隔、指数退避、最大尝试次数和 cooldown；低功耗模式提高最小探测间隔；同一路径已有 pending/probing 任务时不得重复创建；达到尝试上限后进入 cooldown。
+
+状态机：`idle -> scheduled -> probing -> cooldown`，失败且仍允许重试时回到 `scheduled`；取消进入 `cancelled`。探测成功只有在 `success + securityHealthy + userAllowed + verified` 全部门禁通过时才具备恢复资格。
+
+Scheduler 不得绕过 Path Registry 的安全、用户允许、验证和健康门禁；实际网络探测由平台适配器执行，Scheduler 保持平台无关。
+
 ## 11. 对现有架构的补充
 新增或扩展：Ingress Capability Registry、Path Registry、Network Evidence Store、Optimization Registry、Recovery Controller。
 
@@ -91,7 +101,7 @@ P1：Android Root Adapter、Linux socket/eBPF prototype、Windows WFP boundary�
 
 P2：eBPF 性能优化、拥塞感知优化、direct/relay 实验、自适应低功耗探测、高级链式路径调度。P2 不得成为基础代理硬依赖。
 
-## 14. 参考与致谢
+## 15. 参考与致谢
 tunless：https://github.com/bojieli/tunless/
 Skyline Speeder：https://github.com/CYBERVERSE-Research/skyline-speeder
 Tailscale：https://tailscale.com/
