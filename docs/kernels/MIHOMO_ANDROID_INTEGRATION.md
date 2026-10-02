@@ -1,12 +1,12 @@
 # Android Native Runtime Integration Baseline
 
-Status: verified integration baseline; native runtime is not yet advertised as production-ready.
+Status: verified Android native-runtime packaging baseline; physical-device runtime evidence is still required.
 
 ## Verified runtime baseline
 
-- Current verified runtime release: v1.19.31
-- Release commit: ab405ba
-- Release date: 2026-09-14
+- Current verified runtime release: v1.19.32
+- Release commit: 88dcbf7f1614a67c3b36b848ee3592dfa92ada36
+- Release revision pinned by CI: 88dcbf7f1614a67c3b36b848ee3592dfa92ada36
 - Android arm64-v8a artifact: mihomo-android-arm64-v8-v1.19.31.gz
   SHA-256: de00bc53ed15163636b48ea7b9e305f14c39248d6bffd9cd04466fee94492f99
 - Android armv7 artifact: mihomo-android-armv7-v1.19.31.gz
@@ -43,17 +43,16 @@ No prebuilt external AAR or native library is accepted as an implicit production
 
 ## Current implementation state
 
-The Kotlin layer currently exposes a backend-neutral native-host contract and delegation wrapper. These classes are not proof of a working native core.
+The first real native bridge is now implemented and build-verified:
 
-The next implementation stage is the first real native bridge:
+1. runtime source is pinned to the verified v1.19.32 revision;
+2. the independently authored Android/cgo bridge exports initialization, configuration, TUN lifecycle and runtime-control functions;
+3. `libclash.so` is built for arm64-v8a, armeabi-v7a and x86_64;
+4. the C/C++ JNI shim and Kotlin loader are present;
+5. Android VpnService remains the owner of the TUN descriptor and lifecycle boundary;
+6. native artifact hashes are pinned and verified during packaging;
+7. signed Mihomo-enabled APK/AAB artifacts are produced by CI.
 
-1. pin the runtime source at a verified revision;
-2. add an independently authored Android/cgo bridge;
-3. build libclash.so for supported Android ABIs;
-4. add the minimal C/C++ JNI shim and Kotlin loader;
-5. wire Android VpnService protection and TUN FD ownership;
-6. add bridge ABI/version checks and artifact hashes;
-7. run an Android smoke test proving load -> initialize -> TUN start -> stop;
-8. only then mark Android native capability as available.
+The remaining evidence gate is a reproducible Android physical-device smoke test proving load -> initialize -> configuration apply -> TUN start -> traffic -> stop. Until that evidence exists, the runtime is not marked end-to-end production-ready.
 
 Configuration parsing and kernel selection remain in AngelaNexus Core; the Android native bridge must not duplicate that logic.
