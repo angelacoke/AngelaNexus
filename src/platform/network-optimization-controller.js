@@ -214,6 +214,8 @@ export function createNetworkOptimizationController({
         snapshot: snapshot(),
       });
     }
+  }
+
   return Object.freeze({
     snapshot,
     setUserEnabled,
