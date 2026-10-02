@@ -67,7 +67,7 @@ export function createNetworkOptimizationController({
     });
   }
 
-  function apply({ telemetry = {}, capabilityVerified = false, securityHealthy = false, healthCheck = () => true } = {}) {
+  function apply({ telemetry = {}, capabilityVerified = false, securityHealthy = false, healthCheck = () => true, optimizationExecutor = null } = {}) {
     const decision = evaluate({ telemetry, capabilityVerified, securityHealthy });
     if (!decision.ok) return Object.freeze({ ok: false, phase: "preflight", decision, snapshot: snapshot() });
 
@@ -75,7 +75,7 @@ export function createNetworkOptimizationController({
       return Object.freeze({ ok: true, phase: "unchanged", action: activeAction, decision, snapshot: snapshot() });
     }
 
-    const before = lifecycle.snapshot();
+    if (typeof optimizationExecutor !== "function") {\n      return Object.freeze({\n        ok: false,\n        phase: "executor",\n        reason: "optimization-executor-not-bound",\n        decision,\n        snapshot: snapshot(),\n      });\n    }\n\n    const before = lifecycle.snapshot();
     if (before.state !== TransparentLifecycleStates.ACTIVE || before.activeBackend === null) {
       return Object.freeze({
         ok: false,
