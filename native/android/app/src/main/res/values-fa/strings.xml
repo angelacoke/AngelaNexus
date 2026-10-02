@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">AngelaNexus</string>
+    <string name="app_subtitle">سکوی هوشمند پروکسی شبکه</string>
+    <string name="status_ready">وضعیت: لایه برنامه اجرا شده است؛ اتصال محیط اجرای هسته در انتظار است</string>
+    <string name="status_select_config">وضعیت: در انتظار انتخاب پیکربندی</string>
+    <string name="status_vpn_boundary_started">وضعیت: مرز VPN اندروید اجرا شده است</string>
+    <string name="import_config">وارد کردن پیکربندی</string>
+    <string name="test_vpn_boundary">راه‌اندازی مرز VPN</string>
+    <string name="kernel_status">محیط‌های اجرا: Mihomo / sing-box / Xray (لایه یکپارچه پلتفرم؛ اتصال محیط اجرای اندروید در انتظار است)</string>
+    <string name="vpn_boundary_notice">در حال حاضر فقط مرز VpnService اندروید تأیید شده است؛ این به معنی رهگیری ترافیک پروکسی نیست.</string>
+    <string name="language">زبان</string>
+</resources>
