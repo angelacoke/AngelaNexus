@@ -9,4 +9,9 @@
     <string name="kernel_status">محیط‌های اجرا: Mihomo / sing-box / Xray (لایه یکپارچه پلتفرم؛ اتصال محیط اجرای اندروید در انتظار است)</string>
     <string name="vpn_boundary_notice">در حال حاضر فقط مرز VpnService اندروید تأیید شده است؛ این به معنی رهگیری ترافیک پروکسی نیست.</string>
     <string name="language">زبان</string>
+    <string name="follow_system">پیروی از زبان سیستم</string>
+    <string name="language_english">English</string>
+    <string name="language_chinese">简体中文</string>
+    <string name="language_russian">Русский</string>
+    <string name="language_persian">فارسی</string>
 </resources>
