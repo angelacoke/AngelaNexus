@@ -24,7 +24,7 @@ class AndroidTransparentRuntimeBridgeTest {
         val executor = RecordingExecutor()
         val inspector = MutableTransparentInspector()
         val adapter = AndroidRootTransparentAdapter(
-            context = error("context not used in injected backend"),
+            context = null,
             backend = object : AndroidRootTransparentAdapter.Backend {
                 override fun inspect() = readyCapabilities()
                 override fun createTransaction(config: RootTransparentConfig) =
