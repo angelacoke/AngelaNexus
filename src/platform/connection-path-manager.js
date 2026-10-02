@@ -8,6 +8,12 @@ export const ConnectionPathTypes = Object.freeze({
   CHAIN: "chain",
 });
 
+export const ConnectionPathRecovery = Object.freeze({
+  DISABLED: "disabled",
+  FAILURE_THRESHOLD: "failure-threshold",
+  DEGRADED_OR_FAILURE_THRESHOLD: "degraded-or-failure-threshold",
+});
+
 export const ConnectionPathTrust = Object.freeze({
   VERIFIED: "verified",
   UNVERIFIED: "unverified",
@@ -99,6 +105,14 @@ export function createConnectionPathManager({
       : userPolicy.reprobePolicy === "on-failure"
         ? "on-failure"
         : "on-degraded-or-failure",
+    recoveryPolicy: userPolicy.recoveryPolicy === "failure-threshold"
+      ? ConnectionPathRecovery.FAILURE_THRESHOLD
+      : userPolicy.recoveryPolicy === "degraded-or-failure-threshold"
+        ? ConnectionPathRecovery.DEGRADED_OR_FAILURE_THRESHOLD
+        : ConnectionPathRecovery.DISABLED,
+    failureThreshold: Number.isInteger(userPolicy.failureThreshold) && userPolicy.failureThreshold > 0
+      ? Math.min(userPolicy.failureThreshold, 10)
+      : 3,
     preferredOrder: Array.isArray(userPolicy.preferredOrder)
       ? Object.freeze([...new Set(userPolicy.preferredOrder.filter((type) => DEFAULT_ALLOWED_TYPES.includes(type)))])
       : Object.freeze([]),
@@ -167,6 +181,7 @@ export function createConnectionPathManager({
     source = "path-outcome",
     decisionId = null,
     attributes = {},
+    pathRegistry = null,
   } = {}) {
     const id = typeof pathId === "string" ? pathId.trim() : "";
     const allowedOutcomes = new Set(["success", "degraded", "failure"]);
@@ -212,12 +227,32 @@ export function createConnectionPathManager({
 
     const reprobeRecommended = policy.reprobePolicy !== "disabled" &&
       (outcome === "failure" || (outcome === "degraded" && policy.reprobePolicy === "on-degraded-or-failure"));
+    const recoveryEligible = policy.recoveryPolicy === ConnectionPathRecovery.FAILURE_THRESHOLD
+      ? counts.failure >= policy.failureThreshold
+      : policy.recoveryPolicy === ConnectionPathRecovery.DEGRADED_OR_FAILURE_THRESHOLD
+        ? (counts.failure + counts.degraded) >= policy.failureThreshold
+        : false;
+    let registryAction = "none";
+    if (pathRegistry && typeof pathRegistry.update === "function") {
+      if (recoveryEligible) {
+        const updated = pathRegistry.update(id, { state: "quarantined" });
+        registryAction = updated.ok ? "quarantined" : "quarantine-rejected";
+      } else if (outcome === "success" && typeof pathRegistry.get === "function") {
+        const currentPath = pathRegistry.get(id);
+        if (currentPath?.state === "quarantined") {
+          const updated = pathRegistry.update(id, { state: "active" });
+          registryAction = updated.ok ? "reinstated" : "reinstatement-rejected";
+        }
+      }
+    }
     return Object.freeze({
       ok: true,
       outcome,
       pathId: id,
       decisionId,
       reprobeRecommended,
+      recoveryEligible,
+      registryAction,
       evidence: result.evidence,
     });
   }
