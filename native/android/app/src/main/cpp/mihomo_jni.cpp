@@ -9,6 +9,7 @@ JavaVM* g_vm = nullptr;
 jobject g_vpn_service = nullptr;
 std::mutex g_vpn_mutex;
 
+template <typename T>\nT resolve(const char* name) {\n    return reinterpret_cast<T>(dlsym(RTLD_DEFAULT, name));\n}\n
 jstring makeString(JNIEnv* env, const char* value) {
     return env->NewStringUTF(value == nullptr ? "" : value);
 }
@@ -19,7 +20,7 @@ void throwState(JNIEnv* env, const char* message) {
 
 }  // namespace
 
-extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*,) {
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
     g_vm = vm;
     return JNI_VERSION_1_6;
 }
