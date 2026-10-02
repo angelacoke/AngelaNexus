@@ -74,9 +74,16 @@ jobs:
           mkdir -p native/android/app/src/main/jniLibs/armeabi-v7a
           mkdir -p native/android/app/src/main/jniLibs/x86_64
 
-          install -m 0644 "${{ runner.temp }}/mihomo/arm64-v8a/libclash-arm64-v8a.so"             native/android/app/src/main/jniLibs/arm64-v8a/libclash.so
-          install -m 0644 "${{ runner.temp }}/mihomo/armeabi-v7a/libclash-armeabi-v7a.so"             native/android/app/src/main/jniLibs/armeabi-v7a/libclash.so
-          install -m 0644 "${{ runner.temp }}/mihomo/x86_64/libclash-x86_64.so"             native/android/app/src/main/jniLibs/x86_64/libclash.so
+          ARM64_SO="$(find "${{ runner.temp }}/mihomo/arm64-v8a" -type f -name '*.so' -print -quit)"
+          ARMV7_SO="$(find "${{ runner.temp }}/mihomo/armeabi-v7a" -type f -name '*.so' -print -quit)"
+          X86_64_SO="$(find "${{ runner.temp }}/mihomo/x86_64" -type f -name '*.so' -print -quit)"
+          test -n "$ARM64_SO"
+          test -n "$ARMV7_SO"
+          test -n "$X86_64_SO"
+
+          install -m 0644 "$ARM64_SO" native/android/app/src/main/jniLibs/arm64-v8a/libclash.so
+          install -m 0644 "$ARMV7_SO" native/android/app/src/main/jniLibs/armeabi-v7a/libclash.so
+          install -m 0644 "$X86_64_SO" native/android/app/src/main/jniLibs/x86_64/libclash.so
 
           test "$(sha256sum native/android/app/src/main/jniLibs/arm64-v8a/libclash.so | cut -d' ' -f1)"             = "667c94964d0a60f86cdcc130b2cdf3b385b02d9f2c5d3b324b3ed7a6b7326007"
           test "$(sha256sum native/android/app/src/main/jniLibs/armeabi-v7a/libclash.so | cut -d' ' -f1)"             = "3ae94d7defb1778cd611eceffcff6884407893d28c42a4350af2b49108ac9a09"
