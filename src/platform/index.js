@@ -215,3 +215,7 @@ export {
   inspectPlatformNativeDriver,
   createPlatformNativeDriverFactory,
 } from "./platform-native-driver-factory.js";
+export {
+  ANDROID_NATIVE_TRANSPARENT_BINDING_VERSION,
+  createAndroidNativeTransparentBinding,
+} from "./android-native-transparent-binding.js";
