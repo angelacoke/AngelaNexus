@@ -1,0 +1,61 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createCoreRuntimeHttpServer } from "../src/platform/core-runtime-http-server.js";
+
+test("Core runtime HTTP server executes serialized import through the Core pipeline", async () => {
+  const server = createCoreRuntimeHttpServer({
+    importer: async (input) => ({
+      binding: { kernel: "mihomo", prompt: { reason: "high" } },
+      source: "local-file",
+      model: { nodeCount: 2 },
+      input,
+    }),
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+
+  try {
+    const response = await fetch("http://127.0.0.1:" + port + "/v1/runtime/import", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        type: "angelanexus.config-import",
+        version: 1,
+        source: "local-file",
+        name: "test.yaml",
+        content: "proxies: []",
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      ok: true,
+      result: {
+        version: 1,
+        source: "local-file",
+        nodeCount: 2,
+        kernel: "mihomo",
+        detectionConfidence: "high",
+      },
+    });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("Core runtime HTTP server rejects oversized request bodies", async () => {
+  const server = createCoreRuntimeHttpServer({ maxBytes: 8 });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+
+  try {
+    const response = await fetch("http://127.0.0.1:" + port + "/v1/runtime/import", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "123456789",
+    });
+    assert.equal(response.status, 413);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
