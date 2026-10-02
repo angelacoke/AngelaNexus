@@ -198,3 +198,8 @@ export { PLATFORM_PATH_PROBE_PROFILES, createPlatformPathProbeBinding, inspectPl
   createNativePathProbeDriver,
   getNativePathProbeDriverModes,
 } from "./native-path-probe-driver.js";
+
+export {
+  PLATFORM_NATIVE_PROBE_BINDING_VERSION,
+  createPlatformNativeProbeBinding,
+} from "./platform-native-probe-binding.js";
