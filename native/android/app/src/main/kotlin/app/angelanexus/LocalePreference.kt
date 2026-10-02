@@ -2,7 +2,6 @@ package app.angelanexus
 
 import android.content.Context
 import android.content.ContextWrapper
-import android.content.SharedPreferences
 import android.content.res.Configuration
 import java.util.Locale
 
