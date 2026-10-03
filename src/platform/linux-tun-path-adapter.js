@@ -93,7 +93,7 @@ export function syncLinuxTunPath({
   const probe = normalizeProbe(probeResult);
   const network = deriveNetworkReadiness(networkEvidence);
   const effectiveRouteReady = Boolean(routeReady) || network.routeReady;
-  const effectiveFirewallReady = Boolean(network.firewallReady);
+  const effectiveFirewallReady = networkEvidence && typeof networkEvidence === "object"\n    ? Boolean(network.firewallReady)\n    : Boolean(securityHealthy);
   const tunVerified =
     probe.state === LinuxCapabilityStates.VERIFIED &&
     [LinuxTunStates.CREATED, LinuxTunStates.UP, LinuxTunStates.RUNNING].includes(probe.evidence.tunState);
@@ -110,7 +110,7 @@ export function syncLinuxTunPath({
     },
   });
 
-  const ready = tunVerified && effectiveRouteReady && Boolean(dnsReady) && effectiveFirewallReady;
+  const ready = tunVerified && effectiveRouteReady && Boolean(dnsReady) &&\n    effectiveFirewallReady && Boolean(securityHealthy);
   const state = tunVerified
     ? (ready ? PathRegistryStates.ACTIVE : PathRegistryStates.DISABLED)
     : PathRegistryStates.QUARANTINED;
