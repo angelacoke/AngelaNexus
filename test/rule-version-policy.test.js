@@ -73,7 +73,7 @@ test("sealed state detects tampering", async () => {
   const tampered = { ...sealed, records: [] };
   const result = await verifyRuleVersionStateEnvelope(tampered);
   assert.equal(result.ok, false);
-  assert.equal(result.reason, "checksum-mismatch");
+  assert.equal(result.reason, "anchor-conflict");
 });
 
 test("state anchor rejects rollback", async () => {
