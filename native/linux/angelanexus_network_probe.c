@@ -7,6 +7,7 @@
 #include <linux/netfilter/nfnetlink.h>
 #include <linux/netfilter/nf_tables.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
 #include <string.h>
 
@@ -40,6 +41,18 @@ static int probe_netlink_dump(int protocol, int request_type, int family) {
     int fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, protocol);
     if (fd < 0) {
         return ANGELANEXUS_NETWORK_PROBE_UNSUPPORTED;
+    }
+
+    struct timeval timeout = { .tv_sec = 1, .tv_usec = 0 };
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
+        close(fd);
+        return ANGELANEXUS_NETWORK_PROBE_FAILED;
+    }
+
+    struct timeval timeout = { .tv_sec = 1, .tv_usec = 0 };
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
+        close(fd);
+        return ANGELANEXUS_NETWORK_PROBE_FAILED;
     }
 
     struct sockaddr_nl local;
@@ -87,9 +100,10 @@ static int probe_netlink_dump(int protocol, int request_type, int family) {
             return ANGELANEXUS_NETWORK_PROBE_FAILED;
         }
 
+        int remaining = (int)received;
         for (struct nlmsghdr *message = (struct nlmsghdr *)buffer;
-             NLMSG_OK(message, (unsigned int)received);
-             message = NLMSG_NEXT(message, received)) {
+             NLMSG_OK(message, remaining);
+             message = NLMSG_NEXT(message, remaining)) {
             if (message->nlmsg_type == NLMSG_DONE) {
                 close(fd);
                 return ANGELANEXUS_NETWORK_PROBE_SUPPORTED;
@@ -102,7 +116,9 @@ static int probe_netlink_dump(int protocol, int request_type, int family) {
                     return ANGELANEXUS_NETWORK_PROBE_SUPPORTED;
                 }
                 errno = saved_errno;
-                return ANGELANEXUS_NETWORK_PROBE_UNSUPPORTED;
+                return (saved_errno == EOPNOTSUPP || saved_errno == ENOTSUP || saved_errno == ENOSYS)
+                    ? ANGELANEXUS_NETWORK_PROBE_UNSUPPORTED
+                    : ANGELANEXUS_NETWORK_PROBE_FAILED;
             }
         }
     }
@@ -159,9 +175,10 @@ int angelanexus_probe_nftables(void) {
         return ANGELANEXUS_NETWORK_PROBE_FAILED;
     }
 
+    int remaining = (int)received;
     for (struct nlmsghdr *message = (struct nlmsghdr *)buffer;
-         NLMSG_OK(message, (unsigned int)received);
-         message = NLMSG_NEXT(message, received)) {
+         NLMSG_OK(message, remaining);
+         message = NLMSG_NEXT(message, remaining)) {
         if (message->nlmsg_type == NLMSG_ERROR) {
             struct nlmsgerr *error = (struct nlmsgerr *)NLMSG_DATA(message);
             if (error->error == 0) {
@@ -171,7 +188,9 @@ int angelanexus_probe_nftables(void) {
             int saved_errno = error->error < 0 ? -error->error : EIO;
             close(fd);
             errno = saved_errno;
-            return ANGELANEXUS_NETWORK_PROBE_UNSUPPORTED;
+            return (saved_errno == EOPNOTSUPP || saved_errno == ENOTSUP || saved_errno == ENOSYS)
+                ? ANGELANEXUS_NETWORK_PROBE_UNSUPPORTED
+                : ANGELANEXUS_NETWORK_PROBE_FAILED;
         }
     }
 
