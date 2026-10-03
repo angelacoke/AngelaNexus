@@ -22,6 +22,9 @@ export function validateUpstreamReport(report, executed = new Set(), options = {
     if (candidate.release?.prerelease === true) {
       failures.push(candidate.kernel + ": prerelease release cannot become an update proposal");
     }
+    if (candidate.provenance?.ok !== true) {
+      failures.push(candidate.kernel + ": release provenance is missing or unverified");
+    }
   }
 
   return Object.freeze({
