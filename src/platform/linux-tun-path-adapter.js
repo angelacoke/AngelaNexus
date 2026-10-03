@@ -1,6 +1,7 @@
 import { LinuxCapabilities, LinuxCapabilityStates } from "./linux-capabilities.js";
 import { LinuxTunStates } from "./linux-tun-probe.js";
 import { PathRegistryStates } from "../core/path-registry.js";
+import { evaluateLinuxRouteIntent } from "./linux-route-intent.js";
 
 export const LINUX_TUN_PATH_ADAPTER_VERSION = 2;
 
@@ -104,6 +105,7 @@ export function syncLinuxTunPath({
   securityHealthy = false,
   userAllowed = true,
   networkEvidence = null,
+  routeIntent = null,
 } = {}) {
   if (!capabilityRegistry || typeof capabilityRegistry.set !== "function") {
     return Object.freeze({ ok: false, reason: "capability-registry-required" });
@@ -117,7 +119,12 @@ export function syncLinuxTunPath({
 
   const probe = normalizeProbe(probeResult);
   const network = deriveNetworkReadiness(networkEvidence);
-  const effectiveRouteReady = Boolean(routeReady) || network.routeReady;
+  const routeIntentEvaluation = routeIntent && typeof routeIntent === "object"
+    ? evaluateLinuxRouteIntent(routeIntent.intent, routeIntent.evidence)
+    : null;
+  const effectiveRouteReady = routeIntentEvaluation
+    ? routeIntentEvaluation.ready
+    : (Boolean(routeReady) || network.routeReady);
   const effectiveFirewallReady = networkEvidence && typeof networkEvidence === "object"
     ? Boolean(network.firewallReady)
     : Boolean(securityHealthy);
@@ -163,6 +170,7 @@ export function syncLinuxTunPath({
       tunState: probe.evidence.tunState || null,
       networkState: network,
       firewallReady: effectiveFirewallReady,
+      routeIntent: routeIntentEvaluation,
     },
   });
 
