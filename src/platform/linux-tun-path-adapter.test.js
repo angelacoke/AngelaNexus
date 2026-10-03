@@ -218,7 +218,10 @@ test("intent-aware route evidence overrides coarse route counts and explicit rou
 
 
 test("TUN path adapter obtains intent evidence from native route lookup", () => {
-  const capabilityRegistry = createRegistry({
+  const capabilityRegistry = createLinuxCapabilityRegistry();
+  capabilityRegistry.set(LinuxCapabilities.POLICY_ROUTE, { state: LinuxCapabilityStates.VERIFIED, evidence: { policyRuleCount: 1 } });
+  capabilityRegistry.set(LinuxCapabilities.NFTABLES, { state: LinuxCapabilityStates.VERIFIED, evidence: { nftTableCount: 1, nftChainCount: 1 } });
+  /*
     [LinuxCapabilities.POLICY_ROUTE]: {
       state: LinuxCapabilityStates.VERIFIED,
       evidence: { policyRuleCount: 1 },
@@ -227,7 +230,7 @@ test("TUN path adapter obtains intent evidence from native route lookup", () => 
       state: LinuxCapabilityStates.VERIFIED,
       evidence: { nftTableCount: 1, nftChainCount: 1 },
     },
-  });
+  */
   const pathRegistry = createPathRegistry();
   let calls = 0;
   const result = syncLinuxTunPath({
