@@ -40,3 +40,8 @@ jobs:
           EOF
           gcc -std=c11 -Wall -Wextra -Werror -I native/linux             native/linux/angelanexus_network_probe.c             /tmp/angelanexus-native/probe-main.c             -o /tmp/angelanexus-native/probe
           timeout 5s /tmp/angelanexus-native/probe
+          gcc -std=c11 -Wall -Wextra -Werror -I native/linux \
+            native/linux/angelanexus_network_probe.c \
+            native/linux/angelanexus_network_probe_cli.c \
+            -o /tmp/angelanexus-native/probe-cli
+          timeout 5s /tmp/angelanexus-native/probe-cli
