@@ -43,6 +43,7 @@ test("runtime plan exposes explainable driver-selection failure when no backend 
   const result = createRuntimePlan(node(), {
     protocolAdapters: [protocol],
     transportAdapters: [],
+    executionBackends: [],
     userAuthorized: true,
   });
   assert.equal(result.ok, false);
