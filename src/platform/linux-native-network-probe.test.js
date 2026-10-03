@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { LinuxCapabilities, LinuxCapabilityStates } from "./linux-capabilities.js";
-import { createLinuxNativeNetworkCommandProbes } from "./linux-native-network-probe.js";
+import { createLinuxNativeNetworkCommandProbes, createLinuxNativeRouteLookup } from "./linux-native-network-probe.js";
 
 test("command bridge maps one native snapshot to all capability probes", () => {
   let calls = 0;
@@ -62,4 +62,60 @@ test("command bridge fails closed on spawn exception", () => {
   const result = probes[LinuxCapabilities.IPV4]();
   assert.equal(result.state, LinuxCapabilityStates.FAILED);
   assert.equal(result.reason, "native-probe-exception");
+});
+
+
+test("native route lookup converts verified kernel result into route intent evidence", () => {
+  let calls = 0;
+  const lookup = createLinuxNativeRouteLookup({
+    commandPath: "/opt/angelanexus/network-probe",
+    spawnSyncImpl: (path, args) => {
+      calls += 1;
+      assert.equal(path, "/opt/angelanexus/network-probe");
+      assert.deepEqual(args, ["--route4", "1.1.1.1"]);
+      return {
+        status: 0,
+        stdout: "route-family=ipv4 target=1.1.1.1 lookup-state=1 route-type=1 interface-index=5 table-id=254 target-match=1\\n",
+        stderr: "",
+      };
+    },
+  });
+
+  const result = lookup.lookup("ipv4", "1.1.1.1");
+  assert.equal(result.ok, true);
+  assert.equal(result.ready, true);
+  assert.equal(result.evidence.lookupState, LinuxCapabilityStates.VERIFIED);
+  assert.equal(result.evidence.routeType, "unicast");
+  assert.equal(result.evidence.interfaceIndex, 5);
+  assert.equal(result.evidence.tableId, 254);
+  assert.equal(result.evidence.targetMatch, true);
+  assert.equal(calls, 1);
+});
+
+test("native route lookup rejects unreachable effective route fail-closed", () => {
+  const lookup = createLinuxNativeRouteLookup({
+    commandPath: "/opt/angelanexus/network-probe",
+    spawnSyncImpl: () => ({
+      status: 0,
+      stdout: "route-family=ipv4 target=1.1.1.1 lookup-state=1 route-type=7 interface-index=0 table-id=254 target-match=1\\n",
+      stderr: "",
+    }),
+  });
+
+  const result = lookup.lookup("ipv4", "1.1.1.1");
+  assert.equal(result.ok, true);
+  assert.equal(result.ready, false);
+  assert.equal(result.evidence.routeType, "prohibit");
+});
+
+test("native route lookup fails closed on malformed output", () => {
+  const lookup = createLinuxNativeRouteLookup({
+    commandPath: "/opt/angelanexus/network-probe",
+    spawnSyncImpl: () => ({ status: 0, stdout: "invalid", stderr: "" }),
+  });
+
+  const result = lookup.lookup("ipv6", "2001:db8::1");
+  assert.equal(result.ok, false);
+  assert.equal(result.ready, false);
+  assert.equal(result.reason, "route-lookup-invalid-output");
 });
