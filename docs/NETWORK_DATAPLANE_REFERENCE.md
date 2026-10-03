@@ -119,3 +119,27 @@ Skyline Speeder：https://github.com/CYBERVERSE-Research/skyline-speeder
 Tailscale：https://tailscale.com/
 
 第三方资料仅用于技术参考。正式项目代码、文档和 UI 保持 AngelaNexus 自身产品身份；第三方相关内容集中在正式致谢、许可证或技术参考位置。
+
+## 14. Linux Kernel Platform Reference
+
+Linux kernel 纳入正式技术参考，但不作为第四代理内核。其价值集中在 Linux Platform Adapter 的系统网络能力：TUN/TAP、nftables/Netfilter、eBPF socket/TC/XDP、AF_XDP、WireGuard、策略路由、权限边界和内核级观测。
+
+必须保持以下边界：
+
+- Linux kernel = platform networking substrate
+- TUN / socket / eBPF / nftables = Ingress / platform capabilities
+- Path Registry = 路径管理
+- Driver Scheduler = 执行后端选择
+- Mihomo / sing-box / Xray = Protocol / Transport execution
+
+Linux 能力继续遵循 `Declared -> Supported -> Verified -> Operational -> Healthy`，未知能力不得推断为支持。平台规则更新必须具备事务性、冲突检测和回滚能力；eBPF、XDP、AF_XDP 等高级能力不得成为基础代理的硬依赖。
+
+具体能力矩阵与实施优先级见 [Linux Kernel Technical Reference](upstream/LINUX_KERNEL_REFERENCE.md)。
+
+官方依据：
+- Linux kernel：https://github.com/torvalds/linux
+- Linux networking：https://docs.kernel.org/networking/
+- TUN/TAP：https://docs.kernel.org/networking/tuntap.html
+- BPF：https://docs.kernel.org/bpf/
+- AF_XDP：https://docs.kernel.org/networking/af_xdp.html
+- nftables Netlink：https://docs.kernel.org/netlink/specs/nftables.html
