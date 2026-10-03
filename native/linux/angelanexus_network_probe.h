@@ -20,6 +20,7 @@ int angelanexus_probe_nftables(void);
  * policy is present, correct, secure, or ready for traffic.
  */
 int angelanexus_inspect_policy_routing(unsigned int *rule_count);
+int angelanexus_inspect_routes(int family, unsigned int *route_count);
 int angelanexus_inspect_nftables(unsigned int *table_count,
                                  unsigned int *chain_count);
 
