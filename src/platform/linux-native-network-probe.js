@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { LinuxCapabilities, LinuxCapabilityStates } from "./linux-capabilities.js";
 
-export const LINUX_NATIVE_NETWORK_PROBE_RUNTIME_VERSION = 2;
+export const LINUX_NATIVE_NETWORK_PROBE_RUNTIME_VERSION = 3;
 
 const CAPABILITY_BINDINGS = Object.freeze([
   [LinuxCapabilities.IPV4, "ipv4"],
@@ -37,13 +37,19 @@ function parseOutput(stdout) {
   return Object.freeze(
     CAPABILITY_BINDINGS.reduce((result, [capability], index) => {
       const rawResult = Number(match[index + 1]);
+      const evidence = {
+        source: "native-linux-network-probe-command",
+        rawResult,
+      };
+      if (capability === LinuxCapabilities.POLICY_ROUTE) evidence.policyRuleCount = Number(match[5]);
+      if (capability === LinuxCapabilities.NFTABLES) {
+        evidence.nftTableCount = Number(match[6]);
+        evidence.nftChainCount = Number(match[7]);
+      }
       result[capability] = Object.freeze({
         state: mapRawResult(rawResult),
         reason: "native-probe-result",
-        evidence: Object.freeze({
-          source: "native-linux-network-probe-command",
-          rawResult,
-        }),
+        evidence: Object.freeze(evidence),
       });
       return result;
     }, {}),
