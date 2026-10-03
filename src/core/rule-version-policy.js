@@ -83,3 +83,65 @@ export async function acceptRulePackageVersion(pkg, state, options = {}) {
   }
   return decision;
 }
+
+
+export const RULE_VERSION_STATE_ENVELOPE_VERSION = 1;
+
+function canonicalStatePayload(envelope) {
+  const records = [...(envelope.records || [])]
+    .map(normalizeRecord)
+    .sort((a, b) => (a.publisher + ":" + a.id).localeCompare(b.publisher + ":" + b.id));
+  return JSON.stringify({
+    envelopeVersion: RULE_VERSION_STATE_ENVELOPE_VERSION,
+    generation: envelope.generation,
+    previousChecksum: envelope.previousChecksum || null,
+    records
+  });
+}
+
+export async function calculateRuleVersionStateChecksum(envelope) {
+  const payload = new TextEncoder().encode(canonicalStatePayload(envelope));
+  const digest = await crypto.subtle.digest("SHA-256", payload);
+  return [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, "0")).join("");
+}
+
+export async function sealRuleVersionState(state, { generation = 1, previousChecksum = null } = {}) {
+  if (!Number.isSafeInteger(generation) || generation < 1) throw new Error("rule version state generation is invalid");
+  if (previousChecksum !== null && !/^[a-f0-9]{64}$/i.test(String(previousChecksum))) throw new Error("rule version state previousChecksum must be SHA-256");
+  const envelope = {
+    envelopeVersion: RULE_VERSION_STATE_ENVELOPE_VERSION,
+    generation,
+    previousChecksum: previousChecksum ? String(previousChecksum).toLowerCase() : null,
+    records: exportRuleVersionState(state)
+  };
+  return Object.freeze({ ...envelope, checksum: await calculateRuleVersionStateChecksum(envelope) });
+}
+
+export async function verifyRuleVersionStateEnvelope(envelope, { anchor = null } = {}) {
+  if (!envelope || typeof envelope !== "object") return Object.freeze({ ok: false, reason: "invalid-envelope" });
+  if (envelope.envelopeVersion !== RULE_VERSION_STATE_ENVELOPE_VERSION) return Object.freeze({ ok: false, reason: "unsupported-envelope-version" });
+  if (!Number.isSafeInteger(envelope.generation) || envelope.generation < 1) return Object.freeze({ ok: false, reason: "invalid-generation" });
+  if (typeof envelope.checksum !== "string" || !/^[a-f0-9]{64}$/i.test(envelope.checksum)) return Object.freeze({ ok: false, reason: "invalid-checksum" });
+  const calculatedChecksum = await calculateRuleVersionStateChecksum(envelope);
+  if (calculatedChecksum !== envelope.checksum.toLowerCase()) return Object.freeze({ ok: false, reason: "checksum-mismatch", calculatedChecksum });
+  if (anchor) {
+    if (!Number.isSafeInteger(anchor.generation) || anchor.generation < 1 || typeof anchor.checksum !== "string" || !/^[a-f0-9]{64}$/i.test(anchor.checksum)) {
+      return Object.freeze({ ok: false, reason: "invalid-anchor" });
+    }
+    if (envelope.generation < anchor.generation) return Object.freeze({ ok: false, reason: "state-rollback", anchorGeneration: anchor.generation, generation: envelope.generation });
+    if (envelope.generation === anchor.generation && envelope.checksum.toLowerCase() !== anchor.checksum.toLowerCase()) return Object.freeze({ ok: false, reason: "anchor-conflict" });
+  }
+  try { createRuleVersionState(envelope.records); } catch { return Object.freeze({ ok: false, reason: "invalid-records" }); }
+  return Object.freeze({ ok: true, generation: envelope.generation, checksum: envelope.checksum.toLowerCase() });
+}
+
+export async function restoreRuleVersionState(envelope, options = {}) {
+  const verification = await verifyRuleVersionStateEnvelope(envelope, options);
+  if (!verification.ok) {
+    const error = new Error("rule version state rejected: " + verification.reason);
+    error.code = "NEXUS_RULE_VERSION_STATE_REJECTED";
+    error.verification = verification;
+    throw error;
+  }
+  return createRuleVersionState(envelope.records);
+}
