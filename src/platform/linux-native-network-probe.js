@@ -3,7 +3,7 @@ import { LinuxCapabilities, LinuxCapabilityStates } from "./linux-capabilities.j
 
 export const LINUX_NATIVE_NETWORK_PROBE_RUNTIME_VERSION = 6;
 
-const ROUTE_LOOKUP_PATTERN = /^route-family=(ipv4|ipv6) target=(\\S+) lookup-state=(-1|0|1) route-type=([0-9]+) interface-index=([0-9]+) table-id=([0-9]+) target-match=(0|1)\\s*$/;
+const ROUTE_LOOKUP_PATTERN = /^route-family=(ipv4|ipv6) target=(\S+) lookup-state=(-1|0|1) route-type=([0-9]+) interface-index=([0-9]+) table-id=([0-9]+) target-match=(0|1)\s*$/;
 
 const ROUTE_TYPE_NAMES = Object.freeze({
   1: "unicast",
