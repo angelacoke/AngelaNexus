@@ -231,3 +231,4 @@ export {
   evaluateLinuxTunProbe,
   probeLinuxTunCapability,
 } from "./linux-tun-probe.js";
+export { syncLinuxTunPath, LINUX_TUN_PATH_ADAPTER_VERSION } from "./linux-tun-path-adapter.js";
