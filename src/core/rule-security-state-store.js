@@ -122,7 +122,7 @@ export async function persistRuleSecurityState(store, state, {
   if (info.secureAnchorAvailable) {
     anchor = await store.loadAnchor();
     if (!anchor) {
-      if (requireSecureAnchor) {
+      if (requireSecureAnchor && generation !== 1) {
         const error = new Error("secure rule state anchor is unavailable");
         error.code = "NEXUS_RULE_SECURITY_ANCHOR_UNAVAILABLE";
         throw error;
