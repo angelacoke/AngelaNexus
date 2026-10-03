@@ -91,7 +91,8 @@ const report = {
   mode: verifyPipeline ? "verify-pipeline" : (propose ? "propose" : "check"),
   kernels: [],
   updateAvailable: false,
-  registryChanged: false
+  registryChanged: false,
+  verificationFailures: []
 };
 
 let registrySource = null;
@@ -114,7 +115,9 @@ for (const [kernel, entry] of Object.entries(UpstreamKernelRegistry)) {
     expectedRepository: entry.repository
   });
   const reportCandidate = verifyPipeline && candidate.state === "current"
-    ? { ...candidate, state: "candidate" }
+    ? candidate.provenance?.ok === true
+      ? { ...candidate, state: "candidate" }
+      : { ...candidate, state: "conformance-failed" }
     : candidate;
   const item = {
     ...reportCandidate,
@@ -129,6 +132,9 @@ for (const [kernel, entry] of Object.entries(UpstreamKernelRegistry)) {
     report.registryChanged = true;
   }
   if (candidate.state === "candidate") report.updateAvailable = true;
+  if (candidate.state === "conformance-failed") {
+    report.verificationFailures.push(kernel + ": release provenance verification failed");
+  }
 
   const previewText = channels.preview ? ` preview=${channels.preview.tag}` : "";
   console.log(`${kernel}: configured=${entry.stable} stable=${release.tag}${previewText} state=${candidate.state} risk=${candidate.risk}`);
@@ -144,4 +150,9 @@ if (reportPath) {
   await writeFile(reportPath, JSON.stringify(report, null, 2) + "\n");
 }
 
-if (report.updateAvailable && !propose) process.exitCode = 2;
+if (report.verificationFailures.length > 0) {
+  for (const failure of report.verificationFailures) console.error(failure);
+  process.exitCode = 1;
+} else if (report.updateAvailable && !propose) {
+  process.exitCode = 2;
+}
