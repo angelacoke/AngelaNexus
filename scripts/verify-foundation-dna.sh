@@ -9,6 +9,10 @@ test -f "$MANIFEST"
 test -f "$FOUNDATION"
 actual_foundation="$(git rev-parse "HEAD:$FOUNDATION")"
 test "$actual_foundation" = "$EXPECTED_FOUNDATION_BLOB"
+test -f "docs/ANGELANEXUS_CONSTITUTION.md"
+test -f ".github/CODEOWNERS"
+grep -Fq "Foundation DNA" docs/ANGELANEXUS_CONSTITUTION.md
+grep -Fq "docs/ANGELANEXUS_FOUNDATION_DNA.json" .github/CODEOWNERS
 python3 - "$MANIFEST" "$EXPECTED_FOUNDATION_BLOB" "$EXPECTED_DNA_ID" <<'PY'
 import hashlib, json, sys
 manifest_path, expected_root, expected_dna = sys.argv[1:]
