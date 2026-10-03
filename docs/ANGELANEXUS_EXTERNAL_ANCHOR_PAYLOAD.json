@@ -1,0 +1,9 @@
+{
+  "schema": "AN-ANCHOR/v1",
+  "project": "AngelaNexus",
+  "root_repository": "angelacoke/AngelaNexus",
+  "foundation_path": "docs/ANGELANEXUS_FOUNDATION.md",
+  "foundation_blob_sha": "4f047d7a53ef7db1d18174916ea9ed5cacbd8133",
+  "dna_id": "da14d8750b5f8af9a41902b752dca6dcc8930bb866fdbc44b493c2a646e22c8e",
+  "statement": "This anchor records the immutable AngelaNexus Foundation identity. It does not grant any actor an exemption from inheritance."
+}
