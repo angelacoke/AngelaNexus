@@ -75,7 +75,7 @@ test("native route lookup converts verified kernel result into route intent evid
       assert.deepEqual(args, ["--route4", "1.1.1.1"]);
       return {
         status: 0,
-        stdout: "route-family=ipv4 target=1.1.1.1 lookup-state=1 route-type=1 interface-index=5 table-id=254 target-match=1\\n",
+        stdout: "route-family=ipv4 target=1.1.1.1 lookup-state=1 route-type=1 interface-index=5 table-id=254 target-match=1\n",
         stderr: "",
       };
     },
@@ -97,7 +97,7 @@ test("native route lookup rejects unreachable effective route fail-closed", () =
     commandPath: "/opt/angelanexus/network-probe",
     spawnSyncImpl: () => ({
       status: 0,
-      stdout: "route-family=ipv4 target=1.1.1.1 lookup-state=1 route-type=7 interface-index=0 table-id=254 target-match=1\\n",
+      stdout: "route-family=ipv4 target=1.1.1.1 lookup-state=1 route-type=7 interface-index=0 table-id=254 target-match=1\n",
       stderr: "",
     }),
   });
