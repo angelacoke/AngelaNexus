@@ -1,8 +1,12 @@
-# AngelaNexus governance
-# The project foundation and governance controls require review by the project custodian.
-# GitHub branch protection/rulesets should make this CODEOWNERS review mandatory before merge.
+# AngelaNexus governance boundary
+# Effective enforcement requires a GitHub Ruleset with Code Owner review and no bypass.
+# Every actor, including the repository owner/administrator, remains subject to the Foundation Gate.
 
-docs/ANGELANEXUS_FOUNDATION.md @dukangalex
-docs/ANGELANEXUS_CONSTITUTION.md @dukangalex
-.github/CODEOWNERS @dukangalex
-.github/workflows/foundation-integrity.yml @dukangalex
+* @angelacoke
+
+docs/ANGELANEXUS_FOUNDATION.md @angelacoke
+docs/ANGELANEXUS_CONSTITUTION.md @angelacoke
+.github/CODEOWNERS @angelacoke
+.github/workflows/foundation-integrity.yml @angelacoke
+.github/workflows/foundation-gate.yml @angelacoke
+.github/ @angelacoke
