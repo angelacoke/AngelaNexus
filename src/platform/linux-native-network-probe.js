@@ -10,7 +10,7 @@ const CAPABILITY_BINDINGS = Object.freeze([
   [LinuxCapabilities.NFTABLES, "nftables"],
 ]);
 
-const RESULT_PATTERN = /^ipv4=(-1|0|1) ipv6=(-1|0|1) policy-route=(-1|0|1) nftables=(-1|0|1)\s*$/;
+const RESULT_PATTERN = /^ipv4=(-1|0|1) ipv6=(-1|0|1) policy-route=(-1|0|1) nftables=(-1|0|1) policy-rules=([0-9]+) nft-tables=([0-9]+) nft-chains=([0-9]+)\\s*$/;
 
 function failedProbe(reason, evidence = {}) {
   return Object.freeze({
