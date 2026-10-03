@@ -89,7 +89,7 @@ export function syncLinuxDnsObservation({ capabilityRegistry, observation } = {}
       ...(result.evidence && typeof result.evidence === "object" ? result.evidence : {}),
       capability: LinuxCapabilities.DNS_OBSERVATION,
       observationOnly: true,
-      trafficPathVerified: false,
+      trafficPathVerified: result.evidence?.trafficPathVerified === true,
     },
   });
   if (!updated.ok) return Object.freeze({ ok: false, reason: "capability-update-failed" });
@@ -106,9 +106,17 @@ export function evaluateLinuxDnsPathObservation(observation) {
   }
   const evidence = observation.evidence;
   if (observation.state !== LinuxCapabilityStates.VERIFIED ||
-      !evidence || evidence.observationOnly !== true ||
-      evidence.trafficPathVerified === true) {
+      !evidence || evidence.observationOnly !== true) {
     return Object.freeze({ ok: false, ready: false, reason: "dns-path-not-verified" });
+  }
+  if (evidence.trafficPathVerified === true) {
+    return Object.freeze({
+      ok: true,
+      ready: true,
+      reason: "dns-udp-traffic-path-observed",
+      securityHealthy: false,
+      trafficPathVerified: true,
+    });
   }
   return Object.freeze({
     ok: true,
