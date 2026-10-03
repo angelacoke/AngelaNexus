@@ -55,3 +55,45 @@ export function syncLinuxNetworkCapabilities({
     capabilities: Object.freeze(results),
   });
 }
+
+
+const NATIVE_PROBE_STATES = Object.freeze({
+  [-1]: LinuxCapabilityStates.FAILED,
+  [0]: LinuxCapabilityStates.UNSUPPORTED,
+  [1]: LinuxCapabilityStates.VERIFIED,
+});
+
+export function createLinuxNativeNetworkProbes(nativeProbe) {
+  if (!nativeProbe || typeof nativeProbe !== "object") {
+    throw new TypeError("native Linux network probe is required");
+  }
+
+  const bindings = Object.freeze([
+    [LinuxCapabilities.IPV4, "probeIpv4"],
+    [LinuxCapabilities.IPV6, "probeIpv6"],
+    [LinuxCapabilities.POLICY_ROUTE, "probePolicyRouting"],
+    [LinuxCapabilities.NFTABLES, "probeNftables"],
+  ]);
+
+  const probes = {};
+  for (const [capability, method] of bindings) {
+    probes[capability] = () => {
+      if (typeof nativeProbe[method] !== "function") {
+        return { state: LinuxCapabilityStates.FAILED, reason: "native-probe-unavailable", evidence: { source: "native-linux-network-probe" } };
+      }
+      let raw;
+      try {
+        raw = nativeProbe[method]();
+      } catch (error) {
+        return { state: LinuxCapabilityStates.FAILED, reason: "native-probe-error", evidence: { source: "native-linux-network-probe", error: String(error?.message || error) } };
+      }
+      const state = NATIVE_PROBE_STATES[raw];
+      return {
+        state: state || LinuxCapabilityStates.FAILED,
+        reason: state ? "native-probe-result" : "native-probe-invalid-result",
+        evidence: { source: "native-linux-network-probe", rawResult: raw },
+      };
+    };
+  }
+  return Object.freeze(probes);
+}
