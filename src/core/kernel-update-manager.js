@@ -27,7 +27,6 @@ export function normalizeKernelVersion(value) {
   return String(value || "").trim().replace(/^v/i, "");
 }
 
-
 export function validateReleaseProvenance({
   repository,
   expectedRepository,
@@ -44,19 +43,30 @@ export function validateReleaseProvenance({
   } catch {
     parsed = null;
   }
+
   const expectedPath = expected && normalizedTag
     ? `/${expected}/releases/tag/v${normalizedTag}`
     : null;
+
+  const exactUrl = Boolean(
+    parsed &&
+    parsed.protocol === "https:" &&
+    parsed.hostname === "github.com" &&
+    parsed.port === "" &&
+    parsed.username === "" &&
+    parsed.password === "" &&
+    parsed.search === "" &&
+    parsed.hash === "" &&
+    parsed.pathname === expectedPath
+  );
+
   return Object.freeze({
     ok: Boolean(
       actualRepository &&
       expected &&
       actualRepository === expected &&
       normalizedTag &&
-      parsed &&
-      parsed.protocol === "https:" &&
-      parsed.hostname === "github.com" &&
-      parsed.pathname === expectedPath
+      exactUrl
     ),
     repository: actualRepository || null,
     expectedRepository: expected || null,
@@ -99,7 +109,6 @@ export function assessAdapterImpact(files = []) {
   }
   return { risk, paths };
 }
-
 
 const IMPACT_DOMAINS = Object.freeze({
   security: /security|crypto|tls|certificate|reality|key|credential/i,
