@@ -13,7 +13,7 @@ import {
 } from "./linux-capabilities.js";
 
 test("resolver configuration is parsed with IPv4/IPv6 evidence independently", () => {
-  const result = parseLinuxResolvConf("nameserver 1.1.1.1\\nnameserver 2606:4700:4700::1111\\n");
+  const result = parseLinuxResolvConf("nameserver 1.1.1.1\nnameserver 2606:4700:4700::1111\n");
   assert.equal(result.state, LinuxCapabilityStates.VERIFIED);
   assert.equal(result.evidence.ipv4NameserverCount, 1);
   assert.equal(result.evidence.ipv6NameserverCount, 1);
@@ -26,7 +26,7 @@ test("missing or invalid resolver evidence fails closed", () => {
 });
 
 test("resolver discovery is evidence only and never claims traffic-path security", () => {
-  const observation = parseLinuxResolvConf("nameserver 1.1.1.1\\n");
+  const observation = parseLinuxResolvConf("nameserver 1.1.1.1\n");
   const registry = createLinuxCapabilityRegistry();
   const synced = syncLinuxDnsObservation({ capabilityRegistry: registry, observation });
   assert.equal(synced.ok, true);
