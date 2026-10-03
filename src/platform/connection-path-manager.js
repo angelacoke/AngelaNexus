@@ -1,4 +1,6 @@
-export const CONNECTION_PATH_MANAGER_VERSION = 3;
+import { evaluateLinuxRouteIntent } from "./linux-route-intent.js";
+
+export const CONNECTION_PATH_MANAGER_VERSION = 4;
 
 export const ConnectionPathTypes = Object.freeze({
   DIRECT: "direct",
@@ -38,6 +40,12 @@ function normalizeCandidate(candidate) {
     verified: candidate.verified === true,
     securityHealthy: candidate.securityHealthy === true,
     userAllowed: candidate.userAllowed !== false,
+    routeIntent: candidate.routeIntent && typeof candidate.routeIntent === "object"
+      ? Object.freeze({
+          intent: candidate.routeIntent.intent,
+          evidence: candidate.routeIntent.evidence,
+        })
+      : null,
   });
 }
 
@@ -47,6 +55,10 @@ function allowedType(policy, type) {
 }
 
 function admissible(candidate, policy) {
+  const routeIntent = candidate?.routeIntent;
+  const routeIntentReady = routeIntent
+    ? evaluateLinuxRouteIntent(routeIntent.intent, routeIntent.evidence).ready
+    : true;
   return Boolean(
     candidate &&
     candidate.verified === true &&
@@ -54,6 +66,7 @@ function admissible(candidate, policy) {
     candidate.health === "healthy" &&
     candidate.securityHealthy === true &&
     candidate.userAllowed === true &&
+    routeIntentReady &&
     allowedType(policy, candidate.type),
   );
 }
