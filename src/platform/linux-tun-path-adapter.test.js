@@ -215,3 +215,54 @@ test("intent-aware route evidence overrides coarse route counts and explicit rou
   assert.equal(paths.get("linux-tun").readiness.route, false);
   assert.equal(paths.get("linux-tun").evidence.routeIntent.ready, false);
 });
+
+
+test("TUN path adapter obtains intent evidence from native route lookup", () => {
+  const capabilityRegistry = createRegistry({
+    [LinuxCapabilities.POLICY_ROUTE]: {
+      state: LinuxCapabilityStates.VERIFIED,
+      evidence: { policyRuleCount: 1 },
+    },
+    [LinuxCapabilities.NFTABLES]: {
+      state: LinuxCapabilityStates.VERIFIED,
+      evidence: { nftTableCount: 1, nftChainCount: 1 },
+    },
+  });
+  const pathRegistry = createPathRegistry();
+  let calls = 0;
+  const result = syncLinuxTunPath({
+    capabilityRegistry,
+    pathRegistry,
+    probeResult: {
+      state: LinuxCapabilityStates.VERIFIED,
+      evidence: { tunState: LinuxTunStates.RUNNING },
+    },
+    dnsReady: true,
+    securityHealthy: true,
+    routeIntent: {
+      intent: { family: "ipv4", target: "1.1.1.1" },
+    },
+    routeLookup: {
+      lookup: (family, target) => {
+        calls += 1;
+        assert.equal(family, "ipv4");
+        assert.equal(target, "1.1.1.1");
+        return {
+          ok: true,
+          ready: true,
+          evidence: {
+            lookupState: "verified",
+            routeType: "unicast",
+            interfaceIndex: 5,
+            tableId: 254,
+            targetMatch: true,
+          },
+        };
+      },
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.admissible, true);
+  assert.equal(result.path.evidence.routeIntent.ready, true);
+  assert.equal(calls, 1);
+});
