@@ -287,11 +287,13 @@ int angelanexus_inspect_policy_routing(unsigned int *rule_count) {
 }
 
 
-static int inspect_routes_dump(int family, unsigned int *route_count) {
-    if (!route_count || (family != AF_INET && family != AF_INET6)) {
+static int inspect_routes_dump(int family, unsigned int *route_count,
+                               unsigned int *default_route_count) {
+    if (!route_count || !default_route_count || (family != AF_INET && family != AF_INET6)) {
         return ANGELANEXUS_NETWORK_PROBE_FAILED;
     }
     *route_count = 0;
+    *default_route_count = 0;
 
     int fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
     if (fd < 0) return ANGELANEXUS_NETWORK_PROBE_UNSUPPORTED;
@@ -360,15 +362,23 @@ static int inspect_routes_dump(int family, unsigned int *route_count) {
                     ? ANGELANEXUS_NETWORK_PROBE_UNSUPPORTED
                     : ANGELANEXUS_NETWORK_PROBE_FAILED;
             }
-            if (message->nlmsg_type == RTM_NEWROUTE && *route_count < UINT_MAX) {
-                (*route_count)++;
+            if (message->nlmsg_type == RTM_NEWROUTE) {
+                if (*route_count < UINT_MAX) (*route_count)++;
+                if (message->nlmsg_len >= NLMSG_LENGTH(sizeof(struct rtmsg))) {
+                    const struct rtmsg *route = (const struct rtmsg *)NLMSG_DATA(message);
+                    if (route->rtm_dst_len == 0 && route->rtm_type == RTN_UNICAST &&
+                        *default_route_count < UINT_MAX) {
+                        (*default_route_count)++;
+                    }
+                }
             }
         }
     }
 }
 
-int angelanexus_inspect_routes(int family, unsigned int *route_count) {
-    return inspect_routes_dump(family, route_count);
+int angelanexus_inspect_routes(int family, unsigned int *route_count,
+                               unsigned int *default_route_count) {
+    return inspect_routes_dump(family, route_count, default_route_count);
 }
 
 
