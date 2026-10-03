@@ -1,3 +1,4 @@
+#include "angelanexus_network_probe.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/netlink.h>
@@ -17,12 +18,6 @@
  * configured tunnel is ready. Higher platform layers must provide those
  * independent readiness facts.
  */
-
-enum angelanexus_network_probe_state {
-    ANGELANEXUS_NETWORK_PROBE_FAILED = -1,
-    ANGELANEXUS_NETWORK_PROBE_UNSUPPORTED = 0,
-    ANGELANEXUS_NETWORK_PROBE_SUPPORTED = 1
-};
 
 static int probe_datagram_family(int family) {
     int fd = socket(family, SOCK_DGRAM | SOCK_CLOEXEC, 0);
