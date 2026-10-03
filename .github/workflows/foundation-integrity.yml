@@ -14,25 +14,20 @@ jobs:
     name: Verify immutable project foundation
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout exact revision
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Verify foundation exists and is unchanged
+      - name: Verify foundation Git object
         shell: bash
         run: |
           set -euo pipefail
           file="docs/ANGELANEXUS_FOUNDATION.md"
-          expected="f4f251153ba2518e30cb1c6621a0ba8e6f473cc62256df9b4da29a19f0b3888e"
-
+          expected="4f047d7a53ef7db1d18174916ea9ed5cacbd8133"
           test -f "$file"
-          actual="$(sha256sum "$file" | awk '{print $1}')"
-
-          if [ "$actual" != "$expected" ]; then
-            echo "::error file=$file::The immutable AngelaNexus foundation was changed."
-            echo "Expected SHA-256: $expected"
-            echo "Actual SHA-256:   $actual"
-            exit 1
-          fi
+          actual="$(git rev-parse "HEAD:$file")"
+          test "$actual" = "$expected"
 
       - name: Verify constitution points to foundation
         shell: bash
@@ -40,3 +35,6 @@ jobs:
           set -euo pipefail
           grep -Fq 'docs/ANGELANEXUS_FOUNDATION.md' docs/ANGELANEXUS_CONSTITUTION.md
           grep -Fq '纲领之基' docs/ANGELANEXUS_CONSTITUTION.md
+
+      - name: Emit machine-readable integrity result
+        run: echo "FOUNDATION_INTEGRITY=PASS"
