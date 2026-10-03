@@ -22,6 +22,11 @@ int angelanexus_probe_nftables(void);
 int angelanexus_inspect_policy_routing(unsigned int *rule_count);
 int angelanexus_inspect_routes(int family, unsigned int *route_count,
                                unsigned int *default_route_count);
+int angelanexus_lookup_route(int family, const char *target,
+                             unsigned char *route_type,
+                             int *interface_index,
+                             unsigned int *table_id,
+                             int *target_match);
 int angelanexus_inspect_nftables(unsigned int *table_count,
                                  unsigned int *chain_count);
 
