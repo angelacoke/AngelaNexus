@@ -23,6 +23,12 @@ export function deriveLinuxNetworkEvidence(capabilityRegistry) {
       ipv6RouteCount: Number.isInteger(policy?.evidence?.ipv6RouteCount)
         ? policy.evidence.ipv6RouteCount
         : null,
+      ipv4DefaultRouteCount: Number.isInteger(policy?.evidence?.ipv4DefaultRouteCount)
+        ? policy.evidence.ipv4DefaultRouteCount
+        : null,
+      ipv6DefaultRouteCount: Number.isInteger(policy?.evidence?.ipv6DefaultRouteCount)
+        ? policy.evidence.ipv6DefaultRouteCount
+        : null,
       ipv4RouteState: policy?.evidence?.ipv4RouteState || LinuxCapabilityStates.FAILED,
       ipv6RouteState: policy?.evidence?.ipv6RouteState || LinuxCapabilityStates.FAILED,
     }),
@@ -53,6 +59,10 @@ function deriveNetworkReadiness(networkEvidence) {
     policyRuleCount: Number.isInteger(policy.ruleCount) ? policy.ruleCount : null,
     ipv4RouteCount: Number.isInteger(policy.ipv4RouteCount) ? policy.ipv4RouteCount : null,
     ipv6RouteCount: Number.isInteger(policy.ipv6RouteCount) ? policy.ipv6RouteCount : null,
+    ipv4DefaultRouteCount: Number.isInteger(policy.ipv4DefaultRouteCount) ? policy.ipv4DefaultRouteCount : null,
+    ipv6DefaultRouteCount: Number.isInteger(policy.ipv6DefaultRouteCount) ? policy.ipv6DefaultRouteCount : null,
+    ipv4DefaultRouteReady: Number.isInteger(policy.ipv4DefaultRouteCount) && policy.ipv4DefaultRouteCount > 0,
+    ipv6DefaultRouteReady: Number.isInteger(policy.ipv6DefaultRouteCount) && policy.ipv6DefaultRouteCount > 0,
     ipv4RouteReady: policy.ipv4RouteState === LinuxCapabilityStates.VERIFIED &&
       Number.isInteger(policy.ipv4RouteCount) && policy.ipv4RouteCount > 0,
     ipv6RouteReady: policy.ipv6RouteState === LinuxCapabilityStates.VERIFIED &&
@@ -80,7 +90,8 @@ function normalizeProbe(probe) {
 /**
  * Synchronizes Linux TUN probe evidence into the platform path registry.
  *
- * TUN verification is deliberately independent from route, DNS and firewall
+ * Route counts and default-route observations are evidence only; they do not
+ * prove an intent-specific effective route. TUN verification is deliberately independent from route, DNS and firewall
  * readiness. A TUN-only result therefore cannot become an admissible path.
  */
 export function syncLinuxTunPath({
