@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createLinuxCapabilityRegistry, LinuxCapabilities, LinuxCapabilityStates } from "./linux-capabilities.js";
-import { syncLinuxNetworkCapabilities } from "./linux-network-capability-adapter.js";
+import { createLinuxNativeNetworkProbes, syncLinuxNetworkCapabilities } from "./linux-network-capability-adapter.js";
 
 test("network capabilities are recorded independently", () => {
   const registry = createLinuxCapabilityRegistry();
@@ -49,7 +49,7 @@ test("probe functions are invoked independently", () => {
     probes: {
       [LinuxCapabilities.IPV4]: () => { calls.push("ipv4"); return { state: LinuxCapabilityStates.VERIFIED }; },
       [LinuxCapabilities.IPV6]: () => { calls.push("ipv6"); return { state: LinuxCapabilityStates.VERIFIED }; },
-      [LinuxCapabilities.POLICY_ROUTE]: () => { calls.push("route"); return { state: LinuxCapabilityStates.VERIFIED }; },
+      [LinuxCapabilities.POLICY_ROUTE]: () => { calls.push("policy-route"); return { state: LinuxCapabilityStates.VERIFIED }; },
       [LinuxCapabilities.NFTABLES]: () => { calls.push("nftables"); return { state: LinuxCapabilityStates.VERIFIED }; },
     },
   });
