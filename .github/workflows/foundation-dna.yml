@@ -1,0 +1,25 @@
+name: AngelaNexus Foundation DNA
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  foundation-dna:
+    name: Foundation DNA — no one exempt
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify Foundation DNA
+        shell: bash
+        run: |
+          chmod +x scripts/verify-foundation-dna.sh
+          ./scripts/verify-foundation-dna.sh
