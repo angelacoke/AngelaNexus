@@ -1,0 +1,42 @@
+name: Foundation Integrity
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  foundation-integrity:
+    name: Verify immutable project foundation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify foundation exists and is unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          file="docs/ANGELANEXUS_FOUNDATION.md"
+          expected="3a6d8dbee12bbf3faa203362f781ad5badefa567d6481ef629016c20829e491c"
+
+          test -f "$file"
+          actual="$(sha256sum "$file" | awk '{print $1}')"
+
+          if [ "$actual" != "$expected" ]; then
+            echo "::error file=$file::The immutable AngelaNexus foundation was changed."
+            echo "Expected SHA-256: $expected"
+            echo "Actual SHA-256:   $actual"
+            exit 1
+          fi
+
+      - name: Verify constitution points to foundation
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'docs/ANGELANEXUS_FOUNDATION.md' docs/ANGELANEXUS_CONSTITUTION.md
+          grep -Fq '纲领之基' docs/ANGELANEXUS_CONSTITUTION.md
