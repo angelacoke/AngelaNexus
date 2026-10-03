@@ -1,13 +1,28 @@
 #include "angelanexus_network_probe.h"
 #include <stdio.h>
 #include <sys/socket.h>
+#include <string.h>
 
 static int valid_result(int result) {
     return result >= ANGELANEXUS_NETWORK_PROBE_FAILED &&
            result <= ANGELANEXUS_NETWORK_PROBE_SUPPORTED;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    if (argc == 3 && (strcmp(argv[1], "--route4") == 0 || strcmp(argv[1], "--route6") == 0)) {
+        const int family = strcmp(argv[1], "--route4") == 0 ? AF_INET : AF_INET6;
+        unsigned char route_type = 0;
+        int interface_index = 0;
+        unsigned int table_id = 0;
+        int target_match = 0;
+        const int state = angelanexus_lookup_route(
+            family, argv[2], &route_type, &interface_index, &table_id, &target_match);
+        if (!valid_result(state)) return 2;
+        if (printf("route-family=%s target=%s lookup-state=%d route-type=%u interface-index=%d table-id=%u target-match=%d\\n",
+                   family == AF_INET ? "ipv4" : "ipv6", argv[2], state, route_type,
+                   interface_index, table_id, target_match) < 0) return 3;
+        return 0;
+    }
     const int ipv4 = angelanexus_probe_ipv4();
     const int ipv6 = angelanexus_probe_ipv6();
     const int policy_route = angelanexus_probe_policy_routing();
