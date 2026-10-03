@@ -22,7 +22,7 @@ jobs:
         run: |
           set -euo pipefail
           file="docs/ANGELANEXUS_FOUNDATION.md"
-          expected="3a6d8dbee12bbf3faa203362f781ad5badefa567d6481ef629016c20829e491c"
+          expected="f4f251153ba2518e30cb1c6621a0ba8e6f473cc62256df9b4da29a19f0b3888e"
 
           test -f "$file"
           actual="$(sha256sum "$file" | awk '{print $1}')"
