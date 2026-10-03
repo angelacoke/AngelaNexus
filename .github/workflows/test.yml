@@ -16,3 +16,27 @@ jobs:
         run: npm run syntax:check
       - name: Unit tests
         run: npm test
+      - name: Linux native network probe build
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/angelanexus-native
+          gcc -std=c11 -Wall -Wextra -Werror -fsyntax-only native/linux/angelanexus_network_probe.c
+          cat > /tmp/angelanexus-native/probe-main.c <<'EOF'
+          #include "angelanexus_network_probe.h"
+          #include <stdio.h>
+          int main(void) {
+            int results[] = {
+              angelanexus_probe_ipv4(),
+              angelanexus_probe_ipv6(),
+              angelanexus_probe_policy_routing(),
+              angelanexus_probe_nftables()
+            };
+            for (size_t i = 0; i < sizeof(results) / sizeof(results[0]); ++i) {
+              if (results[i] < -1 || results[i] > 1) return 2;
+              printf("%d%s", results[i], i + 1 == sizeof(results) / sizeof(results[0]) ? "\\n" : " ");
+            }
+            return 0;
+          }
+          EOF
+          gcc -std=c11 -Wall -Wextra -Werror -I native/linux             native/linux/angelanexus_network_probe.c             /tmp/angelanexus-native/probe-main.c             -o /tmp/angelanexus-native/probe
+          timeout 5s /tmp/angelanexus-native/probe
