@@ -232,3 +232,4 @@ export {
   probeLinuxTunCapability,
 } from "./linux-tun-probe.js";
 export { syncLinuxTunPath, LINUX_TUN_PATH_ADAPTER_VERSION } from "./linux-tun-path-adapter.js";
+export { LINUX_NETWORK_CAPABILITY_ADAPTER_VERSION, syncLinuxNetworkCapabilities } from "./linux-network-capability-adapter.js";
