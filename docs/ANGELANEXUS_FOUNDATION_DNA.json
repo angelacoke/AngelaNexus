@@ -7,6 +7,13 @@
     "git_blob_sha": "4f047d7a53ef7db1d18174916ea9ed5cacbd8133"
   },
   "dna_id": "da14d8750b5f8af9a41902b752dca6dcc8930bb866fdbc44b493c2a646e22c8e",
+  "lineage": {
+    "role": "root",
+    "root_repository": "angelacoke/AngelaNexus",
+    "parent_repository": null,
+    "parent_foundation_blob_sha": null,
+    "parent_dna_id": null
+  },
   "parent": null,
   "inheritance": {
     "required": true,
@@ -15,6 +22,7 @@
   },
   "verification": {
     "foundation_gate_required": true,
+    "inheritance_gate_required": true,
     "fail_closed": true
   },
   "trust_model": {
