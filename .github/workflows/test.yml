@@ -45,3 +45,19 @@ jobs:
             native/linux/angelanexus_network_probe_cli.c \
             -o /tmp/angelanexus-native/probe-cli
           timeout 5s /tmp/angelanexus-native/probe-cli
+      - name: Linux native DNS traffic probe build
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror -fsyntax-only native/linux/angelanexus_dns_probe.c
+          gcc -std=c11 -Wall -Wextra -Werror -I native/linux \
+            native/linux/angelanexus_dns_probe.c \
+            native/linux/angelanexus_dns_probe_main.c \
+            -o /tmp/angelanexus-native/dns-probe
+          set +e
+          timeout 5s /tmp/angelanexus-native/dns-probe 100
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ] && [ "$status" -ne 1 ]; then
+            echo "unexpected DNS probe exit status: $status"
+            exit "$status"
+          fi
