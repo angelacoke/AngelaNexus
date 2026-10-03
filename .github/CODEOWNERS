@@ -1,0 +1,8 @@
+# AngelaNexus governance
+# The project foundation and governance controls require review by the project custodian.
+# GitHub branch protection/rulesets should make this CODEOWNERS review mandatory before merge.
+
+docs/ANGELANEXUS_FOUNDATION.md @dukangalex
+docs/ANGELANEXUS_CONSTITUTION.md @dukangalex
+.github/CODEOWNERS @dukangalex
+.github/workflows/foundation-integrity.yml @dukangalex
