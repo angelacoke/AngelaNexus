@@ -10,3 +10,7 @@ docs/ANGELANEXUS_CONSTITUTION.md @angelacoke
 .github/workflows/foundation-integrity.yml @angelacoke
 .github/workflows/foundation-gate.yml @angelacoke
 .github/ @angelacoke
+
+docs/ANGELANEXUS_FOUNDATION_DNA.md @angelacoke
+docs/ANGELANEXUS_FOUNDATION_DNA.json @angelacoke
+scripts/verify-foundation-dna.sh @angelacoke
