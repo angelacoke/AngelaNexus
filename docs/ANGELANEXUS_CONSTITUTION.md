@@ -1740,6 +1740,24 @@ Retain Previous Active State
 
 
 
+
+
+## 第二十八章：普遍纲领门禁原则
+
+### 第七十六条：没有法外之人
+
+纲领之基的约束对象不因身份、权限、组织关系或自动化身份而产生例外。项目创建者、Repository Owner、Administrator、Maintainer、Developer、Contributor、治理审查者、CI/CD、Bot、AI Agent、Fork 维护者、继任者以及迁移后的治理主体，均必须经过 **AngelaNexus Foundation Gate**。
+
+Foundation Gate 的 `PASS` 仅表示变更满足纲领一致性门槛，不等同于治理批准，也不得替代必要的人类审查、安全检查和 GitHub 合并保护。
+
+### 第七十七条：门禁本身不得自证
+
+Foundation Gate、其信任基线、CODEOWNERS 与相关治理配置属于更高信任边界。任何待审变更不得通过修改门禁本身、修改信任基线或修改治理配置后，再由修改后的机制为自身产生有效豁免。
+
+### 第七十八条：最高权限同样受门禁约束
+
+拥有最高仓库权限的主体也不得获得 Foundation Gate 豁免。要使本原则具有实际约束力，GitHub 主分支必须配置不可绕过的 Required Status Check、Code Owner 审查及适当的管理员绕过限制。
+
 ## 第二十七章：纲领之基恒定与项目连续性原则
 
 ### 第六十九条：纲领之基为最高级根本约束
