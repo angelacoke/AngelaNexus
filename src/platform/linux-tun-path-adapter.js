@@ -17,6 +17,14 @@ export function deriveLinuxNetworkEvidence(capabilityRegistry) {
       ruleCount: Number.isInteger(policy?.evidence?.policyRuleCount)
         ? policy.evidence.policyRuleCount
         : null,
+      ipv4RouteCount: Number.isInteger(policy?.evidence?.ipv4RouteCount)
+        ? policy.evidence.ipv4RouteCount
+        : null,
+      ipv6RouteCount: Number.isInteger(policy?.evidence?.ipv6RouteCount)
+        ? policy.evidence.ipv6RouteCount
+        : null,
+      ipv4RouteState: policy?.evidence?.ipv4RouteState || LinuxCapabilityStates.FAILED,
+      ipv6RouteState: policy?.evidence?.ipv6RouteState || LinuxCapabilityStates.FAILED,
     }),
     nftables: Object.freeze({
       state: nftables?.state || LinuxCapabilityStates.FAILED,
@@ -43,6 +51,12 @@ function deriveNetworkReadiness(networkEvidence) {
       Number.isInteger(firewall.tableCount) && firewall.tableCount > 0 &&
       Number.isInteger(firewall.chainCount) && firewall.chainCount > 0,
     policyRuleCount: Number.isInteger(policy.ruleCount) ? policy.ruleCount : null,
+    ipv4RouteCount: Number.isInteger(policy.ipv4RouteCount) ? policy.ipv4RouteCount : null,
+    ipv6RouteCount: Number.isInteger(policy.ipv6RouteCount) ? policy.ipv6RouteCount : null,
+    ipv4RouteReady: policy.ipv4RouteState === LinuxCapabilityStates.VERIFIED &&
+      Number.isInteger(policy.ipv4RouteCount) && policy.ipv4RouteCount > 0,
+    ipv6RouteReady: policy.ipv6RouteState === LinuxCapabilityStates.VERIFIED &&
+      Number.isInteger(policy.ipv6RouteCount) && policy.ipv6RouteCount > 0,
     nftTableCount: Number.isInteger(firewall.tableCount) ? firewall.tableCount : null,
     nftChainCount: Number.isInteger(firewall.chainCount) ? firewall.chainCount : null,
   });
