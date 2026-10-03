@@ -100,3 +100,32 @@ test("compiles the unified rule model for every required kernel", () => {
     assert.equal(compiled.rules.length, 1);
   }
 });
+
+test("external packages require integrity and signature verification", async () => {
+  const result = await verifyRulePackage({
+    ...basePackage,
+    source: "external"
+  }, {
+    allowedPublishers: ["AngelaNexus"]
+  });
+  assert.equal(result.integrityRequired, true);
+  assert.equal(result.signatureRequired, true);
+  assert.equal(result.ok, false);
+});
+
+test("verified external packages pass the trust gate", async () => {
+  const checksum = await calculateRulePackageChecksum({
+    ...basePackage,
+    source: "external"
+  });
+  const result = await verifyRulePackage({
+    ...basePackage,
+    source: "external",
+    checksum,
+    signature: { algorithm: "test", keyId: "trusted", value: "valid" }
+  }, {
+    allowedPublishers: ["AngelaNexus"],
+    verifySignature: async () => true
+  });
+  assert.equal(result.ok, true);
+});
