@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { LinuxCapabilities, LinuxCapabilityStates } from "./linux-capabilities.js";
 
-export const LINUX_NATIVE_NETWORK_PROBE_RUNTIME_VERSION = 3;
+export const LINUX_NATIVE_NETWORK_PROBE_RUNTIME_VERSION = 4;
 
 const CAPABILITY_BINDINGS = Object.freeze([
   [LinuxCapabilities.IPV4, "ipv4"],
@@ -10,7 +10,7 @@ const CAPABILITY_BINDINGS = Object.freeze([
   [LinuxCapabilities.NFTABLES, "nftables"],
 ]);
 
-const RESULT_PATTERN = /^ipv4=(-1|0|1) ipv6=(-1|0|1) policy-route=(-1|0|1) nftables=(-1|0|1) policy-rules=([0-9]+) nft-tables=([0-9]+) nft-chains=([0-9]+)\s*$/;
+const RESULT_PATTERN = /^ipv4=(-1|0|1) ipv6=(-1|0|1) policy-route=(-1|0|1) nftables=(-1|0|1) policy-rules=([0-9]+) ipv4-routes=([0-9]+) ipv6-routes=([0-9]+) ipv4-route-state=(-1|0|1) ipv6-route-state=(-1|0|1) nft-tables=([0-9]+) nft-chains=([0-9]+)\s*$/;
 
 function failedProbe(reason, evidence = {}) {
   return Object.freeze({
@@ -41,10 +41,16 @@ function parseOutput(stdout) {
         source: "native-linux-network-probe-command",
         rawResult,
       };
-      if (capability === LinuxCapabilities.POLICY_ROUTE) evidence.policyRuleCount = Number(match[5]);
+      if (capability === LinuxCapabilities.POLICY_ROUTE) {
+        evidence.policyRuleCount = Number(match[5]);
+        evidence.ipv4RouteCount = Number(match[6]);
+        evidence.ipv6RouteCount = Number(match[7]);
+        evidence.ipv4RouteState = mapRawResult(Number(match[8]));
+        evidence.ipv6RouteState = mapRawResult(Number(match[9]));
+      }
       if (capability === LinuxCapabilities.NFTABLES) {
-        evidence.nftTableCount = Number(match[6]);
-        evidence.nftChainCount = Number(match[7]);
+        evidence.nftTableCount = Number(match[10]);
+        evidence.nftChainCount = Number(match[11]);
       }
       result[capability] = Object.freeze({
         state: mapRawResult(rawResult),
