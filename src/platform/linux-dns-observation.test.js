@@ -47,3 +47,27 @@ test("malformed observation cannot be upgraded", () => {
   assert.equal(result.ok, true);
   assert.equal(result.capability.state, LinuxCapabilityStates.FAILED);
 });
+
+test("verified DNS traffic observation proves capture-point path observation without claiming security health", () => {
+  const registry = createLinuxCapabilityRegistry();
+  const result = syncLinuxDnsObservation({
+    capabilityRegistry: registry,
+    observation: {
+      state: LinuxCapabilityStates.VERIFIED,
+      reason: "dns-udp-traffic-observed",
+      evidence: {
+        source: "native-linux-dns-traffic-probe-command",
+        observationOnly: true,
+        trafficPathVerified: true,
+        packetCount: 2,
+        transport: "udp",
+        port: 53,
+      },
+    },
+  });
+  const evaluated = evaluateLinuxDnsPathObservation(result.capability);
+  assert.equal(evaluated.ok, true);
+  assert.equal(evaluated.ready, true);
+  assert.equal(evaluated.trafficPathVerified, true);
+  assert.equal(evaluated.securityHealthy, false);
+});
