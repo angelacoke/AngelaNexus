@@ -6,7 +6,9 @@ import {
   compileRulesForKernel,
   mergeRulePackages,
   validateRulePackage,
-  verifyRulePackage
+  verifyAndTrustRulePackage,
+  verifyRulePackage,
+  isRulePackageTrusted
 } from "../src/core/rule-library.js";
 
 const basePackage = {
@@ -57,6 +59,7 @@ test("rejects publisher, checksum and signature failures", async () => {
   const checksum = await calculateRulePackageChecksum(basePackage);
   const result = await verifyRulePackage({
     ...basePackage,
+    source: "external",
     checksum,
     signature: { algorithm: "test", keyId: "trusted", value: "bad" }
   }, {
@@ -128,4 +131,55 @@ test("verified external packages pass the trust gate", async () => {
     verifySignature: async () => true
   });
   assert.equal(result.ok, true);
+});
+
+
+test("external packages are denied when the publisher allowlist is empty", async () => {
+  const checksum = await calculateRulePackageChecksum({
+    ...basePackage,
+    source: "external"
+  });
+  const result = await verifyRulePackage({
+    ...basePackage,
+    source: "external",
+    checksum,
+    signature: { algorithm: "test", keyId: "trusted", value: "valid" }
+  }, {
+    verifySignature: async () => true
+  });
+  assert.equal(result.publisherAllowed, false);
+  assert.equal(result.ok, false);
+});
+
+test("external packages become trusted only after successful verification", async () => {
+  const external = {
+    ...basePackage,
+    source: "external",
+    checksum: await calculateRulePackageChecksum({ ...basePackage, source: "external" }),
+    signature: { algorithm: "test", keyId: "trusted", value: "valid" }
+  };
+
+  assert.equal(isRulePackageTrusted(external), false);
+  await verifyAndTrustRulePackage(external, {
+    allowedPublishers: ["AngelaNexus"],
+    verifySignature: async () => true
+  });
+  assert.equal(isRulePackageTrusted(external), true);
+});
+
+test("failed external verification never grants trust", async () => {
+  const external = {
+    ...basePackage,
+    source: "external",
+    checksum: await calculateRulePackageChecksum({ ...basePackage, source: "external" }),
+    signature: { algorithm: "test", keyId: "trusted", value: "invalid" }
+  };
+  await assert.rejects(
+    () => verifyAndTrustRulePackage(external, {
+      allowedPublishers: ["AngelaNexus"],
+      verifySignature: async () => false
+    }),
+    /trust verification failed/
+  );
+  assert.equal(isRulePackageTrusted(external), false);
 });

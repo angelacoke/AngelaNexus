@@ -1,5 +1,5 @@
 import { Kernels } from "./model.js";
-import { mergeRulePackages, compileRulesForKernel } from "./rule-library.js";
+import { mergeRulePackages, compileRulesForKernel, assertRulePackagesTrusted } from "./rule-library.js";
 
 const MATCH_FIELDS = Object.freeze({
   domain: "domain",
@@ -49,6 +49,7 @@ export function compileRulePackagesForKernel(packages, kernel, { targets = {} } 
     return Object.freeze({ kernel, schemaVersion: 1, rules: Object.freeze([]), routing: Object.freeze([]) });
   }
   if (!Object.values(Kernels).includes(kernel)) throw new Error("unsupported kernel: " + kernel);
+  assertRulePackagesTrusted(packages);
   const merged = mergeRulePackages(packages);
   const unified = compileRulesForKernel(merged, kernel);
   const routing = unified.rules

@@ -48,3 +48,16 @@ test("TUN rules never silently degrade into ordinary routing", () => {
     /cannot be silently compiled/
   );
 });
+
+
+test("external rule packages cannot compile before trust verification", () => {
+  const external = {
+    ...pkg,
+    id: "external/untrusted",
+    source: "external"
+  };
+  assert.throws(
+    () => compileRulePackagesForKernel([external], "mihomo"),
+    /must be verified before compilation/
+  );
+});
