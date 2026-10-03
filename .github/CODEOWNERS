@@ -6,11 +6,14 @@
 
 docs/ANGELANEXUS_FOUNDATION.md @angelacoke
 docs/ANGELANEXUS_CONSTITUTION.md @angelacoke
+docs/ANGELANEXUS_FOUNDATION_INHERITANCE.md @angelacoke
 .github/CODEOWNERS @angelacoke
 .github/workflows/foundation-integrity.yml @angelacoke
 .github/workflows/foundation-gate.yml @angelacoke
+.github/workflows/foundation-inheritance.yml @angelacoke
 .github/ @angelacoke
 
 docs/ANGELANEXUS_FOUNDATION_DNA.md @angelacoke
 docs/ANGELANEXUS_FOUNDATION_DNA.json @angelacoke
 scripts/verify-foundation-dna.sh @angelacoke
+scripts/verify-foundation-inheritance.sh @angelacoke
