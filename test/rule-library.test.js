@@ -10,6 +10,7 @@ import {
   verifyRulePackage,
   isRulePackageTrusted
 } from "../src/core/rule-library.js";
+import { createRuleTrustStore } from "../src/core/rule-trust.js";
 
 const basePackage = {
   id: "builtin/privacy",
@@ -182,4 +183,34 @@ test("failed external verification never grants trust", async () => {
     /trust verification failed/
   );
   assert.equal(isRulePackageTrusted(external), false);
+});
+
+
+test("external verification can require a trusted key lifecycle", async () => {
+  const external = {
+    ...basePackage,
+    source: "external",
+    checksum: await calculateRulePackageChecksum({ ...basePackage, source: "external" }),
+    signature: {
+      algorithm: "test",
+      keyId: "angelanexus/rules-2026",
+      value: "valid"
+    }
+  };
+  const trustStore = createRuleTrustStore([{
+    keyId: "angelanexus/rules-2026",
+    publisher: "AngelaNexus",
+    algorithm: "test",
+    status: "active",
+    createdAt: "2026-10-03T00:00:00Z",
+    expiresAt: "2027-10-03T00:00:00Z"
+  }]);
+  const verified = await verifyRulePackage(external, {
+    allowedPublishers: ["AngelaNexus"],
+    trustStore,
+    at: "2026-10-03T01:00:00Z",
+    verifySignature: async ({ key }) => key.keyId === "angelanexus/rules-2026"
+  });
+  assert.equal(verified.ok, true);
+  assert.equal(verified.trustResult.ok, true);
 });
