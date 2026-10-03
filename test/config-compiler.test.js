@@ -386,7 +386,7 @@ test("integrates platform rule packages into the unified compilation pipeline", 
     nodes: [{ id: "proxy", name: "Proxy", protocol: "socks", server: "proxy.example", port: 1080 }],
     groups: [],
     rulePackages: [packageDefinition],
-    ruleTargets: { proxy: "Proxy" }
+    ruleTargets: { proxy: "proxy" }
   };
 
   const mihomo = compileUnifiedConfig({ ...common, kernel: Kernels.MIHOMO });
