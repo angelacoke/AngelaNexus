@@ -100,7 +100,6 @@ test("update approval cannot bypass required gates", () => {
   assert.deepEqual(complete.missing, []);
 });
 
-
 test("release provenance requires the expected repository and exact GitHub release tag", () => {
   const valid = validateReleaseProvenance({
     repository: "SagerNet/sing-box",
@@ -125,4 +124,25 @@ test("release provenance requires the expected repository and exact GitHub relea
     releaseUrl: "https://github.com/SagerNet/sing-box/releases/tag/v1.14.2",
   });
   assert.equal(wrongTag.ok, false);
+});
+
+test("release provenance rejects query, fragment, credentials, and non-HTTPS URLs", () => {
+  const base = {
+    repository: "SagerNet/sing-box",
+    expectedRepository: "SagerNet/sing-box",
+    tag: "v1.14.2",
+  };
+
+  for (const releaseUrl of [
+    "https://github.com/SagerNet/sing-box/releases/tag/v1.14.2?source=mirror",
+    "https://github.com/SagerNet/sing-box/releases/tag/v1.14.2#notes",
+    "https://user:pass@github.com/SagerNet/sing-box/releases/tag/v1.14.2",
+    "http://github.com/SagerNet/sing-box/releases/tag/v1.14.2",
+  ]) {
+    assert.equal(
+      validateReleaseProvenance({ ...base, releaseUrl }).ok,
+      false,
+      releaseUrl
+    );
+  }
 });
