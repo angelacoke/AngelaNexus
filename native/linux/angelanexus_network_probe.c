@@ -286,6 +286,92 @@ int angelanexus_inspect_policy_routing(unsigned int *rule_count) {
     return inspect_policy_routing_dump(rule_count);
 }
 
+
+static int inspect_routes_dump(int family, unsigned int *route_count) {
+    if (!route_count || (family != AF_INET && family != AF_INET6)) {
+        return ANGELANEXUS_NETWORK_PROBE_FAILED;
+    }
+    *route_count = 0;
+
+    int fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
+    if (fd < 0) return ANGELANEXUS_NETWORK_PROBE_UNSUPPORTED;
+
+    struct timeval timeout = { .tv_sec = 1, .tv_usec = 0 };
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
+        close(fd);
+        return ANGELANEXUS_NETWORK_PROBE_FAILED;
+    }
+
+    struct sockaddr_nl local;
+    memset(&local, 0, sizeof(local));
+    local.nl_family = AF_NETLINK;
+    if (bind(fd, (struct sockaddr *)&local, sizeof(local)) < 0) {
+        close(fd);
+        return ANGELANEXUS_NETWORK_PROBE_FAILED;
+    }
+
+    struct {
+        struct nlmsghdr header;
+        struct rtmsg payload;
+    } request;
+    memset(&request, 0, sizeof(request));
+    request.header.nlmsg_len = NLMSG_LENGTH(sizeof(struct rtmsg));
+    request.header.nlmsg_type = RTM_GETROUTE;
+    request.header.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
+    request.header.nlmsg_seq = 1;
+    request.payload.rtm_family = (unsigned char)family;
+
+    struct sockaddr_nl kernel;
+    memset(&kernel, 0, sizeof(kernel));
+    kernel.nl_family = AF_NETLINK;
+
+    if (sendto(fd, &request, request.header.nlmsg_len, 0,
+               (struct sockaddr *)&kernel, sizeof(kernel)) < 0) {
+        close(fd);
+        return ANGELANEXUS_NETWORK_PROBE_FAILED;
+    }
+
+    char buffer[8192];
+    for (;;) {
+        ssize_t received = recv(fd, buffer, sizeof(buffer), 0);
+        if (received < 0 || received == 0) {
+            close(fd);
+            return ANGELANEXUS_NETWORK_PROBE_FAILED;
+        }
+
+        int remaining = (int)received;
+        for (struct nlmsghdr *message = (struct nlmsghdr *)buffer;
+             NLMSG_OK(message, remaining);
+             message = NLMSG_NEXT(message, remaining)) {
+            if (message->nlmsg_type == NLMSG_DONE) {
+                close(fd);
+                return ANGELANEXUS_NETWORK_PROBE_SUPPORTED;
+            }
+            if (message->nlmsg_type == NLMSG_ERROR) {
+                struct nlmsgerr *error = (struct nlmsgerr *)NLMSG_DATA(message);
+                if (error->error == 0) {
+                    close(fd);
+                    return ANGELANEXUS_NETWORK_PROBE_SUPPORTED;
+                }
+                int saved_errno = error->error < 0 ? -error->error : EIO;
+                close(fd);
+                errno = saved_errno;
+                return (saved_errno == EOPNOTSUPP || saved_errno == ENOTSUP || saved_errno == ENOSYS)
+                    ? ANGELANEXUS_NETWORK_PROBE_UNSUPPORTED
+                    : ANGELANEXUS_NETWORK_PROBE_FAILED;
+            }
+            if (message->nlmsg_type == RTM_NEWROUTE && *route_count < UINT_MAX) {
+                (*route_count)++;
+            }
+        }
+    }
+}
+
+int angelanexus_inspect_routes(int family, unsigned int *route_count) {
+    return inspect_routes_dump(family, route_count);
+}
+
+
 static int inspect_nftables_dump(unsigned short message_type,
                                  unsigned int *count) {
     if (!count) return ANGELANEXUS_NETWORK_PROBE_FAILED;
