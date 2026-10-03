@@ -45,7 +45,7 @@ export function validateReleaseProvenance({
     parsed = null;
   }
   const expectedPath = expected && normalizedTag
-    ? `/\${expected}/releases/tag/v\${normalizedTag}`
+    ? `/${expected}/releases/tag/v${normalizedTag}`
     : null;
   return Object.freeze({
     ok: Boolean(
