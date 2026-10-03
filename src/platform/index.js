@@ -247,4 +247,5 @@ export {
 export {
   LINUX_NATIVE_NETWORK_PROBE_RUNTIME_VERSION,
   createLinuxNativeNetworkCommandProbes,
+  createLinuxNativeRouteLookup,
 } from "./linux-native-network-probe.js";
