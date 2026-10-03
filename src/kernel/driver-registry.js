@@ -28,6 +28,9 @@ function createDriver(kernel) {
       ...(nativePlatforms.size ? [KernelDriverCapabilities.NATIVE_RUNTIME] : []),
     ],
     adapter,
+    canExecute(plan) {
+      return plan?.kernel === kernel && plan?.protocol?.id != null;
+    },
     match(plan) {
       const runtime = plan?.runtime;
       if (!runtime || runtime.selectedMode !== "native") return { preference: "compatible", reason: "process runtime or unspecified runtime" };
