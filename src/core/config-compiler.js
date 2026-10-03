@@ -7,6 +7,7 @@ import { validateUnifiedCompatibility } from "./compatibility.js";
 import { preflightUnifiedConfig } from "./compile-preflight.js";
 import { validateCompiledConfig } from "./compiled-config-validation.js";
 import { analyzeRuleRelationships } from "./parallel-rule-engine.js";
+import { compileRulePackagesForKernel } from "./rule-compiler.js";
 
 function clone(value) { return value === undefined ? undefined : structuredClone(value); }
 function chainList(chains) {
@@ -299,7 +300,17 @@ export function compileUnifiedConfig(config, kernel = config && config.kernel) {
   const inactiveChains = new Set(chainState.inactive);
   const nodeTargets = nodeTargetMap(config);
   const compiledGroupState = { ...compiledGroups, inactive: new Set(compiledGroups.inactive || []) };
-  const effectiveRouting = routingForKernel(config.routing, resolvedChains, inactiveChains, compiledGroupState, nodeTargets, featureState);
+  const ruleCompilation = compileRulePackagesForKernel(config.rulePackages, kernel, {
+    targets: config.ruleTargets || {}
+  });
+  const baseRouting = clone(config.routing || {});
+  if (ruleCompilation.routing.length) {
+    baseRouting.rules = [
+      ...(Array.isArray(baseRouting.rules) ? baseRouting.rules : []),
+      ...ruleCompilation.routing
+    ];
+  }
+  const effectiveRouting = routingForKernel(baseRouting, resolvedChains, inactiveChains, compiledGroupState, nodeTargets, featureState);
   const routingRelationships = analyzeRuleRelationships(effectiveRouting);
   const kernelConfig = {
     ...config,
@@ -324,5 +335,10 @@ export function compileUnifiedConfig(config, kernel = config && config.kernel) {
     inactiveGroups: profileInactiveGroups,
     profileFeatures: featureState ? clone(featureState) : undefined,
     routingRelationships,
+    ruleCompilation: {
+      schemaVersion: ruleCompilation.schemaVersion,
+      ruleCount: ruleCompilation.rules.length,
+      routingRuleCount: ruleCompilation.routing.length,
+    },
   };
 }

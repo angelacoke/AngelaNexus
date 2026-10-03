@@ -354,3 +354,51 @@ test("rejects unsafe explicit routing default actions during preflight", () => {
     routing: { defaultAction: { type: "implicit-direct" } }
   }), /not safely compilable/);
 });
+
+test("integrates platform rule packages into the unified compilation pipeline", () => {
+  const packageDefinition = {
+    id: "builtin/platform-routing",
+    version: 1,
+    schemaVersion: 1,
+    source: "builtin",
+    publisher: "AngelaNexus",
+    createdAt: "2026-10-03T00:00:00Z",
+    updatedAt: "2026-10-03T00:00:00Z",
+    rules: [
+      {
+        id: "platform.block-tracker",
+        matchType: "domain-suffix",
+        value: "tracker.example",
+        action: "reject",
+        priority: 1000
+      },
+      {
+        id: "platform.proxy-service",
+        matchType: "domain",
+        value: "service.example",
+        action: "proxy",
+        priority: 900
+      }
+    ]
+  };
+
+  const common = {
+    nodes: [{ id: "proxy", name: "Proxy", protocol: "socks", server: "proxy.example", port: 1080 }],
+    groups: [],
+    rulePackages: [packageDefinition],
+    ruleTargets: { proxy: "proxy" }
+  };
+
+  const mihomo = compileUnifiedConfig({ ...common, kernel: Kernels.MIHOMO });
+  assert.ok(mihomo.config.rules.includes("DOMAIN-SUFFIX,tracker.example,REJECT"));
+  assert.ok(mihomo.config.rules.includes("DOMAIN,service.example,Proxy"));
+  assert.equal(mihomo.ruleCompilation.ruleCount, 2);
+
+  const singBox = compileUnifiedConfig({ ...common, kernel: Kernels.SING_BOX });
+  assert.ok(singBox.config.route.rules.some((rule) => rule.domain_suffix?.includes("tracker.example") && rule.action === "reject"));
+  assert.ok(singBox.config.route.rules.some((rule) => rule.domain?.includes("service.example") && rule.outbound === "Proxy"));
+
+  const xray = compileUnifiedConfig({ ...common, kernel: Kernels.XRAY });
+  assert.ok(xray.config.routing.rules.some((rule) => rule.domain?.includes("domain:tracker.example") && rule.outboundTag === "Nexus-Blackhole"));
+  assert.ok(xray.config.routing.rules.some((rule) => rule.domain?.includes("full:service.example") && rule.outboundTag === "Proxy"));
+});
