@@ -9,7 +9,7 @@ test("command bridge maps one native snapshot to all capability probes", () => {
     commandPath: "/opt/angelanexus/network-probe",
     spawnSyncImpl: () => {
       calls += 1;
-      return { status: 0, stdout: "ipv4=1 ipv6=0 policy-route=-1 nftables=1\n", stderr: "" };
+      return { status: 0, stdout: "ipv4=1 ipv6=0 policy-route=-1 nftables=1 policy-rules=6 nft-tables=2 nft-chains=4\n", stderr: "" };
     },
   });
 
@@ -17,6 +17,9 @@ test("command bridge maps one native snapshot to all capability probes", () => {
   assert.equal(probes[LinuxCapabilities.IPV6]().state, LinuxCapabilityStates.UNSUPPORTED);
   assert.equal(probes[LinuxCapabilities.POLICY_ROUTE]().state, LinuxCapabilityStates.FAILED);
   assert.equal(probes[LinuxCapabilities.NFTABLES]().state, LinuxCapabilityStates.VERIFIED);
+  assert.equal(probes[LinuxCapabilities.POLICY_ROUTE]().evidence.policyRuleCount, 6);
+  assert.equal(probes[LinuxCapabilities.NFTABLES]().evidence.nftTableCount, 2);
+  assert.equal(probes[LinuxCapabilities.NFTABLES]().evidence.nftChainCount, 4);
   assert.equal(calls, 1);
 });
 
