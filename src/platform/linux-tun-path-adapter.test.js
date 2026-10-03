@@ -179,3 +179,39 @@ test("network evidence bridge reads state counts without upgrading security heal
   assert.equal(evidence.nftables.tableCount, 2);
   assert.equal(evidence.nftables.chainCount, 4);
 });
+
+
+test("intent-aware route evidence overrides coarse route counts and explicit route readiness", () => {
+  const capabilities = createLinuxCapabilityRegistry();
+  const paths = createPathRegistry();
+
+  const result = syncLinuxTunPath({
+    capabilityRegistry: capabilities,
+    pathRegistry: paths,
+    probeResult: {
+      state: LinuxCapabilityStates.VERIFIED,
+      evidence: { tunState: LinuxTunStates.RUNNING },
+    },
+    routeReady: true,
+    dnsReady: true,
+    securityHealthy: true,
+    networkEvidence: {
+      policyRouting: { state: LinuxCapabilityStates.VERIFIED, ruleCount: 6 },
+      nftables: { state: LinuxCapabilityStates.VERIFIED, tableCount: 1, chainCount: 1 },
+    },
+    routeIntent: {
+      intent: { family: "ipv4", target: "1.1.1.1" },
+      evidence: {
+        lookupState: "verified",
+        routeType: "unicast",
+        interfaceIndex: 0,
+        tableId: 254,
+        targetMatch: false,
+      },
+    },
+  });
+
+  assert.equal(result.admissible, false);
+  assert.equal(paths.get("linux-tun").readiness.route, false);
+  assert.equal(paths.get("linux-tun").evidence.networkState.routeIntent.ready, false);
+});
