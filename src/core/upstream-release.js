@@ -22,13 +22,16 @@ export function selectReleaseChannels(releases = []) {
 
 export function summarizeRelease(release, { repository = null } = {}) {
   if (!release) return null;
-  return Object.freeze({
+  const summary = {
     tag: normalizeReleaseTag(release.tag_name),
     publishedAt: release.published_at || release.created_at || null,
     prerelease: release.prerelease === true,
-    repository: repository || null,
-    releaseUrl: release.html_url || null,
     htmlUrl: release.html_url || null,
     body: String(release.body || "")
-  });
+  };
+  if (repository) {
+    summary.repository = repository;
+    summary.releaseUrl = release.html_url || null;
+  }
+  return Object.freeze(summary);
 }
