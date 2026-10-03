@@ -20,12 +20,14 @@ export function selectReleaseChannels(releases = []) {
   return Object.freeze({ stable, preview });
 }
 
-export function summarizeRelease(release) {
+export function summarizeRelease(release, { repository = null } = {}) {
   if (!release) return null;
   return Object.freeze({
     tag: normalizeReleaseTag(release.tag_name),
     publishedAt: release.published_at || release.created_at || null,
     prerelease: release.prerelease === true,
+    repository: repository || null,
+    releaseUrl: release.html_url || null,
     htmlUrl: release.html_url || null,
     body: String(release.body || "")
   });
