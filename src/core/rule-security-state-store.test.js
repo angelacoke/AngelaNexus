@@ -54,6 +54,7 @@ test("secure-anchor store refuses to load without an anchor", async () => {
 test("secure-anchor store rejects generation rollback before persistence", async () => {
   const memory = memoryStore(RULE_SECURITY_STATE_CAPABILITIES.SECURE_ANCHOR);
   const current = await state();
+  await persistRuleSecurityState(memory.store, current, { generation: 1 });
   const first = await persistRuleSecurityState(memory.store, current, { generation: 4 });
   const snapshot = memory.read();
   await assert.rejects(
