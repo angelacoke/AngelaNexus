@@ -213,5 +213,5 @@ test("intent-aware route evidence overrides coarse route counts and explicit rou
 
   assert.equal(result.admissible, false);
   assert.equal(paths.get("linux-tun").readiness.route, false);
-  assert.equal(paths.get("linux-tun").evidence.networkState.routeIntent.ready, false);
+  assert.equal(paths.get("linux-tun").evidence.routeIntent.ready, false);
 });
