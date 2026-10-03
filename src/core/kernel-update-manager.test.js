@@ -181,3 +181,21 @@ test("release provenance rejects query, fragment, credentials, and non-HTTPS URL
     );
   }
 });
+
+
+test("invalid provenance also blocks a current release from being trusted", () => {
+  const candidate = createKernelUpdateCandidate({
+    kernel: "sing-box",
+    configuredVersion: "1.14.2",
+    upstreamVersion: "1.14.2",
+    expectedRepository: "SagerNet/sing-box",
+    release: {
+      repository: "attacker/sing-box",
+      tag: "1.14.2",
+      releaseUrl: "https://github.com/SagerNet/sing-box/releases/tag/v1.14.2",
+    },
+  });
+
+  assert.equal(candidate.state, KERNEL_UPDATE_STATES.CONFORMANCE_FAILED);
+  assert.equal(candidate.provenance.ok, false);
+});
