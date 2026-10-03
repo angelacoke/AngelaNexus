@@ -29,9 +29,11 @@ int main(void) {
         return 2;
     }
 
-    if (printf("ipv4=%d ipv6=%d policy-route=%d nftables=%d policy-rules=%u nft-tables=%u nft-chains=%u\n",
+    if (printf("ipv4=%d ipv6=%d policy-route=%d nftables=%d policy-rules=%u ipv4-routes=%u ipv6-routes=%u ipv4-route-state=%d ipv6-route-state=%d nft-tables=%u nft-chains=%u\n",
                ipv4, ipv6, policy_route, nftables,
-               policy_rules, nft_tables, nft_chains) < 0) {
+               policy_rules, ipv4_routes, ipv6_routes,
+               ipv4_route_state, ipv6_route_state,
+               nft_tables, nft_chains) < 0) {
         return 3;
     }
 
