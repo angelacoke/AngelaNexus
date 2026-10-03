@@ -48,6 +48,7 @@ test("current release remains current and does not create an update candidate", 
 
   assert.equal(candidate.state, KERNEL_UPDATE_STATES.CURRENT);
   assert.equal(candidate.risk, KERNEL_UPDATE_RISK.LOW);
+  assert.equal(candidate.provenance, null);
 });
 
 test("new upstream release creates a candidate with explicit gates", () => {
@@ -71,6 +72,40 @@ test("new upstream release creates a candidate with explicit gates", () => {
   assert.ok(candidate.requiredGates.includes("release-verified"));
   assert.ok(candidate.requiredGates.includes("user-approval"));
   assert.ok(candidate.testPlan.checks.includes("kernel-conformance"));
+});
+
+test("provenance failure blocks an otherwise valid update candidate", () => {
+  const candidate = createKernelUpdateCandidate({
+    kernel: "sing-box",
+    configuredVersion: "1.14.1",
+    upstreamVersion: "1.14.2",
+    expectedRepository: "SagerNet/sing-box",
+    release: {
+      repository: "attacker/sing-box",
+      tag: "1.14.2",
+      releaseUrl: "https://github.com/SagerNet/sing-box/releases/tag/v1.14.2",
+    },
+  });
+
+  assert.equal(candidate.state, KERNEL_UPDATE_STATES.CONFORMANCE_FAILED);
+  assert.equal(candidate.provenance.ok, false);
+});
+
+test("valid provenance remains attached to the candidate", () => {
+  const candidate = createKernelUpdateCandidate({
+    kernel: "sing-box",
+    configuredVersion: "1.14.1",
+    upstreamVersion: "1.14.2",
+    expectedRepository: "SagerNet/sing-box",
+    release: {
+      repository: "SagerNet/sing-box",
+      tag: "1.14.2",
+      releaseUrl: "https://github.com/SagerNet/sing-box/releases/tag/v1.14.2",
+    },
+  });
+
+  assert.equal(candidate.state, KERNEL_UPDATE_STATES.CANDIDATE);
+  assert.equal(candidate.provenance.ok, true);
 });
 
 test("update approval cannot bypass required gates", () => {
