@@ -42,12 +42,14 @@ test("release summary preserves verification-relevant metadata", () => {
     prerelease: false,
     html_url: "https://example.invalid/release",
     body: "Release notes",
-  });
+  }, { repository: "SagerNet/sing-box" });
 
   assert.deepEqual(summary, {
     tag: "1.14.2",
     publishedAt: "2026-09-24T00:00:00Z",
     prerelease: false,
+    repository: "SagerNet/sing-box",
+    releaseUrl: "https://example.invalid/release",
     htmlUrl: "https://example.invalid/release",
     body: "Release notes",
   });
