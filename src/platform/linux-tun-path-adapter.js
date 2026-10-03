@@ -90,7 +90,10 @@ export function syncLinuxTunPath({
     return Object.freeze({ ok: false, reason: "path-id-required" });
   }
 
-  const probe = normalizeProbe(probeResult);\n  const network = deriveNetworkReadiness(networkEvidence);\n  const effectiveRouteReady = Boolean(routeReady) || network.routeReady;\n  const effectiveFirewallReady = Boolean(network.firewallReady);
+  const probe = normalizeProbe(probeResult);
+  const network = deriveNetworkReadiness(networkEvidence);
+  const effectiveRouteReady = Boolean(routeReady) || network.routeReady;
+  const effectiveFirewallReady = Boolean(network.firewallReady);
   const tunVerified =
     probe.state === LinuxCapabilityStates.VERIFIED &&
     [LinuxTunStates.CREATED, LinuxTunStates.UP, LinuxTunStates.RUNNING].includes(probe.evidence.tunState);
@@ -129,7 +132,9 @@ export function syncLinuxTunPath({
     },
     evidence: {
       ...probe.evidence,
-      tunState: probe.evidence.tunState || null,\n      networkState: network,\n      firewallReady: effectiveFirewallReady,
+      tunState: probe.evidence.tunState || null,
+      networkState: network,
+      firewallReady: effectiveFirewallReady,
     },
   });
 
