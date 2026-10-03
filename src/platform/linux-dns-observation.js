@@ -3,7 +3,7 @@ import { LinuxCapabilities, LinuxCapabilityStates } from "./linux-capabilities.j
 export const LINUX_DNS_OBSERVATION_VERSION = 1;
 export const LINUX_DNS_DEFAULT_RESOLV_CONF = "/etc/resolv.conf";
 
-const IPV4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+const IPV4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
 const IPV6 = /^[0-9a-fA-F:]+$/;
 
 function normalizeAddress(value) {
