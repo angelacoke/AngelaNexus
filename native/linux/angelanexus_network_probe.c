@@ -49,12 +49,6 @@ static int probe_netlink_dump(int protocol, int request_type, int family) {
         return ANGELANEXUS_NETWORK_PROBE_FAILED;
     }
 
-    struct timeval timeout = { .tv_sec = 1, .tv_usec = 0 };
-    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
-        close(fd);
-        return ANGELANEXUS_NETWORK_PROBE_FAILED;
-    }
-
     struct sockaddr_nl local;
     memset(&local, 0, sizeof(local));
     local.nl_family = AF_NETLINK;
@@ -132,6 +126,12 @@ int angelanexus_probe_nftables(void) {
     int fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_NETFILTER);
     if (fd < 0) {
         return ANGELANEXUS_NETWORK_PROBE_UNSUPPORTED;
+    }
+
+    struct timeval timeout = { .tv_sec = 1, .tv_usec = 0 };
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
+        close(fd);
+        return ANGELANEXUS_NETWORK_PROBE_FAILED;
     }
 
     struct sockaddr_nl local;
