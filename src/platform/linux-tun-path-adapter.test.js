@@ -157,7 +157,7 @@ test("network evidence bridge reads state counts without upgrading security heal
   const capabilities = createLinuxCapabilityRegistry();
   capabilities.set(LinuxCapabilities.POLICY_ROUTE, {
     state: LinuxCapabilityStates.VERIFIED,
-    evidence: { policyRuleCount: 6, ipv4RouteCount: 3, ipv6RouteCount: 2, ipv4RouteState: LinuxCapabilityStates.VERIFIED, ipv6RouteState: LinuxCapabilityStates.UNSUPPORTED },
+    evidence: { policyRuleCount: 6, ipv4RouteCount: 3, ipv6RouteCount: 2, ipv4DefaultRouteCount: 1, ipv6DefaultRouteCount: 0, ipv4RouteState: LinuxCapabilityStates.VERIFIED, ipv6RouteState: LinuxCapabilityStates.UNSUPPORTED },
   });
   capabilities.set(LinuxCapabilities.NFTABLES, {
     state: LinuxCapabilityStates.FAILED,
@@ -169,6 +169,8 @@ test("network evidence bridge reads state counts without upgrading security heal
   assert.equal(evidence.policyRouting.ruleCount, 6);
   assert.equal(evidence.policyRouting.ipv4RouteCount, 3);
   assert.equal(evidence.policyRouting.ipv6RouteCount, 2);
+  assert.equal(evidence.policyRouting.ipv4DefaultRouteCount, 1);
+  assert.equal(evidence.policyRouting.ipv6DefaultRouteCount, 0);
   assert.equal(evidence.policyRouting.ipv4RouteState, LinuxCapabilityStates.VERIFIED);
   assert.equal(evidence.policyRouting.ipv6RouteState, LinuxCapabilityStates.UNSUPPORTED);
   assert.equal(evidence.policyRouting.ipv4RouteCount, 3);
