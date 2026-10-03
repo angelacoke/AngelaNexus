@@ -29,7 +29,7 @@ function createDriver(kernel) {
     ],
     adapter,
     canExecute(plan) {
-      return plan?.kernel === kernel && plan?.protocol?.id != null;
+      return (plan?.kernel == null || plan.kernel === kernel) && plan?.protocol?.id != null;
     },
     match(plan) {
       const runtime = plan?.runtime;
