@@ -1,0 +1,27 @@
+name: AngelaNexus Foundation Inheritance
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  foundation-inheritance:
+    name: Foundation Inheritance — no one exempt
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify Foundation inheritance
+        shell: bash
+        run: |
+          chmod +x scripts/verify-foundation-inheritance.sh
+          ./scripts/verify-foundation-inheritance.sh
