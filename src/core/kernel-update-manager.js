@@ -161,7 +161,8 @@ export function createKernelUpdateCandidate({
   configuredVersion,
   upstreamVersion,
   release = {},
-  changedFiles = []
+  changedFiles = [],
+  expectedRepository = null
 } = {}) {
   const comparison = compareKernelVersions(upstreamVersion, configuredVersion);
   let state = KERNEL_UPDATE_STATES.CURRENT;
@@ -172,7 +173,25 @@ export function createKernelUpdateCandidate({
   const impact = assessAdapterImpact(changedFiles);
   const adapterImpact = analyzeKernelAdapterImpact(changedFiles, release.body || "");
   const testPlan = buildKernelAdapterTestPlan(adapterImpact);
+
+  const hasProvenanceFields = Boolean(
+    release.repository ||
+    release.releaseUrl ||
+    expectedRepository
+  );
+  const provenance = hasProvenanceFields
+    ? validateReleaseProvenance({
+        repository: release.repository,
+        expectedRepository,
+        tag: release.tag || upstreamVersion,
+        releaseUrl: release.releaseUrl,
+      })
+    : null;
+
   if (state === KERNEL_UPDATE_STATES.UPDATE_AVAILABLE) state = KERNEL_UPDATE_STATES.CANDIDATE;
+  if (state === KERNEL_UPDATE_STATES.CANDIDATE && provenance && !provenance.ok) {
+    state = KERNEL_UPDATE_STATES.CONFORMANCE_FAILED;
+  }
 
   return Object.freeze({
     kernel,
@@ -180,10 +199,13 @@ export function createKernelUpdateCandidate({
     upstreamVersion: normalizeKernelVersion(upstreamVersion),
     state,
     risk: impact.risk,
+    provenance,
     release: {
       tag: release.tag || null,
       publishedAt: release.publishedAt || null,
-      prerelease: release.prerelease === true
+      prerelease: release.prerelease === true,
+      repository: release.repository || null,
+      releaseUrl: release.releaseUrl || null
     },
     changedFiles: impact.paths,
     adapterImpact,
