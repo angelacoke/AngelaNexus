@@ -11,9 +11,9 @@ test("TUN open failure is fail-closed", () => {
     probeTunState: () => ({ state: LinuxTunStates.RUNNING }),
   });
 
-  expect(result.capability).toBe(LinuxCapabilities.TUN);
-  expect(result.state).toBe(LinuxCapabilityStates.FAILED);
-  expect(result.reason).toBe("tun-state-probe-failed");
+  assert.equal(result.capability, LinuxCapabilities.TUN);
+  assert.equal(result.state, LinuxCapabilityStates.FAILED);
+  assert.equal(result.reason, "tun-state-probe-failed");
 });
 
 test("successful kernel state query verifies TUN without claiming routing readiness", () => {
@@ -26,17 +26,17 @@ test("successful kernel state query verifies TUN without claiming routing readin
     closeTun: () => {},
   });
 
-  expect(result.state).toBe(LinuxCapabilityStates.VERIFIED);
-  expect(result.evidence.tunState).toBe(LinuxTunStates.CREATED);
-  expect(result.evidence.interface).toBe("angelanexus0");
-  expect(result.evidence.open).toBe(true);
+  assert.equal(result.state, LinuxCapabilityStates.VERIFIED);
+  assert.equal(result.evidence.tunState, LinuxTunStates.CREATED);
+  assert.equal(result.evidence.interface, "angelanexus0");
+  assert.equal(result.evidence.open, true);
 });
 
 test("invalid native state fails closed", () => {
   const result = evaluateLinuxTunProbe({ state: "not-a-state" });
 
-  expect(result.state).toBe(LinuxCapabilityStates.FAILED);
-  expect(result.reason).toBe("tun-state-probe-failed");
+  assert.equal(result.state, LinuxCapabilityStates.FAILED);
+  assert.equal(result.reason, "tun-state-probe-failed");
 });
 
 test("probe closes a successfully opened handle", () => {
@@ -47,5 +47,5 @@ test("probe closes a successfully opened handle", () => {
     closeTun: (fd) => closed.push(fd),
   });
 
-  expect(closed).toEqual([3]);
+  assert.deepEqual(closed, [3]);
 });
