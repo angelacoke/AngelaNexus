@@ -194,3 +194,52 @@ test("outcome feedback schedules a bounded re-probe only when the scheduler is e
   assert.equal(result.schedulerAction, "scheduled");
   assert.equal(scheduler.get("direct").state, "scheduled");
 });
+
+
+test("path admission rejects an explicitly unverified effective Linux route", () => {
+  const manager = createConnectionPathManager();
+  const result = manager.evaluate([{
+    id: "linux-tun",
+    type: "kernel-tunnel",
+    verified: true,
+    trust: "verified",
+    health: "healthy",
+    securityHealthy: true,
+    routeIntent: {
+      intent: { family: "ipv4", target: "1.1.1.1" },
+      evidence: {
+        lookupState: "verified",
+        routeType: "unicast",
+        interfaceIndex: 0,
+        tableId: 254,
+        targetMatch: false,
+      },
+    },
+  }]);
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "no-verified-path-fail-closed");
+});
+
+test("path admission accepts an explicitly verified effective Linux route", () => {
+  const manager = createConnectionPathManager();
+  const result = manager.evaluate([{
+    id: "linux-tun",
+    type: "kernel-tunnel",
+    verified: true,
+    trust: "verified",
+    health: "healthy",
+    securityHealthy: true,
+    routeIntent: {
+      intent: { family: "ipv4", target: "1.1.1.1" },
+      evidence: {
+        lookupState: "verified",
+        routeType: "unicast",
+        interfaceIndex: 2,
+        tableId: 254,
+        targetMatch: true,
+      },
+    },
+  }]);
+  assert.equal(result.ok, true);
+  assert.equal(result.selected.id, "linux-tun");
+});
