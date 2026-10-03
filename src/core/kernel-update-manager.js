@@ -189,7 +189,7 @@ export function createKernelUpdateCandidate({
     : null;
 
   if (state === KERNEL_UPDATE_STATES.UPDATE_AVAILABLE) state = KERNEL_UPDATE_STATES.CANDIDATE;
-  if (state === KERNEL_UPDATE_STATES.CANDIDATE && provenance && !provenance.ok) {
+  if (provenance && !provenance.ok) {
     state = KERNEL_UPDATE_STATES.CONFORMANCE_FAILED;
   }
 
