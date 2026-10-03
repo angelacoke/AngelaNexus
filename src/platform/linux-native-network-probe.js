@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { LinuxCapabilities, LinuxCapabilityStates } from "./linux-capabilities.js";
 
-export const LINUX_NATIVE_NETWORK_PROBE_RUNTIME_VERSION = 1;
+export const LINUX_NATIVE_NETWORK_PROBE_RUNTIME_VERSION = 2;
 
 const CAPABILITY_BINDINGS = Object.freeze([
   [LinuxCapabilities.IPV4, "ipv4"],
