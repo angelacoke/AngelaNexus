@@ -187,7 +187,14 @@ export const RULE_SECURITY_POLICY = Object.freeze({
 });
 
 const TRUSTED_PACKAGES = new WeakSet();
-const DEFAULT_RULE_VERSION_STATE = createRuleVersionState();
+let DEFAULT_RULE_VERSION_STATE = null;
+
+function getDefaultRuleVersionState() {
+  if (!DEFAULT_RULE_VERSION_STATE) {
+    DEFAULT_RULE_VERSION_STATE = createRuleVersionState();
+  }
+  return DEFAULT_RULE_VERSION_STATE;
+}
 
 export async function verifyAndTrustRulePackage(pkg, options = {}) {
   const verification = await verifyRulePackage(pkg, options);
