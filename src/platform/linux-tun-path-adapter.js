@@ -5,6 +5,31 @@ import { PathRegistryStates } from "../core/path-registry.js";
 export const LINUX_TUN_PATH_ADAPTER_VERSION = 2;
 
 
+export function deriveLinuxNetworkEvidence(capabilityRegistry) {
+  if (!capabilityRegistry || typeof capabilityRegistry.get !== "function") {
+    return Object.freeze({});
+  }
+  const policy = capabilityRegistry.get(LinuxCapabilities.POLICY_ROUTE);
+  const nftables = capabilityRegistry.get(LinuxCapabilities.NFTABLES);
+  return Object.freeze({
+    policyRouting: Object.freeze({
+      state: policy?.state || LinuxCapabilityStates.FAILED,
+      ruleCount: Number.isInteger(policy?.evidence?.policyRuleCount)
+        ? policy.evidence.policyRuleCount
+        : null,
+    }),
+    nftables: Object.freeze({
+      state: nftables?.state || LinuxCapabilityStates.FAILED,
+      tableCount: Number.isInteger(nftables?.evidence?.nftTableCount)
+        ? nftables.evidence.nftTableCount
+        : null,
+      chainCount: Number.isInteger(nftables?.evidence?.nftChainCount)
+        ? nftables.evidence.nftChainCount
+        : null,
+    }),
+  });
+}
+
 function deriveNetworkReadiness(networkEvidence) {
   const evidence = networkEvidence && typeof networkEvidence === "object" ? networkEvidence : {};
   const policy = evidence.policyRouting && typeof evidence.policyRouting === "object" ? evidence.policyRouting : {};
