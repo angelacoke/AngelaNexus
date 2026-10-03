@@ -58,3 +58,46 @@ test("publisher is part of package identity", async () => {
   const result = await inspectRulePackageVersion(other, state);
   assert.equal(result.action, "first-seen");
 });
+
+
+import {
+  sealRuleVersionState,
+  verifyRuleVersionStateEnvelope,
+  restoreRuleVersionState
+} from "../src/core/rule-version-policy.js";
+
+test("sealed state detects tampering", async () => {
+  const state = createRuleVersionState();
+  await acceptRulePackageVersion(await withChecksum(base), state);
+  const sealed = await sealRuleVersionState(state, { generation: 1 });
+  const tampered = { ...sealed, records: [] };
+  const result = await verifyRuleVersionStateEnvelope(tampered);
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "checksum-mismatch");
+});
+
+test("state anchor rejects rollback", async () => {
+  const state = createRuleVersionState();
+  await acceptRulePackageVersion(await withChecksum(base), state);
+  const first = await sealRuleVersionState(state, { generation: 4 });
+  const nextState = createRuleVersionState(await (async () => {
+    const record = state.records.get("AngelaNexus:platform/security");
+    return [{ ...record, version: 2 }];
+  })());
+  const next = await sealRuleVersionState(nextState, { generation: 5, previousChecksum: first.checksum });
+  const result = await verifyRuleVersionStateEnvelope(first, { anchor: { generation: 5, checksum: next.checksum } });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "state-rollback");
+  const restored = await restoreRuleVersionState(next, { anchor: { generation: 4, checksum: first.checksum } });
+  assert.equal(restored.records.get("AngelaNexus:platform/security").version, 2);
+});
+
+test("same generation requires the anchored checksum", async () => {
+  const state = createRuleVersionState();
+  await acceptRulePackageVersion(await withChecksum(base), state);
+  const sealed = await sealRuleVersionState(state, { generation: 7 });
+  const altered = { ...sealed, records: [...sealed.records].reverse() };
+  const result = await verifyRuleVersionStateEnvelope(altered, { anchor: { generation: 7, checksum: "a".repeat(64) } });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "checksum-mismatch");
+});
