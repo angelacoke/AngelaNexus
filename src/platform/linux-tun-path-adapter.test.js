@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createLinuxCapabilityRegistry, LinuxCapabilities, LinuxCapabilityStates } from "./linux-capabilities.js";
 import { LinuxTunStates } from "./linux-tun-probe.js";
 import { createPathRegistry, PathRegistryStates } from "../core/path-registry.js";
-import { syncLinuxTunPath } from "./linux-tun-path-adapter.js";
+import { deriveLinuxNetworkEvidence, syncLinuxTunPath } from "./linux-tun-path-adapter.js";
 
 test("verified TUN remains non-admissible until route and DNS readiness are independently verified", () => {
   const capabilities = createLinuxCapabilityRegistry();
@@ -150,4 +150,24 @@ test("network evidence with zero policy rules or nftables objects does not creat
   assert.equal(result.admissible, false);
   assert.equal(paths.get("linux-tun").readiness.route, false);
   assert.equal(paths.get("linux-tun").readiness.firewall, false);
+});
+
+
+test("network evidence bridge reads state counts without upgrading security health", () => {
+  const capabilities = createLinuxCapabilityRegistry();
+  capabilities.set(LinuxCapabilities.POLICY_ROUTE, {
+    state: LinuxCapabilityStates.VERIFIED,
+    evidence: { policyRuleCount: 6 },
+  });
+  capabilities.set(LinuxCapabilities.NFTABLES, {
+    state: LinuxCapabilityStates.FAILED,
+    evidence: { nftTableCount: 2, nftChainCount: 4 },
+  });
+
+  const evidence = deriveLinuxNetworkEvidence(capabilities);
+  assert.equal(evidence.policyRouting.state, LinuxCapabilityStates.VERIFIED);
+  assert.equal(evidence.policyRouting.ruleCount, 6);
+  assert.equal(evidence.nftables.state, LinuxCapabilityStates.FAILED);
+  assert.equal(evidence.nftables.tableCount, 2);
+  assert.equal(evidence.nftables.chainCount, 4);
 });
