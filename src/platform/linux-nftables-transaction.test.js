@@ -134,3 +134,25 @@ test("invalid plan fails before touching nftables", () => {
   assert.equal(result.reason, "plan-required");
   assert.deepEqual(calls, []);
 });
+
+
+test("reentrant execution is rejected fail-closed", () => {
+  let tx;
+  tx = createLinuxNftablesTransaction({
+    executor: {
+      snapshot: () => ({ ruleset: "before" }),
+      apply: () => {
+        const nested = tx.execute({ id: "nested" });
+        assert.equal(nested.ok, false);
+        assert.equal(nested.reason, "transaction-busy");
+        assert.equal(nested.state, LinuxNftablesTransactionStates.BUSY);
+      },
+      validate: () => true,
+      restore: () => {},
+    },
+  });
+
+  const result = tx.execute({ id: "outer" });
+  assert.equal(result.ok, true);
+  assert.equal(result.state, LinuxNftablesTransactionStates.COMMITTED);
+});
