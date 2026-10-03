@@ -1,4 +1,5 @@
 import { verifyRuleSignatureAgainstTrustStore } from "./rule-trust.js";
+import { createRuleVersionState, acceptRulePackageVersion, exportRuleVersionState } from "./rule-version-policy.js";
 
 const RULE_LIBRARY_VERSION = 1;
 
@@ -186,6 +187,7 @@ export const RULE_SECURITY_POLICY = Object.freeze({
 });
 
 const TRUSTED_PACKAGES = new WeakSet();
+const DEFAULT_RULE_VERSION_STATE = createRuleVersionState();
 
 export async function verifyAndTrustRulePackage(pkg, options = {}) {
   const verification = await verifyRulePackage(pkg, options);
