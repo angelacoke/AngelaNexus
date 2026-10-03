@@ -224,3 +224,10 @@ export {
   createAndroidTransparentRuntimeFactory,
 } from "./android-transparent-runtime-factory.js";
 export { createNetworkControlPlane } from "./network-control-plane.js";
+
+export {
+  LINUX_TUN_PROBE_VERSION,
+  LinuxTunStates,
+  evaluateLinuxTunProbe,
+  probeLinuxTunCapability,
+} from "./linux-tun-probe.js";
