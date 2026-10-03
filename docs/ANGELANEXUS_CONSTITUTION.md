@@ -1845,3 +1845,12 @@ GitHub 仓库的分支保护 / Ruleset 应将上述 CODEOWNERS 审查和完整�
 开发者可以更换，维护团队可以更替，平台可以扩展，技术可以淘汰，执行后端可以替换，代码可以重构；但 AngelaNexus 必须保持其根本初衷的一致性。
 
 > **技术可以世代更替，开发者可以不断更换，但 AngelaNexus 为什么存在，不由后来者重新决定。**
+
+
+### 第七十九条：Foundation DNA 普遍继承原则
+
+AngelaNexus Foundation DNA 是纲领之基在项目身份与继承链上的机器可验证表达。任何主体只要继续属于 AngelaNexus 项目继承链，就必须携带并通过 Foundation DNA 验证；创建者、Owner、Administrator、Maintainer、Developer、Contributor、治理审查者、CI/CD、Bot、AI Agent、Fork 维护者、继任者及迁移后的治理主体均不得获得豁免。
+
+Foundation DNA 清单不得成为自己的信任根。其根锚必须回溯到受保护的 Foundation Root，并通过独立 Foundation Gate 验证。复制代码、创建 Fork、重命名、迁移、重写历史或拥有最高权限，均不得自动产生合法继承身份。
+
+Foundation DNA PASS 只是身份、继承与纲领一致性的机器门槛，不等同于治理批准、代码合并权限或发布权限。
