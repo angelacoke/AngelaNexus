@@ -6,6 +6,7 @@ import { builtinTransportAdapters } from "../adapters/transport-registry.js";
 import { missingCapabilities, normalizeCapabilities } from "../adapters/capability-negotiation.js";
 import { createDriverSelection } from "./driver-scheduler.js";
 import { resolveKernelRuntimeMode } from "../kernel/runtime-boundary.js";
+import { kernelDrivers } from "../kernel/driver-registry.js";
 
 function clone(value) { return value === undefined ? undefined : structuredClone(value); }
 
@@ -193,7 +194,9 @@ export function createRuntimePlan(nodeInput, options = {}) {
 
   const selection = createDriverSelection({
     plan,
-    drivers: options.executionBackends,
+    drivers: options.executionBackends === undefined
+      ? Object.values(kernelDrivers)
+      : options.executionBackends,
     requiredCapabilities: effectiveBackendCapabilities,
     fixedDriver: options.fixedDriver,
     allowedDrivers: options.allowedDrivers,
