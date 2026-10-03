@@ -257,3 +257,8 @@ export {
   createLinuxNativeNetworkCommandProbes,
   createLinuxNativeRouteLookup,
 } from "./linux-native-network-probe.js";
+
+export {
+  LINUX_NATIVE_DNS_PROBE_RUNTIME_VERSION,
+  createLinuxNativeDnsTrafficProbe,
+} from "./linux-native-dns-probe.js";
