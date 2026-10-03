@@ -2,7 +2,26 @@ import { LinuxCapabilities, LinuxCapabilityStates } from "./linux-capabilities.j
 import { LinuxTunStates } from "./linux-tun-probe.js";
 import { PathRegistryStates } from "../core/path-registry.js";
 
-export const LINUX_TUN_PATH_ADAPTER_VERSION = 1;
+export const LINUX_TUN_PATH_ADAPTER_VERSION = 2;
+
+
+function deriveNetworkReadiness(networkEvidence) {
+  const evidence = networkEvidence && typeof networkEvidence === "object" ? networkEvidence : {};
+  const policy = evidence.policyRouting && typeof evidence.policyRouting === "object" ? evidence.policyRouting : {};
+  const firewall = evidence.nftables && typeof evidence.nftables === "object" ? evidence.nftables : {};
+  const policyState = policy.state;
+  const firewallState = firewall.state;
+  return Object.freeze({
+    routeReady: policyState === LinuxCapabilityStates.VERIFIED &&
+      Number.isInteger(policy.ruleCount) && policy.ruleCount > 0,
+    firewallReady: firewallState === LinuxCapabilityStates.VERIFIED &&
+      Number.isInteger(firewall.tableCount) && firewall.tableCount > 0 &&
+      Number.isInteger(firewall.chainCount) && firewall.chainCount > 0,
+    policyRuleCount: Number.isInteger(policy.ruleCount) ? policy.ruleCount : null,
+    nftTableCount: Number.isInteger(firewall.tableCount) ? firewall.tableCount : null,
+    nftChainCount: Number.isInteger(firewall.chainCount) ? firewall.chainCount : null,
+  });
+}
 
 function normalizeProbe(probe) {
   if (!probe || typeof probe !== "object") {
@@ -34,6 +53,7 @@ export function syncLinuxTunPath({
   dnsReady = false,
   securityHealthy = false,
   userAllowed = true,
+  networkEvidence = null,
 } = {}) {
   if (!capabilityRegistry || typeof capabilityRegistry.set !== "function") {
     return Object.freeze({ ok: false, reason: "capability-registry-required" });
@@ -45,7 +65,7 @@ export function syncLinuxTunPath({
     return Object.freeze({ ok: false, reason: "path-id-required" });
   }
 
-  const probe = normalizeProbe(probeResult);
+  const probe = normalizeProbe(probeResult);\n  const network = deriveNetworkReadiness(networkEvidence);\n  const effectiveRouteReady = Boolean(routeReady) || network.routeReady;\n  const effectiveFirewallReady = Boolean(securityHealthy) || network.firewallReady;
   const tunVerified =
     probe.state === LinuxCapabilityStates.VERIFIED &&
     [LinuxTunStates.CREATED, LinuxTunStates.UP, LinuxTunStates.RUNNING].includes(probe.evidence.tunState);
@@ -57,12 +77,12 @@ export function syncLinuxTunPath({
       ...probe.evidence,
       capability: LinuxCapabilities.TUN,
       tunVerified,
-      routeReady: Boolean(routeReady),
+      routeReady: effectiveRouteReady,
       dnsReady: Boolean(dnsReady),
     },
   });
 
-  const ready = tunVerified && Boolean(routeReady) && Boolean(dnsReady) && Boolean(securityHealthy);
+  const ready = tunVerified && effectiveRouteReady && Boolean(dnsReady) && effectiveFirewallReady;
   const state = tunVerified
     ? (ready ? PathRegistryStates.ACTIVE : PathRegistryStates.DISABLED)
     : PathRegistryStates.QUARANTINED;
@@ -74,17 +94,17 @@ export function syncLinuxTunPath({
     state,
     trust: tunVerified ? "verified" : "rejected",
     verified: tunVerified,
-    securityHealthy: Boolean(securityHealthy) && tunVerified,
+    securityHealthy: effectiveFirewallReady && tunVerified,
     userAllowed: userAllowed !== false,
     readiness: {
       tun: tunVerified,
-      route: Boolean(routeReady),
+      route: effectiveRouteReady,
       dns: Boolean(dnsReady),
-      firewall: Boolean(securityHealthy),
+      firewall: effectiveFirewallReady,
     },
     evidence: {
       ...probe.evidence,
-      tunState: probe.evidence.tunState || null,
+      tunState: probe.evidence.tunState || null,\n      networkState: network,
     },
   });
 
