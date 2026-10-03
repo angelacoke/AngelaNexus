@@ -171,6 +171,8 @@ test("network evidence bridge reads state counts without upgrading security heal
   assert.equal(evidence.policyRouting.ipv6RouteCount, 2);
   assert.equal(evidence.policyRouting.ipv4RouteState, LinuxCapabilityStates.VERIFIED);
   assert.equal(evidence.policyRouting.ipv6RouteState, LinuxCapabilityStates.UNSUPPORTED);
+  assert.equal(evidence.policyRouting.ipv4RouteCount, 3);
+  assert.equal(evidence.policyRouting.ipv6RouteCount, 2);
   assert.equal(evidence.nftables.state, LinuxCapabilityStates.FAILED);
   assert.equal(evidence.nftables.tableCount, 2);
   assert.equal(evidence.nftables.chainCount, 4);
