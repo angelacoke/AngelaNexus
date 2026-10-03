@@ -7,6 +7,7 @@ export const LinuxNftablesTransactionStates = Object.freeze({
   COMMITTED: "committed",
   ROLLED_BACK: "rolled-back",
   FAILED: "failed",
+  BUSY: "busy",
 });
 
 function requiredOperation(executor, name) {
@@ -48,6 +49,7 @@ export function createLinuxNftablesTransaction({
   let snapshot = null;
   let startedAt = null;
   let finishedAt = null;
+  let executing = false;
 
   const result = (ok, reason = null, extra = {}) => Object.freeze({
     ok,
@@ -75,6 +77,11 @@ export function createLinuxNftablesTransaction({
   };
 
   const execute = (plan) => {
+    if (executing) {
+      state = LinuxNftablesTransactionStates.BUSY;
+      finishedAt = clock();
+      return result(false, "transaction-busy");
+    }
     if (!plan || typeof plan !== "object") {
       state = LinuxNftablesTransactionStates.FAILED;
       finishedAt = clock();
@@ -86,6 +93,7 @@ export function createLinuxNftablesTransaction({
     startedAt = clock();
     finishedAt = null;
 
+    executing = true;
     try {
       snapshot = executor.snapshot();
       state = LinuxNftablesTransactionStates.SNAPSHOTTED;
@@ -103,6 +111,8 @@ export function createLinuxNftablesTransaction({
       return result(true, null, { restored: false });
     } catch (error) {
       return rollback(String(error?.message || error));
+    } finally {
+      executing = false;
     }
   };
 
