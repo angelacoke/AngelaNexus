@@ -15,10 +15,23 @@ const apiHeaders = {
   ...(process.env.GITHUB_TOKEN ? { authorization: "Bearer " + process.env.GITHUB_TOKEN } : {})
 };
 
-async function github(url) {
-  const response = await fetch(url, { headers: apiHeaders });
-  if (!response.ok) throw new Error(`GitHub API ${response.status}: ${url}`);
-  return response.json();
+async function github(url, { attempts = 3 } = {}) {
+  let lastStatus = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await fetch(url, { headers: apiHeaders });
+      if (response.ok) return response.json();
+      lastStatus = response.status;
+      if (![408, 429, 500, 502, 503, 504].includes(response.status) || attempt === attempts) {
+        throw new Error(`GitHub API ${response.status}: ${url}`);
+      }
+    } catch (error) {
+      if (attempt === attempts) throw error;
+      if (error?.name !== "TypeError" && lastStatus === null) throw error;
+    }
+    await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+  }
+  throw new Error(`GitHub API ${lastStatus || "request failure"}: ${url}`);
 }
 
 async function getReleaseChannels(entry) {
