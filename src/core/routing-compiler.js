@@ -45,7 +45,9 @@ function mihomoMatch(match) {
 }
 
 function compileMihomoRule(rule) {
-  const target = rule.action.type === "reject" ? "REJECT" : requireTarget(rule);
+  const target = rule.action.type === "reject"
+    ? "REJECT"
+    : requireTarget(rule);
   return mihomoMatch(rule.match).map((match) => match + "," + target);
 }
 
