@@ -1,3 +1,5 @@
+import { verifyRuleSignatureAgainstTrustStore } from "./rule-trust.js";
+
 const RULE_LIBRARY_VERSION = 1;
 
 export const RULE_ACTIONS = Object.freeze([
@@ -113,7 +115,9 @@ export function validateRulePackage(pkg) {
 export async function verifyRulePackage(pkg, {
   allowedPublishers = [],
   verifySignature = null,
-  expectedChecksum = null
+  expectedChecksum = null,
+  trustStore = null,
+  at = undefined
 } = {}) {
   validateRulePackage(pkg);
 
@@ -130,7 +134,19 @@ export async function verifyRulePackage(pkg, {
   const integrityRequired = sourceRequiresTrustVerification(pkg.source) && RULE_SECURITY_POLICY.requireIntegrityForExternal;
   const signatureRequired = sourceRequiresTrustVerification(pkg.source) && RULE_SECURITY_POLICY.requireSignatureForExternal;
   let signatureVerified = pkg.signature === undefined;
-  if (pkg.signature && typeof verifySignature === "function") {
+  let trustResult = null;
+  if (pkg.signature && trustStore) {
+    trustResult = await verifyRuleSignatureAgainstTrustStore(trustStore, {
+      publisher: pkg.publisher,
+      algorithm: pkg.signature.algorithm,
+      keyId: pkg.signature.keyId,
+      value: pkg.signature.value,
+      payload: canonicalRulePackagePayload(pkg),
+      verifySignature,
+      at
+    });
+    signatureVerified = trustResult.ok;
+  } else if (pkg.signature && typeof verifySignature === "function") {
     signatureVerified = await verifySignature({
       algorithm: pkg.signature.algorithm,
       keyId: pkg.signature.keyId,
@@ -149,6 +165,7 @@ export async function verifyRulePackage(pkg, {
     expectedMatches,
     signaturePresent: pkg.signature !== undefined,
     signatureVerified,
+    trustResult,
     integrityRequired,
     signatureRequired,
     calculatedChecksum
