@@ -1,0 +1,102 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  calculateRulePackageChecksum,
+  canonicalRulePackagePayload,
+  compileRulesForKernel,
+  mergeRulePackages,
+  validateRulePackage,
+  verifyRulePackage
+} from "../src/core/rule-library.js";
+
+const basePackage = {
+  id: "builtin/privacy",
+  version: 1,
+  schemaVersion: 1,
+  source: "builtin",
+  publisher: "AngelaNexus",
+  createdAt: "2026-10-03T00:00:00Z",
+  updatedAt: "2026-10-03T00:00:00Z",
+  rules: [
+    {
+      id: "privacy.example",
+      matchType: "domain-suffix",
+      value: "example.com",
+      action: "proxy",
+      priority: 500
+    }
+  ]
+};
+
+test("validates the platform rule package model", () => {
+  assert.equal(validateRulePackage(basePackage), true);
+});
+
+test("canonical payload excludes mutable integrity fields", () => {
+  const first = canonicalRulePackagePayload(basePackage);
+  const second = canonicalRulePackagePayload({
+    ...basePackage,
+    checksum: "0".repeat(64),
+    signature: { algorithm: "test", keyId: "k1", value: "sig" }
+  });
+  assert.equal(first, second);
+});
+
+test("calculates and verifies SHA-256 integrity", async () => {
+  const checksum = await calculateRulePackageChecksum(basePackage);
+  const verified = await verifyRulePackage({
+    ...basePackage,
+    checksum
+  }, { allowedPublishers: ["AngelaNexus"] });
+  assert.equal(verified.ok, true);
+  assert.equal(verified.checksumMatches, true);
+  assert.equal(verified.publisherAllowed, true);
+});
+
+test("rejects publisher, checksum and signature failures", async () => {
+  const checksum = await calculateRulePackageChecksum(basePackage);
+  const result = await verifyRulePackage({
+    ...basePackage,
+    checksum,
+    signature: { algorithm: "test", keyId: "trusted", value: "bad" }
+  }, {
+    allowedPublishers: ["OtherPublisher"],
+    verifySignature: async () => false
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.publisherAllowed, false);
+  assert.equal(result.signatureVerified, false);
+});
+
+test("higher-trust sources override lower-trust conflicts deterministically", () => {
+  const merged = mergeRulePackages([
+    {
+      ...basePackage,
+      source: "external",
+      rules: [{ ...basePackage.rules[0], action: "reject" }]
+    },
+    {
+      ...basePackage,
+      source: "platform",
+      rules: [{ ...basePackage.rules[0], action: "direct" }]
+    },
+    {
+      ...basePackage,
+      source: "user",
+      rules: [{ ...basePackage.rules[0], action: "proxy" }]
+    }
+  ]);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].action, "proxy");
+  assert.equal(merged[0].source, "user");
+});
+
+test("compiles the unified rule model for every required kernel", () => {
+  const rules = mergeRulePackages([basePackage]);
+  for (const kernel of ["mihomo", "sing-box", "xray"]) {
+    const compiled = compileRulesForKernel(rules, kernel);
+    assert.equal(compiled.kernel, kernel);
+    assert.equal(compiled.schemaVersion, 1);
+    assert.equal(compiled.rules.length, 1);
+  }
+});
