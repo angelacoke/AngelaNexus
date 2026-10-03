@@ -120,7 +120,9 @@ export async function verifyRulePackage(pkg, {
   const publishers = allowedPublishers.length
     ? allowedPublishers
     : (pkg.source === "external" ? RULE_SECURITY_POLICY.allowedExternalPublishers : []);
-  const publisherAllowed = publishers.length === 0 || publishers.includes(pkg.publisher);
+  const publisherAllowed = pkg.source !== "external"
+    ? true
+    : publishers.length > 0 && publishers.includes(pkg.publisher);
   const calculatedChecksum = await calculateRulePackageChecksum(pkg);
   const checksumMatches = !pkg.checksum || pkg.checksum.toLowerCase() === calculatedChecksum;
   const expectedMatches = !expectedChecksum || expectedChecksum.toLowerCase() === calculatedChecksum;
@@ -165,6 +167,31 @@ export const RULE_SECURITY_POLICY = Object.freeze({
   requireSignatureForExternal: true,
   allowedExternalPublishers: Object.freeze([])
 });
+
+const TRUSTED_PACKAGES = new WeakSet();
+
+export async function verifyAndTrustRulePackage(pkg, options = {}) {
+  const verification = await verifyRulePackage(pkg, options);
+  if (!verification.ok) {
+    throw new Error("rule package trust verification failed: " + pkg.id);
+  }
+  TRUSTED_PACKAGES.add(pkg);
+  return verification;
+}
+
+export function isRulePackageTrusted(pkg) {
+  return TRUSTED_PACKAGES.has(pkg);
+}
+
+export function assertRulePackagesTrusted(packages = []) {
+  for (const pkg of packages) {
+    validateRulePackage(pkg);
+    if (pkg.source === "external" && !TRUSTED_PACKAGES.has(pkg)) {
+      throw new Error("external rule package must be verified before compilation: " + pkg.id);
+    }
+  }
+  return true;
+}
 
 function sourceRequiresTrustVerification(source) {
   return source === "external";
