@@ -20,6 +20,7 @@ function createDriver(kernel) {
   const nativePlatforms = kernel === Kernels.MIHOMO ? new Set(["android"]) : new Set();
 
   return createKernelDriver({
+    id: kernel,
     kernel,
     capabilities: [
       KernelDriverCapabilities.NODE_COMPILE,
