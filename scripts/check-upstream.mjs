@@ -35,8 +35,8 @@ async function getReleaseChannels(entry) {
   }
 
   return {
-    stable: summarizeRelease(channels.stable),
-    preview: summarizeRelease(channels.preview)
+    stable: summarizeRelease(channels.stable, { repository: entry.repository }),
+    preview: summarizeRelease(channels.preview, { repository: entry.repository })
   };
 }
 
@@ -110,7 +110,8 @@ for (const [kernel, entry] of Object.entries(UpstreamKernelRegistry)) {
     configuredVersion: entry.stable,
     upstreamVersion: release.tag,
     release,
-    changedFiles
+    changedFiles,
+    expectedRepository: entry.repository
   });
   const reportCandidate = verifyPipeline && candidate.state === "current"
     ? { ...candidate, state: "candidate" }
