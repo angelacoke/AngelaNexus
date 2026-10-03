@@ -35,13 +35,11 @@ test("higher version upgrades", async () => {
 });
 
 test("lower version is rejected", async () => {
-  const pkg1 = await withChecksum(base);
   const state = createRuleVersionState();
-  await acceptRulePackageVersion(pkg1, state);
-  const old = await withChecksum({ ...base, version: 0 });
-  old.version = 1;
-  const changed = await withChecksum({ ...base, version: 1, rules: [{ id: "security/block-test", matchType: "domain", action: "reject", value: "old.test" }] });
-  await assert.rejects(() => acceptRulePackageVersion(changed, state), error => error.decision.action === "version-conflict");
+  const current = await withChecksum({ ...base, version: 2 });
+  await acceptRulePackageVersion(current, state);
+  const old = await withChecksum({ ...base, version: 1, updatedAt: "2026-10-02T00:00:00Z" });
+  await assert.rejects(() => acceptRulePackageVersion(old, state), error => error.decision.action === "stale-version");
 });
 
 test("same version with same checksum is idempotent", async () => {
