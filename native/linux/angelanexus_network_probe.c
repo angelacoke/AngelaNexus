@@ -9,7 +9,8 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
-#include <string.h>\n#include <limits.h>
+#include <string.h>
+#include <limits.h>
 
 /*
  * Read-only Linux networking capability probes.
