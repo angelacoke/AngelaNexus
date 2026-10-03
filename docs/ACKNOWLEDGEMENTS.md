@@ -68,3 +68,9 @@ AngelaNexus 自有代码的许可证政策见 [LICENSE](../LICENSE)、[LICENSE_P
 3. 实际随发布物分发的第三方组件，以发布时核验的精确版本、提交、许可证和 NOTICE 为准。
 4. 对未来新增内核、库、SDK、工具链和数据源，在进入正式发布物前完成归属与许可证核验。
 5. 除必要的法律归属、许可证和机器可读依赖元数据外，不在普通技术文档、产品文案和业务代码中加入第三方项目的介绍性内容；相关引用统一归档至本致谢文件。
+
+### Linux kernel
+
+- 项目：https://github.com/torvalds/linux
+- 用途：Linux 平台网络能力、TUN/TAP、Netfilter/nftables、eBPF、XDP、AF_XDP、WireGuard、网络观测与系统边界研究。
+- 许可证：Linux kernel 采用 GPL-2.0-only/相关文件级许可声明；实际使用或分发时以具体文件的 SPDX 与许可证声明为准。
