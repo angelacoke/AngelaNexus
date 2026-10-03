@@ -77,7 +77,6 @@ test("corrupted envelope is rejected and never restored", async () => {
   const memory = memoryStore(RULE_SECURITY_STATE_CAPABILITIES.INTEGRITY_ONLY);
   const current = await state();
   const saved = await persistRuleSecurityState(memory.store, current, { generation: 1 });
-  memory.store.saveEnvelope = async value => { void value; };
   const corrupted = { ...saved.envelope, generation: 2 };
   const broken = memoryStore(RULE_SECURITY_STATE_CAPABILITIES.INTEGRITY_ONLY, corrupted);
   await assert.rejects(
