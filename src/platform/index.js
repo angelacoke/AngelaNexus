@@ -237,3 +237,8 @@ export {
   syncLinuxNetworkCapabilities,
   createLinuxNativeNetworkProbes,
 } from "./linux-network-capability-adapter.js";
+
+export {
+  LINUX_NATIVE_NETWORK_PROBE_RUNTIME_VERSION,
+  createLinuxNativeNetworkCommandProbes,
+} from "./linux-native-network-probe.js";
