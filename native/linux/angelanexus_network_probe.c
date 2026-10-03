@@ -197,3 +197,11 @@ int angelanexus_probe_nftables(void) {
     close(fd);
     return ANGELANEXUS_NETWORK_PROBE_FAILED;
 }
+
+int angelanexus_probe_policy_routing_state(void) {
+    return angelanexus_probe_policy_routing();
+}
+
+int angelanexus_probe_nftables_state(void) {
+    return angelanexus_probe_nftables();
+}
