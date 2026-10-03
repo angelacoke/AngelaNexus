@@ -233,6 +233,12 @@ export {
 } from "./linux-tun-probe.js";
 export { deriveLinuxNetworkEvidence, syncLinuxTunPath, LINUX_TUN_PATH_ADAPTER_VERSION } from "./linux-tun-path-adapter.js";
 export {
+  LINUX_ROUTE_INTENT_VERSION,
+  LinuxRouteFamilies,
+  LinuxRouteTypes,
+  evaluateLinuxRouteIntent,
+} from "./linux-route-intent.js";
+export {
   LINUX_NETWORK_CAPABILITY_ADAPTER_VERSION,
   syncLinuxNetworkCapabilities,
   createLinuxNativeNetworkProbes,
