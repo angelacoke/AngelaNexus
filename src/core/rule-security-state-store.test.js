@@ -16,7 +16,7 @@ const base = {
   publisher: "AngelaNexus",
   createdAt: "2026-10-01T00:00:00.000Z",
   updatedAt: "2026-10-01T00:00:00.000Z",
-  rules: []
+  rules: [{ id: "baseline", matchType: "domain", action: "direct", value: "example.com" }]
 };
 
 async function state() {
