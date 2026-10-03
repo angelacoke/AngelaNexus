@@ -59,6 +59,7 @@ test("rejects publisher, checksum and signature failures", async () => {
   const checksum = await calculateRulePackageChecksum(basePackage);
   const result = await verifyRulePackage({
     ...basePackage,
+    source: "external",
     checksum,
     signature: { algorithm: "test", keyId: "trusted", value: "bad" }
   }, {
