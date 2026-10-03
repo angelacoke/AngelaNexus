@@ -55,3 +55,31 @@ test("probe functions are invoked independently", () => {
   });
   assert.deepEqual(calls, ["ipv4", "ipv6", "policy-route", "nftables"]);
 });
+
+
+test("native probe results map into verified capability evidence", () => {
+  const registry = createLinuxCapabilityRegistry();
+  const probes = createLinuxNativeNetworkProbes({
+    probeIpv4: () => 1,
+    probeIpv6: () => 0,
+    probePolicyRouting: () => -1,
+    probeNftables: () => 1,
+  });
+  const result = syncLinuxNetworkCapabilities({ capabilityRegistry: registry, probes });
+  assert.equal(result.ok, true);
+  assert.equal(registry.get(LinuxCapabilities.IPV4).state, LinuxCapabilityStates.VERIFIED);
+  assert.equal(registry.get(LinuxCapabilities.IPV6).state, LinuxCapabilityStates.UNSUPPORTED);
+  assert.equal(registry.get(LinuxCapabilities.POLICY_ROUTE).state, LinuxCapabilityStates.FAILED);
+  assert.equal(registry.get(LinuxCapabilities.NFTABLES).state, LinuxCapabilityStates.VERIFIED);
+  assert.equal(registry.get(LinuxCapabilities.IPV4).evidence.rawResult, 1);
+});
+
+test("native probe exceptions fail closed", () => {
+  const registry = createLinuxCapabilityRegistry();
+  const probes = createLinuxNativeNetworkProbes({
+    probeIpv4: () => { throw new Error("probe failed"); },
+  });
+  syncLinuxNetworkCapabilities({ capabilityRegistry: registry, probes });
+  assert.equal(registry.get(LinuxCapabilities.IPV4).state, LinuxCapabilityStates.FAILED);
+  assert.equal(registry.get(LinuxCapabilities.IPV4).reason, "native-probe-error");
+});
