@@ -1,12 +1,13 @@
 #include "angelanexus_network_probe.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter/nfnetlink.h>
 #include <linux/netfilter/nf_tables.h>
-#include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
 #include <string.h>
