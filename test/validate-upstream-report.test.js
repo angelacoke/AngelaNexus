@@ -52,3 +52,39 @@ test("rejects prerelease candidates", () => {
   assert.equal(result.ok, false);
   assert.ok(result.failures.some(value => value.includes("prerelease")));
 });
+
+
+test("rejects a candidate without verified release provenance", () => {
+  const report = {
+    kernels: [{
+      kernel: "mihomo",
+      state: "candidate",
+      release: { prerelease: false },
+      testPlan: { checks: ["unit-tests", "kernel-conformance"] }
+    }]
+  };
+  const result = validateUpstreamReport(
+    report,
+    new Set(["unit-tests", "kernel-conformance"])
+  );
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.some(value => value.includes("provenance")));
+});
+
+test("accepts a candidate with verified release provenance", () => {
+  const report = {
+    kernels: [{
+      kernel: "xray",
+      state: "candidate",
+      release: { prerelease: false },
+      provenance: { ok: true },
+      testPlan: { checks: ["unit-tests", "kernel-conformance"] }
+    }]
+  };
+  const result = validateUpstreamReport(
+    report,
+    new Set(["unit-tests", "kernel-conformance"])
+  );
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.failures, []);
+});
