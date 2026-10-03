@@ -1,0 +1,24 @@
+{
+  "schema": "AN-DNA/v1",
+  "project": "AngelaNexus",
+  "identity": "AngelaNexus",
+  "foundation_root": {
+    "path": "docs/ANGELANEXUS_FOUNDATION.md",
+    "git_blob_sha": "4f047d7a53ef7db1d18174916ea9ed5cacbd8133"
+  },
+  "dna_id": "da14d8750b5f8af9a41902b752dca6dcc8930bb866fdbc44b493c2a646e22c8e",
+  "parent": null,
+  "inheritance": {
+    "required": true,
+    "fork_is_not_exemption": true,
+    "all_stakeholders_subject": true
+  },
+  "verification": {
+    "foundation_gate_required": true,
+    "fail_closed": true
+  },
+  "trust_model": {
+    "manifest_is_not_root_of_trust": true,
+    "external_anchor_required_for_strong_identity": true
+  }
+}
