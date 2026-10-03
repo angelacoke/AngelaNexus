@@ -3,7 +3,7 @@ import { LinuxCapabilities, LinuxCapabilityStates } from "./linux-capabilities.j
 export const LINUX_DNS_OBSERVATION_VERSION = 1;
 export const LINUX_DNS_DEFAULT_RESOLV_CONF = "/etc/resolv.conf";
 
-const IPV4 = /^(25[0-5]|2[0-4]\\d|1?\\d?\\d)(\\.(25[0-5]|2[0-4]\\d|1?\\d?\\d)){3}$/;
+const IPV4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
 const IPV6 = /^[0-9a-fA-F:]+$/;
 
 function normalizeAddress(value) {
@@ -19,10 +19,10 @@ export function parseLinuxResolvConf(content, { source = LINUX_DNS_DEFAULT_RESOL
   }
   const nameservers = [];
   const invalidNameservers = [];
-  for (const rawLine of content.split(/\\r?\\n/)) {
+  for (const rawLine of content.split(/\r?\n/)) {
     const line = rawLine.replace(/#.*/, "").trim();
     if (!line || !line.startsWith("nameserver")) continue;
-    const parts = line.split(/\\s+/);
+    const parts = line.split(/\s+/);
     if (parts[0] !== "nameserver" || !parts[1]) {
       invalidNameservers.push(line);
       continue;
