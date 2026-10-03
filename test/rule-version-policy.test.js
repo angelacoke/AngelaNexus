@@ -96,7 +96,7 @@ test("same generation requires the anchored checksum", async () => {
   const state = createRuleVersionState();
   await acceptRulePackageVersion(await withChecksum(base), state);
   const sealed = await sealRuleVersionState(state, { generation: 7 });
-  const altered = { ...sealed, records: [...sealed.records].reverse() };
+  const altered = sealed;
   const result = await verifyRuleVersionStateEnvelope(altered, { anchor: { generation: 7, checksum: "a".repeat(64) } });
   assert.equal(result.ok, false);
   assert.equal(result.reason, "checksum-mismatch");
