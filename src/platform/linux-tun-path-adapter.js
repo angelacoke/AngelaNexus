@@ -106,6 +106,7 @@ export function syncLinuxTunPath({
   userAllowed = true,
   networkEvidence = null,
   routeIntent = null,
+  routeLookup = null,
 } = {}) {
   if (!capabilityRegistry || typeof capabilityRegistry.set !== "function") {
     return Object.freeze({ ok: false, reason: "capability-registry-required" });
@@ -119,8 +120,20 @@ export function syncLinuxTunPath({
 
   const probe = normalizeProbe(probeResult);
   const network = deriveNetworkReadiness(networkEvidence);
-  const routeIntentEvaluation = routeIntent && typeof routeIntent === "object"
-    ? evaluateLinuxRouteIntent(routeIntent.intent, routeIntent.evidence)
+  let effectiveRouteIntent = routeIntent;
+  if (routeIntent && typeof routeIntent === "object" &&
+      routeLookup && typeof routeLookup.lookup === "function" &&
+      routeIntent.intent && typeof routeIntent.intent === "object") {
+    const family = routeIntent.intent.family;
+    const target = routeIntent.intent.target;
+    const lookup = routeLookup.lookup(family, target);
+    effectiveRouteIntent = {
+      intent: routeIntent.intent,
+      evidence: lookup?.evidence || null,
+    };
+  }
+  const routeIntentEvaluation = effectiveRouteIntent && typeof effectiveRouteIntent === "object"
+    ? evaluateLinuxRouteIntent(effectiveRouteIntent.intent, effectiveRouteIntent.evidence)
     : null;
   const effectiveRouteReady = routeIntentEvaluation
     ? routeIntentEvaluation.ready
