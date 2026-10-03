@@ -2,6 +2,7 @@
 #include <fcntl.h>
 #include <linux/if_tun.h>
 #include <net/if.h>
+#include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include <string.h>
@@ -53,7 +54,16 @@ int angelanexus_probe_tun_state(int fd) {
         return ANGELANEXUS_TUN_STATE_ERROR;
     }
 
-    if (ioctl(fd, SIOCGIFFLAGS, &ifr) < 0) {
+    int sock = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    if (sock < 0) {
+        return ANGELANEXUS_TUN_STATE_ERROR;
+    }
+
+    int flagsResult = ioctl(sock, SIOCGIFFLAGS, &ifr);
+    int savedErrno = errno;
+    close(sock);
+    if (flagsResult < 0) {
+        errno = savedErrno;
         return ANGELANEXUS_TUN_STATE_ERROR;
     }
 
