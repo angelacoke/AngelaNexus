@@ -8,6 +8,7 @@ test("accepts a candidate when every automated test-plan check was executed", ()
       kernel: "mihomo",
       state: "candidate",
       release: { prerelease: false },
+      provenance: { ok: true },
       testPlan: { checks: ["unit-tests", "kernel-conformance"] }
     }]
   };
