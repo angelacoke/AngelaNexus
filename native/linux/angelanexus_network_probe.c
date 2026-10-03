@@ -5,7 +5,6 @@
 #include <linux/netfilter.h>
 #include <linux/netfilter/nfnetlink.h>
 #include <linux/netfilter/nf_tables.h>
-#include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <string.h>
