@@ -2,6 +2,7 @@
 #include <fcntl.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
+#include <linux/netfilter.h>
 #include <linux/netfilter/nfnetlink.h>
 #include <linux/netfilter/nf_tables.h>
 #include <netinet/in.h>
