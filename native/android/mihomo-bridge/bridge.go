@@ -36,7 +36,7 @@ import (
     "github.com/metacubex/mihomo/constant"
     "github.com/metacubex/mihomo/hub/executor"
     LC "github.com/metacubex/mihomo/listener/config"
-    "github.com/metacubex/mihomo/listener/sing_tun"
+    "github.com/metacubex/mihomo/listener/sing_tun"\n    "github.com/metacubex/mihomo/tunnel/statistic"
     "github.com/metacubex/mihomo/tunnel"
 )
 
