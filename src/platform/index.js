@@ -233,6 +233,14 @@ export {
 } from "./linux-tun-probe.js";
 export { deriveLinuxNetworkEvidence, syncLinuxTunPath, LINUX_TUN_PATH_ADAPTER_VERSION } from "./linux-tun-path-adapter.js";
 export {
+  LINUX_DNS_OBSERVATION_VERSION,
+  LINUX_DNS_DEFAULT_RESOLV_CONF,
+  parseLinuxResolvConf,
+  observeLinuxDns,
+  syncLinuxDnsObservation,
+  evaluateLinuxDnsPathObservation,
+} from "./linux-dns-observation.js";
+export {
   LINUX_ROUTE_INTENT_VERSION,
   LinuxRouteFamilies,
   LinuxRouteTypes,
