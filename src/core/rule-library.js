@@ -117,11 +117,16 @@ export async function verifyRulePackage(pkg, {
 } = {}) {
   validateRulePackage(pkg);
 
-  const publisherAllowed = allowedPublishers.length === 0 || allowedPublishers.includes(pkg.publisher);
+  const publishers = allowedPublishers.length
+    ? allowedPublishers
+    : (pkg.source === "external" ? RULE_SECURITY_POLICY.allowedExternalPublishers : []);
+  const publisherAllowed = publishers.length === 0 || publishers.includes(pkg.publisher);
   const calculatedChecksum = await calculateRulePackageChecksum(pkg);
   const checksumMatches = !pkg.checksum || pkg.checksum.toLowerCase() === calculatedChecksum;
   const expectedMatches = !expectedChecksum || expectedChecksum.toLowerCase() === calculatedChecksum;
 
+  const integrityRequired = sourceRequiresTrustVerification(pkg.source) && RULE_SECURITY_POLICY.requireIntegrityForExternal;
+  const signatureRequired = sourceRequiresTrustVerification(pkg.source) && RULE_SECURITY_POLICY.requireSignatureForExternal;
   let signatureVerified = pkg.signature === undefined;
   if (pkg.signature && typeof verifySignature === "function") {
     signatureVerified = await verifySignature({
@@ -132,13 +137,18 @@ export async function verifyRulePackage(pkg, {
     });
   }
 
+  const integrityAccepted = !integrityRequired || Boolean(pkg.checksum);
+  const signatureAccepted = !signatureRequired || (Boolean(pkg.signature) && typeof verifySignature === "function" && signatureVerified);
+
   return Object.freeze({
-    ok: publisherAllowed && checksumMatches && expectedMatches && signatureVerified,
+    ok: publisherAllowed && checksumMatches && expectedMatches && integrityAccepted && signatureAccepted && signatureVerified,
     publisherAllowed,
     checksumMatches,
     expectedMatches,
     signaturePresent: pkg.signature !== undefined,
     signatureVerified,
+    integrityRequired,
+    signatureRequired,
     calculatedChecksum
   });
 }
@@ -149,6 +159,16 @@ const SOURCE_PRIORITY = Object.freeze({
   platform: 200,
   external: 100
 });
+
+export const RULE_SECURITY_POLICY = Object.freeze({
+  requireIntegrityForExternal: true,
+  requireSignatureForExternal: true,
+  allowedExternalPublishers: Object.freeze([])
+});
+
+function sourceRequiresTrustVerification(source) {
+  return source === "external";
+}
 
 export function mergeRulePackages(packages = []) {
   const accepted = packages.slice().sort((a, b) =>
