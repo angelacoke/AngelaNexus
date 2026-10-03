@@ -1,3 +1,4 @@
+import test from "node:test";
 import {
   evaluateLinuxTunProbe,
   probeLinuxTunCapability,
