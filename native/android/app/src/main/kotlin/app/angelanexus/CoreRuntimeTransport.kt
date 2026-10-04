@@ -26,6 +26,7 @@ class NativeCoreRuntimeTransport(
             nodeCount = -1,
             kernel = "mihomo",
             detectionConfidence = "native-runtime-verified",
+            configuration = content,
         )
     }
 

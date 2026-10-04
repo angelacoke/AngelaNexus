@@ -5,4 +5,5 @@ data class CoreRuntimeImportResult(
     val nodeCount: Int,
     val kernel: String?,
     val detectionConfidence: String?,
+    val configuration: String? = null,
 )

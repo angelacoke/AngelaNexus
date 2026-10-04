@@ -22,6 +22,7 @@ class AngelaNexusVpnService : VpnService() {
         const val ACTION_START = "app.angelanexus.action.START"
         const val ACTION_STOP = "app.angelanexus.action.STOP"
         const val EXTRA_KERNEL_ID = "app.angelanexus.extra.KERNEL_ID"
+        const val EXTRA_CONFIGURATION = "app.angelanexus.extra.CONFIGURATION"
 
         private const val CHANNEL_ID = "angelanexus-vpn"
         private const val NOTIFICATION_ID = 18181
@@ -39,7 +40,11 @@ class AngelaNexusVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         return when (intent?.action) {
-            ACTION_START -> startRuntime(intent.getStringExtra(EXTRA_KERNEL_ID), startId)
+            ACTION_START -> startRuntime(
+                intent.getStringExtra(EXTRA_KERNEL_ID),
+                intent.getStringExtra(EXTRA_CONFIGURATION),
+                startId,
+            )
             ACTION_STOP -> {
                 stopRuntime()
                 START_NOT_STICKY
@@ -51,7 +56,7 @@ class AngelaNexusVpnService : VpnService() {
         }
     }
 
-    private fun startRuntime(kernelId: String?, startId: Int): Int {
+    private fun startRuntime(kernelId: String?, configuration: String?, startId: Int): Int {
         if (tunEstablished) return START_NOT_STICKY
 
         startForeground(NOTIFICATION_ID, notification("VPN runtime starting"))
@@ -68,6 +73,7 @@ class AngelaNexusVpnService : VpnService() {
             driver = selectedDriver
             selectedDriver.preparePlatform(this)
             selectedDriver.initialize(File(filesDir, CORE_HOME).absolutePath)
+            configuration?.let { selectedDriver.applyConfiguration(it) }
 
             val builder = Builder()
                 .setSession(getString(R.string.app_name))

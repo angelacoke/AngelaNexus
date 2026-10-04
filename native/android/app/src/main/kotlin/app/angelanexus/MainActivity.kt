@@ -86,6 +86,7 @@ private fun AngelaNexusRoot() {
         val intent = Intent(context, AngelaNexusVpnService::class.java)
             .setAction(AngelaNexusVpnService.ACTION_START)
             .putExtra(AngelaNexusVpnService.EXTRA_KERNEL_ID, kernelId)
+            .putExtra(AngelaNexusVpnService.EXTRA_CONFIGURATION, importResult?.configuration)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(intent)
         } else {
