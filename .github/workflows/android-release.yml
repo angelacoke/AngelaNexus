@@ -111,14 +111,7 @@ SHA-256: ${PACKAGE_SHA256}"
 
           curl --fail-with-body --silent --show-error             --request POST             --form "chat_id=${TELEGRAM_CHAT_ID}"             --form "caption=${CAPTION}"             --form "document=@${PACKAGE_PATH}"             "${API}/sendDocument" > telegram-response.json
 
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          data = json.loads(Path("telegram-response.json").read_text(encoding="utf-8"))
-          if data.get("ok") is not True:
-              raise SystemExit(f"Telegram delivery rejected: {data.get('description', 'unknown error')}")
-          print("Telegram package delivery verified: API returned ok=true")
-          PY
+          python3 -c 'import json, pathlib; data=json.loads(pathlib.Path("telegram-response.json").read_text()); assert data.get("ok") is True, data.get("description", "unknown error"); print("Telegram package delivery verified: API returned ok=true")'
 
       - name: Publish delivery evidence
         uses: actions/upload-artifact@v4
