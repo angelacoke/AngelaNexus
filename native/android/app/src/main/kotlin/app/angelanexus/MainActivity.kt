@@ -53,6 +53,7 @@ private fun AngelaNexusRoot() {
     val rootCapabilities = remember { rootAdapter.inspect() }
     var selectedMode by remember { mutableStateOf(AndroidTransparentMode.AUTO) }
     var status by remember { mutableStateOf(AndroidUiStatus.READY) }
+    var importResult by remember { mutableStateOf<CoreRuntimeImportResult?>(null) }
 
     val documentLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) {
@@ -67,8 +68,14 @@ private fun AngelaNexusRoot() {
                     importCoordinator.importLocalFile(stream, uri.lastPathSegment)
                 } ?: throw IllegalStateException("selected configuration cannot be opened")
             }.fold(
-                onSuccess = { status = AndroidUiStatus.CONFIG_DELIVERED_TO_CORE },
-                onFailure = { status = AndroidUiStatus.CORE_RUNTIME_UNAVAILABLE }
+                onSuccess = { result ->
+                    importResult = result
+                    status = AndroidUiStatus.CONFIG_DELIVERED_TO_CORE
+                },
+                onFailure = {
+                    importResult = null
+                    status = AndroidUiStatus.CORE_RUNTIME_UNAVAILABLE
+                }
             )
         }
     }
@@ -116,6 +123,7 @@ private fun AngelaNexusRoot() {
         darkTheme = darkTheme,
         transparentMode = selectedMode,
         rootAvailable = rootCapabilities.rootAvailable && rootCapabilities.rootAuthorized,
+        importResult = importResult,
         onTransparentModeChange = { selectedMode = it },
         onImportConfig = {
             status = AndroidUiStatus.SELECTING_CONFIG
@@ -146,6 +154,7 @@ private fun AngelaNexusPreview() {
             darkTheme = false,
             transparentMode = AndroidTransparentMode.AUTO,
             rootAvailable = false,
+            importResult = null,
             onTransparentModeChange = {},
             onImportConfig = {},
             onStartVpn = {},
