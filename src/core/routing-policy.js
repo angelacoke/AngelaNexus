@@ -133,6 +133,50 @@ export function createRoutingPolicy({
   };
 }
 
+export function resolveRoutingPolicyDecision(policy, flow, matchesRule) {
+  if (!policy || typeof policy !== "object") throw new TypeError("routing policy is required");
+
+  if (policy.mode === "global_proxy") {
+    const action = { type: "route", target: "global_proxy" };
+    return Object.freeze({
+      status: "global",
+      action,
+      ruleIds: Object.freeze([]),
+      reason: "global-proxy-policy",
+      evidence: Object.freeze({ mode: policy.mode, flow: clone(flow || {}) })
+    });
+  }
+
+  if (policy.mode === "global_bypass") {
+    const action = { type: "bypass", target: "direct" };
+    return Object.freeze({
+      status: "global",
+      action,
+      ruleIds: Object.freeze([]),
+      reason: "global-bypass-policy",
+      evidence: Object.freeze({ mode: policy.mode, flow: clone(flow || {}) })
+    });
+  }
+
+  const matchSet = evaluateParallelMatchSet(policy.rules, flow, matchesRule);
+  const decision = resolveParallelRoutingDecision(matchSet, policy.defaultAction);
+  const matches = matchSet.matches.map((item) => Object.freeze({
+    ruleId: item.ruleId,
+    ruleIndex: item.ruleIndex,
+    match: clone(item.match),
+    action: clone(item.action)
+  }));
+
+  return Object.freeze({
+    ...decision,
+    evidence: Object.freeze({
+      mode: policy.mode,
+      flow: clone(flow || {}),
+      matches: Object.freeze(matches)
+    })
+  });
+}
+
 export function validateRoutingPolicy(policy) {
   const errors = [];
   if (!policy || typeof policy !== "object") {
