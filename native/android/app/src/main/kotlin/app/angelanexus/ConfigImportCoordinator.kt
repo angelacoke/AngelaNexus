@@ -2,17 +2,10 @@ package app.angelanexus
 
 import java.io.InputStream
 
-/**
- * Android-side coordinator for configuration import.
- *
- * It performs only Android transport work: bounded UTF-8 reading and construction of
- * the versioned import envelope. Format detection and kernel binding remain outside
- * Android and are delegated through ConfigImportPort.
- */
 class ConfigImportCoordinator(
     private val port: ConfigImportPort,
 ) {
-    suspend fun importLocalFile(inputStream: InputStream, name: String?) {
+    suspend fun importLocalFile(inputStream: InputStream, name: String?): CoreRuntimeImportResult {
         val content = ConfigImportReader.readUtf8(inputStream)
         val request = ConfigImportRequest(
             version = ConfigImportRequest.VERSION,
@@ -20,6 +13,6 @@ class ConfigImportCoordinator(
             name = name,
             content = content,
         )
-        port.importConfiguration(request)
+        return port.importConfiguration(request)
     }
 }
