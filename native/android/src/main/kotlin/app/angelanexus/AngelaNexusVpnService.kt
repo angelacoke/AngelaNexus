@@ -58,7 +58,12 @@ class AngelaNexusVpnService : VpnService() {
         }
     }
 
-    private fun startRuntime(kernelId: String?, configuration: String?, allowedApplications: List<String>, startId: Int): Int {
+    private fun startRuntime(
+        kernelId: String?,
+        configuration: String?,
+        allowedApplications: List<String>,
+        startId: Int,
+    ): Int {
         if (tunEstablished) return START_NOT_STICKY
 
         startForeground(NOTIFICATION_ID, notification("VPN runtime starting"))
@@ -82,7 +87,14 @@ class AngelaNexusVpnService : VpnService() {
                 .setMtu(policy.mtu)
                 .setBlocking(false)
 
-            // Android package scoping narrows the OS interception boundary.\n            // Domain/IP/process matching remains a Core routing concern.\n            (policy.allowedApplications + allowedApplications).distinct().forEach { packageName ->\n                require(packageName.matches(Regex("[A-Za-z0-9_\\.]+"))) { "invalid Android package name" }\n                builder.addAllowedApplication(packageName)\n            }\n\n            policy.addresses.forEach { cidr ->
+            // Android package scoping narrows the OS interception boundary.
+            // Domain/IP/process matching remains a Core routing concern.
+            (policy.allowedApplications + allowedApplications).distinct().forEach { packageName ->
+                require(packageName.matches(Regex("[A-Za-z0-9_\\.]+"))) { "invalid Android package name" }
+                builder.addAllowedApplication(packageName)
+            }
+
+            policy.addresses.forEach { cidr ->
                 builder.addAddress(cidr.substringBefore('/'), cidr.substringAfter('/').toInt())
             }
             policy.routes.forEach { cidr ->
