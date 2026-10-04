@@ -29,7 +29,7 @@ class AngelaNexusVpnService : VpnService() {
     }
 
     private val policy = AndroidVpnRuntimePolicy.default()
-    private var mihomo: MihomoJniNativeHost? = null
+    private var driver: AndroidKernelDriver? = null
     private var tunEstablished = false
 
     override fun onCreate() {
@@ -54,25 +54,16 @@ class AngelaNexusVpnService : VpnService() {
     private fun startRuntime(kernelId: String?, startId: Int): Int {
         if (tunEstablished) return START_NOT_STICKY
 
-        if (!kernelId.equals("mihomo", ignoreCase = true)) {
-            fail("No Android driver is registered for kernel '$kernelId'", kernelId)
-            stopSelfResult(startId)
-            return START_NOT_STICKY
-        }
-
         startForeground(NOTIFICATION_ID, notification("VPN runtime starting"))
         AndroidKernelExecutionStateStore.beginStart(kernelId)
 
         return runCatching {
             stopRuntime(keepService = true)
 
-            val host = MihomoNativeRuntimeFactory.create(this)
-            mihomo = host
-            host.initialize(File(filesDir, CORE_HOME).absolutePath)
-            host.setVpnService(this)
-            check(host.hasVpnProtector()) {
-                "Android VpnService protector is unavailable"
-            }
+            val selectedDriver = AndroidKernelDriverRegistry.resolve(this, kernelId)
+            driver = selectedDriver
+            selectedDriver.preparePlatform(this)
+            selectedDriver.initialize(File(filesDir, CORE_HOME).absolutePath)
 
             val builder = Builder()
                 .setSession(getString(R.string.app_name))
@@ -96,17 +87,11 @@ class AngelaNexusVpnService : VpnService() {
             // Detach here so ParcelFileDescriptor cannot later close a reused fd.
             val fd = descriptor.detachFd()
 
-            check(host.startTun(
-                tunFd = fd,
-                stack = policy.stack,
-                address = policy.addresses.joinToString(","),
-                dns = policy.dnsHijack,
-            )) {
-                "Mihomo failed to bind the Android TUN descriptor"
-            }
+            selectedDriver.attachTun(fd, policy)
+            selectedDriver.start()
 
             tunEstablished = true
-            AndroidKernelExecutionStateStore.markRunning(kernelId)
+            AndroidKernelExecutionStateStore.markRunning(selectedDriver.id)
             updateNotification("VPN runtime active — $kernelId")
             START_NOT_STICKY
         }.getOrElse { error ->
@@ -118,12 +103,11 @@ class AngelaNexusVpnService : VpnService() {
     }
 
     private fun stopRuntime(keepService: Boolean = false) {
-        if (mihomo != null || tunEstablished) {
+        if (driver != null || tunEstablished) {
             AndroidKernelExecutionStateStore.beginStop()
         }
-        runCatching { mihomo?.stopTun() }
-        runCatching { mihomo?.clearVpnService() }
-        mihomo = null
+        runCatching { driver?.stop() }
+        driver = null
         tunEstablished = false
 
         if (!keepService) {
