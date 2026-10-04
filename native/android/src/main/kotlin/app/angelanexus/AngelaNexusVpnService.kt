@@ -7,39 +7,39 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.Build
 import android.os.IBinder
+import java.io.File
 
 /**
- * Native Android VPN execution boundary.
+ * Android system interception boundary.
  *
- * The service receives an already-resolved Mihomo JSON configuration. It does
- * not parse user imports or choose a kernel. The native host is required to
- * install VpnService.protect before TUN execution is accepted.
+ * The platform owns VpnService/TUN lifecycle and policy. The service consumes
+ * the kernel identity already resolved by Core; it never parses user config or
+ * selects a kernel. The native driver receives the established TUN descriptor.
  */
 class AngelaNexusVpnService : VpnService() {
 
     companion object {
         const val ACTION_START = "app.angelanexus.action.START"
         const val ACTION_STOP = "app.angelanexus.action.STOP"
-        const val EXTRA_COMPILED_CONFIG_JSON = "app.angelanexus.extra.COMPILED_CONFIG_JSON"
-        const val EXTRA_ADDRESS = "app.angelanexus.extra.ADDRESS"
-        const val EXTRA_ROUTE = "app.angelanexus.extra.ROUTE"
-        const val EXTRA_DNS = "app.angelanexus.extra.DNS"
-        const val EXTRA_STACK = "app.angelanexus.extra.STACK"
+        const val EXTRA_KERNEL_ID = "app.angelanexus.extra.KERNEL_ID"
 
         private const val CHANNEL_ID = "angelanexus-vpn"
         private const val NOTIFICATION_ID = 18181
-        private const val DEFAULT_ADDRESS = "198.18.0.2/30,fd00:198:18::2/126"
-        private const val DEFAULT_ROUTE = "0.0.0.0/0,::/0"
-        private const val DEFAULT_DNS = "198.18.0.2"
-        private const val DEFAULT_STACK = "mixed"
+        private const val CORE_HOME = "angelanexus/core"
     }
 
-    private var tunInterface: android.os.ParcelFileDescriptor? = null
+    private val policy = AndroidVpnRuntimePolicy.default()
     private var mihomo: MihomoJniNativeHost? = null
+    private var tunEstablished = false
+
+    override fun onCreate() {
+        super.onCreate()
+        createNotificationChannel()
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         return when (intent?.action) {
-            ACTION_START -> startRuntime(intent, startId)
+            ACTION_START -> startRuntime(intent.getStringExtra(EXTRA_KERNEL_ID), startId)
             ACTION_STOP -> {
                 stopRuntime()
                 START_NOT_STICKY
@@ -51,110 +51,134 @@ class AngelaNexusVpnService : VpnService() {
         }
     }
 
-    private fun startRuntime(intent: Intent, startId: Int): Int {
+    private fun startRuntime(kernelId: String?, startId: Int): Int {
+        if (tunEstablished) return START_NOT_STICKY
+
+        if (!kernelId.equals("mihomo", ignoreCase = true)) {
+            fail("No Android driver is registered for kernel '$kernelId'", kernelId)
+            stopSelfResult(startId)
+            return START_NOT_STICKY
+        }
+
+        startForeground(NOTIFICATION_ID, notification("VPN runtime starting"))
+        AndroidKernelExecutionStateStore.beginStart(kernelId)
+
         return runCatching {
-            startForeground(NOTIFICATION_ID, notification())
-
             stopRuntime(keepService = true)
-
-            val configJson = intent.getStringExtra(EXTRA_COMPILED_CONFIG_JSON)
-                ?.takeIf { it.isNotBlank() }
-                ?: error("compiled Mihomo configuration is required")
-
-            val address = intent.getStringExtra(EXTRA_ADDRESS) ?: DEFAULT_ADDRESS
-            val route = intent.getStringExtra(EXTRA_ROUTE) ?: DEFAULT_ROUTE
-            val dns = intent.getStringExtra(EXTRA_DNS) ?: DEFAULT_DNS
-            val stack = intent.getStringExtra(EXTRA_STACK) ?: DEFAULT_STACK
 
             val host = MihomoNativeRuntimeFactory.create(this)
             mihomo = host
+            host.initialize(File(filesDir, CORE_HOME).absolutePath)
             host.setVpnService(this)
-            check(host.hasVpnProtector()) { "Android VpnService protector is unavailable" }
-
-            val applyError = host.applyConfig(configJson)
-            check(applyError.isNullOrBlank()) {
-                applyError ?: "Mihomo rejected the compiled configuration"
+            check(host.hasVpnProtector()) {
+                "Android VpnService protector is unavailable"
             }
 
             val builder = Builder()
                 .setSession(getString(R.string.app_name))
-                .setMtu(1400)
+                .setMtu(policy.mtu)
                 .setBlocking(false)
 
-            splitValues(address).forEach { cidr ->
+            policy.addresses.forEach { cidr ->
                 builder.addAddress(cidr.substringBefore('/'), cidr.substringAfter('/').toInt())
             }
-            splitValues(route).forEach { cidr ->
+            policy.routes.forEach { cidr ->
                 builder.addRoute(cidr.substringBefore('/'), cidr.substringAfter('/').toInt())
             }
-            splitValues(dns).forEach { server ->
-                builder.addDnsServer(server)
+            policy.dnsHijack.split(',').map(String::trim).filter(String::isNotEmpty).forEach {
+                builder.addDnsServer(it)
             }
 
             val descriptor = builder.establish()
                 ?: error("Android VPN TUN establishment failed")
 
-            tunInterface = descriptor
-            check(host.startTun(descriptor.fd, stack, address, dns)) {
+            // startTUN duplicates and takes ownership of the native descriptor.
+            // Detach here so ParcelFileDescriptor cannot later close a reused fd.
+            val fd = descriptor.detachFd()
+
+            check(host.startTun(
+                tunFd = fd,
+                stack = policy.stack,
+                address = policy.addresses.joinToString(","),
+                dns = policy.dnsHijack,
+            )) {
                 "Mihomo failed to bind the Android TUN descriptor"
             }
 
+            tunEstablished = true
+            AndroidKernelExecutionStateStore.markRunning(kernelId)
+            updateNotification("VPN runtime active — $kernelId")
             START_NOT_STICKY
-        }.getOrElse {
+        }.getOrElse { error ->
             stopRuntime()
+            fail(error.message ?: "VPN runtime failed", kernelId)
             stopSelfResult(startId)
             START_NOT_STICKY
         }
     }
 
-    private fun splitValues(value: String): List<String> =
-        value.split(',').map(String::trim).filter(String::isNotEmpty)
-
     private fun stopRuntime(keepService: Boolean = false) {
+        if (mihomo != null || tunEstablished) {
+            AndroidKernelExecutionStateStore.beginStop()
+        }
         runCatching { mihomo?.stopTun() }
         runCatching { mihomo?.clearVpnService() }
         mihomo = null
+        tunEstablished = false
 
-        runCatching { tunInterface?.close() }
-        tunInterface = null
+        if (!keepService) {
+            stopForegroundCompat()
+            AndroidKernelExecutionStateStore.markStopped()
+            stopSelf()
+        }
+    }
 
+    private fun fail(detail: String, kernelId: String?) {
+        AndroidKernelExecutionStateStore.markFailure(detail, kernelId)
+        updateNotification("VPN runtime failed")
+    }
+
+    private fun stopForegroundCompat() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
             @Suppress("DEPRECATION")
             stopForeground(true)
         }
-
-        if (!keepService) {
-            stopSelf()
-        }
     }
 
-    private fun notification(): Notification {
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_ID,
+                getString(R.string.app_name),
+                NotificationManager.IMPORTANCE_LOW,
+            ),
+        )
+    }
+
+    private fun notification(text: String): Notification =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_ID,
-                    getString(R.string.app_name),
-                    NotificationManager.IMPORTANCE_LOW,
-                ),
-            )
-            return Notification.Builder(this, CHANNEL_ID)
+            Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.sym_def_app_icon)
                 .setContentTitle(getString(R.string.app_name))
-                .setContentText(getString(R.string.status_vpn_boundary_started))
+                .setContentText(text)
+                .setOngoing(true)
+                .build()
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+                .setSmallIcon(android.R.drawable.sym_def_app_icon)
+                .setContentTitle(getString(R.string.app_name))
+                .setContentText(text)
                 .setOngoing(true)
                 .build()
         }
 
-        @Suppress("DEPRECATION")
-        return Notification.Builder(this)
-            .setSmallIcon(android.R.drawable.sym_def_app_icon)
-            .setContentTitle(getString(R.string.app_name))
-            .setContentText(getString(R.string.status_vpn_boundary_started))
-            .setOngoing(true)
-            .build()
+    private fun updateNotification(text: String) {
+        getSystemService(NotificationManager::class.java)
+            .notify(NOTIFICATION_ID, notification(text))
     }
 
     override fun onDestroy() {
