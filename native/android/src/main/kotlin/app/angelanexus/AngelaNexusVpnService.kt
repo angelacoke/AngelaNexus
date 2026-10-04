@@ -101,7 +101,7 @@ class AngelaNexusVpnService : VpnService() {
 
             tunEstablished = true
             AndroidKernelExecutionStateStore.markRunning(selectedDriver.id)
-            updateNotification("VPN runtime active — \\${selectedDriver.id}")
+            updateNotification("VPN runtime active — ${selectedDriver.id}")
             START_NOT_STICKY
         }.getOrElse { error ->
             stopRuntime()
