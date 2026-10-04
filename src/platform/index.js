@@ -126,6 +126,7 @@ export { createChainTopology } from "./chain-topology.js";
 export { createChainHealthMonitor } from "./chain-health-monitor.js";
 
 export { createPipelineRuntime } from "./pipeline-runtime.js";
+export { createKernelAwarePipelineRuntime } from "./kernel-aware-pipeline-runtime.js";
 export { createPipelineLinkPlan, PIPELINE_LINK_TRANSPORTS } from "./pipeline-linker.js";
 
 export { compileLinkedPipeline } from "./pipeline-kernel-linker.js";
@@ -217,11 +218,7 @@ export {
 } from "./platform-native-driver-factory.js";
 export {
   ANDROID_NATIVE_TRANSPARENT_BINDING_VERSION,
-  createAndroidNativeTransparentBinding,
-} from "./android-native-transparent-binding.js";
-export {
-  ANDROID_TRANSPARENT_RUNTIME_FACTORY_VERSION,
-  createAndroidTransparentRuntimeFactory,
+  createAndroidTransparentBinding,
 } from "./android-transparent-runtime-factory.js";
 export { createNetworkControlPlane } from "./network-control-plane.js";
 
