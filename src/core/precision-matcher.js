@@ -121,14 +121,23 @@ export function matchesPrecisionRule(ruleMatch = {}, identity = {}) {
   const destination = identity.destination || {};
   const dns = identity.dns || {};
 
+  // Application/process routing accepts both the canonical nested identity and
+  // the platform routing context emitted by application-routing.js.
+  const packageId = app.packageId ?? identity.package_name ?? identity.packageName;
+  const appId = app.appId ?? identity.applicationId ?? identity.app_id ?? identity.appId;
+  const processName = process.name ?? identity.process_name ?? identity.processName;
+  const processPath = process.path ?? identity.process_path ?? identity.processPath;
+  const executable = process.executable ?? identity.executable;
+
   const checks = [
-    matchDimension(app.packageId, ruleMatch.package_id),
+    matchDimension(packageId, ruleMatch.package_id ?? ruleMatch.package_name),
     matchDimension(app.bundleId, ruleMatch.bundle_id),
-    matchDimension(app.appId, ruleMatch.app_id),
+    matchDimension(appId, ruleMatch.app_id ?? ruleMatch.application_id),
     matchDimension(app.uid, ruleMatch.uid),
     matchDimension(app.instanceId, ruleMatch.app_instance_id),
-    matchDimension(process.name, ruleMatch.process),
-    matchDimension(process.executable, ruleMatch.executable),
+    matchDimension(processName, ruleMatch.process ?? ruleMatch.process_name),
+    matchDimension(processPath, ruleMatch.process_path),
+    matchDimension(executable, ruleMatch.executable),
     matchDimension(destination.domain, ruleMatch.domain, domainEquals),
     matchDimension(destination.domain, ruleMatch.domain_suffix, domainSuffix),
     matchDimension(destination.sni, ruleMatch.sni, domainEquals),

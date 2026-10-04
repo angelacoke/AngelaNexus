@@ -1,0 +1,119 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { Kernels } from "./model.js";
+import { createExecutionController } from "./execution-controller.js";
+
+const NODE = {
+  id: "node-1", name: "Node 1", protocol: "vless",
+  server: "example.com", port: 443,
+  uuid: "00000000-0000-4000-8000-000000000001",
+  tls: true, network: "ws", path: "/",
+};
+
+function input() {
+  return {
+    id: "decision-1",
+    route: { mode: "proxy", target: "node-1" },
+    path: { validated: true },
+    security: { preflightPassed: true, failClosed: true },
+    userAuthorized: true,
+    confirmed: true,
+    node: NODE,
+    configFactory: (kernel) => ({ kernel }),
+  };
+}
+
+test("execution controller prepares through unified kernel selection", async () => {
+  let started = false;
+  let runtimePlan = null;
+  const controller = createExecutionController({
+    pathRevalidator: async (path) => path,
+    executionFactory: async (_config, options) => {
+      runtimePlan = options.runtimePlan;
+      return ({
+      configPath: null,
+      async start() { started = true; },
+      async stop() {},
+      async reload() {},
+      async status() { return { running: started }; },
+      async logs() { return []; },
+      });
+    },
+  });
+
+  const prepared = await controller.prepareKernelAware(input());
+  assert.equal(prepared.state, "ready");
+  assert.equal(prepared.kernel, Kernels.MIHOMO);
+  assert.equal(prepared.kernelSelection.selected.kernel, Kernels.MIHOMO);
+  assert.equal(runtimePlan.ok, true);
+  assert.equal(runtimePlan.plan.kernel, Kernels.MIHOMO);
+
+  await controller.start();
+  assert.equal(controller.state, "running");
+  assert.equal(started, true);
+  await controller.stop();
+  assert.equal(controller.state, "idle");
+});
+
+test("execution controller does not prepare when kernel selection fails", async () => {
+  let factoryCalled = false;
+  const controller = createExecutionController({
+    pathRevalidator: async (path) => path,
+    executionFactory: async () => {
+      factoryCalled = true;
+      return { async start() {}, async stop() {}, async reload() {}, async status() {}, async logs() { return []; } };
+    },
+  });
+
+  await assert.rejects(
+    controller.prepareKernelAware({
+      ...input(),
+      kernel: "unsupported-kernel",
+    }),
+    /kernel selection failed|unsupported kernel/
+  );
+  assert.equal(factoryCalled, false);
+  assert.equal(controller.state, "idle");
+});
+
+test("execution controller records privacy-safe routing decision evidence", async () => {
+  const controller = createExecutionController({
+    pathRevalidator: async (path) => path,
+    executionFactory: async () => ({
+      async start() {},
+      async stop() {},
+      async reload() {},
+      async status() { return { running: false }; },
+      async logs() { return []; },
+    }),
+  });
+
+  await controller.prepareKernelAware({
+    ...input(),
+    routingDecision: {
+      status: "matched",
+      reason: "matched-rules-converge-on-one-action",
+      action: { type: "route", target: "proxy-us" },
+      ruleIds: ["browser-app", "browser-process"],
+      evidence: {
+        mode: "rule",
+        flow: {
+          package_name: "com.example.browser",
+          process_name: "browser",
+          destination: { domain: "private.example.com" },
+        },
+        matches: [{ ruleId: "browser-app" }],
+      },
+    },
+  });
+
+  const event = controller.events().find((item) => item.type === "routing-decision");
+  assert.ok(event);
+  assert.equal(event.context.state, "matched");
+  assert.deepEqual(event.context.evidence.actions, ["route"]);
+  assert.equal(event.context.evidence.signals.includes("rule:browser-app"), true);
+  assert.equal(event.context.evidence.signals.some((item) => item.includes("private.example.com")), false);
+  assert.equal(event.context.evidence.signals.some((item) => item.includes("com.example.browser")), false);
+
+  await controller.stop();
+});

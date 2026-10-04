@@ -1,3 +1,5 @@
+import { evaluateParallelMatchSet, resolveParallelRoutingDecision } from "./parallel-rule-engine.js";
+
 export const RoutingMatchTypes = Object.freeze([
   "domain",
   "domain_suffix",
@@ -75,8 +77,18 @@ function normalizeAction(action) {
 
   const normalized = { type };
 
-  if (type === "route" || type === "chain" || type === "bypass") {
+  if (type === "route" || type === "bypass") {
     normalized.target = nonEmptyString(action.target, "routing action target");
+  }
+
+  if (type === "chain") {
+    const target = typeof action.target === "string" ? action.target.trim() : "";
+    const hasHops = Array.isArray(action.hops) && action.hops.length >= 2;
+    if (target) normalized.target = target;
+    if (hasHops) normalized.hops = clone(action.hops);
+    if (!target && !hasHops) {
+      throw new Error("routing chain action requires a target or at least two hops");
+    }
   }
 
   if (type === "dns") {
@@ -129,6 +141,50 @@ export function createRoutingPolicy({
     strategies: strategies.map(clone),
     defaultAction: normalizeAction(defaultAction)
   };
+}
+
+export function resolveRoutingPolicyDecision(policy, flow, matchesRule) {
+  if (!policy || typeof policy !== "object") throw new TypeError("routing policy is required");
+
+  if (policy.mode === "global_proxy") {
+    const action = { type: "route", target: "global_proxy" };
+    return Object.freeze({
+      status: "global",
+      action,
+      ruleIds: Object.freeze([]),
+      reason: "global-proxy-policy",
+      evidence: Object.freeze({ mode: policy.mode, flow: clone(flow || {}) })
+    });
+  }
+
+  if (policy.mode === "global_bypass") {
+    const action = { type: "bypass", target: "direct" };
+    return Object.freeze({
+      status: "global",
+      action,
+      ruleIds: Object.freeze([]),
+      reason: "global-bypass-policy",
+      evidence: Object.freeze({ mode: policy.mode, flow: clone(flow || {}) })
+    });
+  }
+
+  const matchSet = evaluateParallelMatchSet(policy.rules, flow, matchesRule);
+  const decision = resolveParallelRoutingDecision(matchSet, policy.defaultAction);
+  const matches = matchSet.matches.map((item) => Object.freeze({
+    ruleId: item.ruleId,
+    ruleIndex: item.ruleIndex,
+    match: clone(item.match),
+    action: clone(item.action)
+  }));
+
+  return Object.freeze({
+    ...decision,
+    evidence: Object.freeze({
+      mode: policy.mode,
+      flow: clone(flow || {}),
+      matches: Object.freeze(matches)
+    })
+  });
 }
 
 export function validateRoutingPolicy(policy) {

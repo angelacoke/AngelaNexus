@@ -1,9 +1,10 @@
 import { createKernelExecution } from "./kernel-execution.js";
 import { Kernels } from "./model.js";
 import { createExecutionContract } from "./execution-contract.js";
-import { createPlannedExecutionContract } from "./decision-planner.js";
+import { createKernelAwareExecutionContract, createPlannedExecutionContract } from "./decision-planner.js";
 import { createExecutionEventLedger } from "./execution-event-ledger.js";
 import { evaluatePathTrust } from "./path-trust.js";
+import { createRoutingDecisionEventContext } from "./routing-decision-event-evidence.js";
 
 export const ExecutionStates = Object.freeze({
   IDLE: "idle",
@@ -132,7 +133,7 @@ export function createExecutionController(options = {}) {
     get state() { return state; },
     events() { return eventLedger.snapshot(); },
 
-    async prepare(input) {
+    async prepare(input, executionOptions = {}) {
       if (state !== ExecutionStates.IDLE && state !== ExecutionStates.FAILED) throw new Error("execution controller is not idle");
       state = ExecutionStates.PREPARING;
       failure = null;
@@ -140,9 +141,21 @@ export function createExecutionController(options = {}) {
         if (execution) await discardExecution();
         const preparedSessionId = ++sessionId;
         request = createExecutionRequest(input);
+        const routingDecision = executionOptions.routingDecision || input.routingDecision;
+        if (routingDecision) {
+          await emitEvent("routing-decision", createRoutingDecisionEventContext(routingDecision));
+        }
         execution = await executionFactory(request.config, {
           binary: request.binary, workdir: request.workdir, cwd: request.cwd, env: request.env,
-          reloadSignal: request.reloadSignal, runtimeFactory: request.runtimeFactory
+          reloadSignal: request.reloadSignal,
+          runtimeFactory: request.runtimeFactory,
+          nativeRuntimeFactory: request.nativeRuntimeFactory,
+          platform: request.platform,
+          requestedRuntimeMode: request.requestedRuntimeMode,
+          requireNative: request.requireNative,
+          preferNative: request.preferNative,
+          runtimeArtifactCompliance: request.runtimeArtifactCompliance,
+          runtimePlan: executionOptions.runtimePlan,
         });
         if (sessionInvalidationSource) {
           unsubscribeInvalidation = await sessionInvalidationSource((reason) => {
@@ -165,6 +178,20 @@ export function createExecutionController(options = {}) {
     async preparePlanned(input) {
       const contract = createPlannedExecutionContract(input);
       return this.prepare(contract);
+    },
+
+    async prepareKernelAware(input) {
+      const planned = createKernelAwareExecutionContract(input);
+      const snapshot = await this.prepare(planned.contract, {
+        runtimePlan: planned.kernelSelection.selected?.plan
+          ? { ok: true, plan: planned.kernelSelection.selected.plan }
+          : undefined,
+        routingDecision: input.routingDecision,
+      });
+      return Object.freeze({
+        ...snapshot,
+        kernelSelection: planned.kernelSelection,
+      });
     },
 
     async start() {

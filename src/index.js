@@ -11,6 +11,8 @@ export * from "./core/compatibility.js";
 export * from "./core/config-compiler.js";
 export * from "./core/compiled-config-validation.js";
 export * from "./core/routing-policy.js";
+export * from "./core/routing-execution-intent.js";
+export * from "./core/application-routing.js";
 export * from "./core/resource-policy.js";
 export * from "./core/decision-registry.js";
 export * from "./core/group.js";
@@ -31,7 +33,9 @@ export * from "./core/execution-controller.js";
 export * from "./core/execution-contract.js";
 export * from "./core/decision-planner.js";
 export * from "./core/pipeline.js";
+export * from "./core/pipeline-kernel-plan.js";
 export * from "./core/driver-scheduler.js";
+export * from "./core/unified-kernel-selection.js";
 
 export * from "./core/session-invalidation.js";
 export * from "./core/execution-event-ledger.js";

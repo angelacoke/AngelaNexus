@@ -45,3 +45,26 @@ test("exposes semantics without introducing priority", () => {
   assert.equal(explanation.matched, true);
   assert.deepEqual(explanation.semantics, { dimensions: "AND", valuesWithinDimension: "OR", ruleEvaluation: "parallel" });
 });
+
+test("matches platform application and process routing context", () => {
+  const identity = {
+    platform: "android",
+    applicationId: "android:com.example.client",
+    package_name: "com.example.client",
+    process_name: "com.example.client:proxy",
+    process_path: "/data/app/client/base.apk",
+    executable: "/data/app/client/lib/client",
+  };
+
+  assert.equal(matchesPrecisionRule({
+    package_name: ["com.example.client"],
+    process_name: ["com.example.client:proxy"],
+    process_path: ["/data/app/client/base.apk"],
+    executable: ["/data/app/client/lib/client"],
+  }, identity), true);
+
+  assert.equal(matchesPrecisionRule({
+    package_name: ["com.example.client"],
+    process_name: ["com.example.client:other"],
+  }, identity), false);
+});
