@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { createExecutionEventLedger } from "./execution-event-ledger.js";
 import { createApplicationExecutionEvidence, recordApplicationExecutionEvidence } from "./application-execution-evidence.js";
 
-test("application execution evidence", () => {
   test("joins identity, policy, driver and verified egress without secrets", () => {
     const ledger = createExecutionEventLedger({ clock: () => 1000 });
     const evidence = createApplicationExecutionEvidence({
@@ -54,4 +53,3 @@ test("application execution evidence", () => {
     assert.equal(event.context.evidence.state, "unverified");
     assert.ok(event.context.evidence.actions.includes("egress-unverified"));
   });
-});
