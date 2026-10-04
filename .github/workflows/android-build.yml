@@ -137,14 +137,11 @@ jobs:
           printf '%s' "$ANGELANEXUS_RELEASE_KEYSTORE_B64" | base64 --decode > /tmp/angelanexus-release.keystore
           chmod 600 /tmp/angelanexus-release.keystore
           KEYTOOL_OUTPUT="$(keytool -list -v -keystore /tmp/angelanexus-release.keystore -storepass "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD" -alias "$ANGELANEXUS_RELEASE_KEY_ALIAS")"
-          EXPECTED_CERT_SHA256="$(printf '%s
-' "$KEYTOOL_OUTPUT" | awk '/^[[:space:]]*SHA256:/ {sub(/^[^:]*:[[:space:]]*/, ""); print; exit}')"
+          EXPECTED_CERT_SHA256="$(printf '%s' "$KEYTOOL_OUTPUT" | awk '/^[[:space:]]*SHA256:/ {sub(/^[^:]*:[[:space:]]*/, ""); print; exit}')"
           test -n "$EXPECTED_CERT_SHA256"
           CERT_OUTPUT="$("$APKSIGNER" verify --print-certs "$APK")"
-          printf '%s
-' "$CERT_OUTPUT"
-          ACTUAL_CERT_SHA256="$(printf '%s
-' "$CERT_OUTPUT" | awk '/certificate SHA-256 digest:/ {print $NF; exit}')"
+          printf '%s' "$CERT_OUTPUT"
+          ACTUAL_CERT_SHA256="$(printf '%s' "$CERT_OUTPUT" | awk '/certificate SHA-256 digest:/ {print $NF; exit}')"
           test -n "$ACTUAL_CERT_SHA256"
           EXPECTED="$(printf '%s' "$EXPECTED_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
           ACTUAL="$(printf '%s' "$ACTUAL_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
