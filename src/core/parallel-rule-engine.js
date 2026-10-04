@@ -67,3 +67,43 @@ export function evaluateParallelMatchSet(rules, flow, matchesRule) {
   }
   return { ruleIds: matches.map((item) => item.ruleId).filter(Boolean), matches };
 }
+
+/**
+ * Resolve a Match Set without introducing first-match or implicit priority.
+ * Zero matches use the policy default; identical actions converge; conflicting
+ * actions are explicitly ambiguous and therefore fail closed.
+ */
+export function resolveParallelRoutingDecision(matchSet, defaultAction = null) {
+  const matches = matchSet && Array.isArray(matchSet.matches) ? matchSet.matches : [];
+  const actions = matches.map((item) => item && item.action).filter(Boolean);
+  const unique = [];
+  for (const action of actions) {
+    const key = JSON.stringify(action);
+    if (!unique.some((candidate) => JSON.stringify(candidate) === key)) unique.push(clone(action));
+  }
+
+  if (unique.length === 0) {
+    return Object.freeze({
+      status: defaultAction ? "default" : "unmatched",
+      action: clone(defaultAction),
+      ruleIds: Object.freeze([]),
+      reason: defaultAction ? "no-rule-match" : "no-rule-match-and-no-default",
+    });
+  }
+
+  if (unique.length > 1) {
+    return Object.freeze({
+      status: "ambiguous",
+      action: null,
+      ruleIds: Object.freeze(matches.map((item) => item.ruleId).filter(Boolean)),
+      reason: "multiple-matched-rules-have-conflicting-actions",
+    });
+  }
+
+  return Object.freeze({
+    status: "matched",
+    action: unique[0],
+    ruleIds: Object.freeze(matches.map((item) => item.ruleId).filter(Boolean)),
+    reason: "matched-rules-converge-on-one-action",
+  });
+}
