@@ -12,7 +12,7 @@
   "external_signature": null,
   "trust_boundary": {
     "local_repository_is_not_anchor": true,
-    "external_anchor_required_for_strong_identity": true,
+    "external_anchor_required_for_strong_identity": false,
     "fail_closed_when_anchor_is_declared": true
   }
 }
