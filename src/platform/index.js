@@ -219,7 +219,7 @@ export {
 export {
   ANDROID_NATIVE_TRANSPARENT_BINDING_VERSION,
   createAndroidNativeTransparentBinding,
-} from "./android-transparent-runtime-factory.js";
+} from "./android-native-transparent-binding.js";
 export { createNetworkControlPlane } from "./network-control-plane.js";
 
 export {
