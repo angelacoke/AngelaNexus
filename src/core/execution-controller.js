@@ -167,6 +167,15 @@ export function createExecutionController(options = {}) {
       return this.prepare(contract);
     },
 
+    async prepareKernelAware(input) {
+      const planned = createKernelAwareExecutionContract(input);
+      const snapshot = await this.prepare(planned.contract);
+      return Object.freeze({
+        ...snapshot,
+        kernelSelection: planned.kernelSelection,
+      });
+    },
+
     async start() {
       if (!execution || state !== ExecutionStates.READY) throw new Error("execution is not ready");
       const startingExecution = execution;
