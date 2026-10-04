@@ -4,6 +4,7 @@ import { createExecutionContract } from "./execution-contract.js";
 import { createKernelAwareExecutionContract, createPlannedExecutionContract } from "./decision-planner.js";
 import { createExecutionEventLedger } from "./execution-event-ledger.js";
 import { evaluatePathTrust } from "./path-trust.js";
+import { createRoutingDecisionEventContext } from "./routing-decision-event-evidence.js";
 
 export const ExecutionStates = Object.freeze({
   IDLE: "idle",
@@ -140,6 +141,9 @@ export function createExecutionController(options = {}) {
         if (execution) await discardExecution();
         const preparedSessionId = ++sessionId;
         request = createExecutionRequest(input);
+        if (input.routingDecision) {
+          await emitEvent("routing-decision", createRoutingDecisionEventContext(input.routingDecision));
+        }
         execution = await executionFactory(request.config, {
           binary: request.binary, workdir: request.workdir, cwd: request.cwd, env: request.env,
           reloadSignal: request.reloadSignal,
