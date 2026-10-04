@@ -8,7 +8,6 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.Build
 import android.os.IBinder
-import androidx.core.app.NotificationCompat
 import java.io.File
 
 /**
@@ -154,7 +153,7 @@ class AngelaNexusVpnService : VpnService() {
     }
 
     private fun buildNotification(text: String): Notification =
-        NotificationCompat.Builder(this, CHANNEL_ID)
+        Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.angelanexus_logo)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(text)
