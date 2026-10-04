@@ -4,7 +4,7 @@
 
 This document defines the machine-verifiable inheritance model for the **AngelaNexus 纲领之基**.
 
-The inheritance model does not make a local manifest a trust root. It establishes a deterministic lineage record that can be checked by an independent verifier and, later, an external Foundation Anchor.
+The inheritance model does not make a local manifest a trust root. It establishes a deterministic lineage record and carries the Foundation Gene into every continuing implementation. An external Foundation Anchor may later provide additional independent evidence, but it is not required for the project's gene to exist or for ordinary evolution.
 
 ## Root identity
 
@@ -51,17 +51,18 @@ The local inheritance manifest is evidence, not the ultimate trust root.
 Therefore:
 
 ```
-External Foundation Anchor
-        ↓
 Foundation Root
         ↓
-Foundation DNA
+Foundation DNA / Gene
         ↓
 Inheritance Manifest
         ↓
-Foundation Inheritance Gate
+Gene Compatibility Verification
         ↓
 Foundation Gate
+
+Optional additional evidence:
+External Foundation Anchor
 ```
 
 Until an independent external anchor is configured, the repository can prove local consistency but cannot claim an independently anchored lineage.
@@ -91,7 +92,7 @@ The inheritance verifier must:
 4. require a parent for every non-root lineage role;
 5. require the parent to carry the established Foundation blob and DNA identity;
 6. fail closed on missing or contradictory lineage evidence;
-7. explicitly report that external anchoring is still required for strong identity.
+7. explicitly report that external anchoring is optional additional evidence, not a project-gene prerequisite.
 
 Passing this gate is not governance approval and does not replace human review, security validation, or GitHub merge protection.
 
@@ -106,13 +107,15 @@ The hierarchy remains:
    ↓
 宪级纲领
    ↓
-Foundation DNA
+Foundation DNA / Gene
    ↓
-Inheritance / Governance Gates
+Inheritance / Compatibility Verification
    ↓
 Architecture
    ↓
 Implementation
 ```
+
+The verification layer checks continuity; it does not become a second supreme authority.
 
 The machine-readable mechanism is subordinate to the Foundation. It must never become a mechanism for weakening or replacing the Foundation.
