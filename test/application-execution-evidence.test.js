@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createExecutionEventLedger } from "./execution-event-ledger.js";
-import { createApplicationExecutionEvidence, recordApplicationExecutionEvidence } from "./application-execution-evidence.js";
+import { createExecutionEventLedger } from "../src/core/execution-event-ledger.js";
+import { createApplicationExecutionEvidence, recordApplicationExecutionEvidence } from "../src/core/application-execution-evidence.js";
 
   test("joins identity, policy, driver and verified egress without secrets", () => {
     const ledger = createExecutionEventLedger({ clock: () => 1000 });
