@@ -1,7 +1,9 @@
+import test from "node:test";
+import assert from "node:assert/strict";
 import { createExecutionEventLedger } from "./execution-event-ledger.js";
 import { createApplicationExecutionEvidence, recordApplicationExecutionEvidence } from "./application-execution-evidence.js";
 
-describe("application execution evidence", () => {
+test("application execution evidence", () => {
   test("joins identity, policy, driver and verified egress without secrets", () => {
     const ledger = createExecutionEventLedger({ clock: () => 1000 });
     const evidence = createApplicationExecutionEvidence({
@@ -17,10 +19,10 @@ describe("application execution evidence", () => {
       payload: "must-not-be-stored",
     });
 
-    expect(evidence.identityKey).toContain("android|com.example.app");
-    expect(evidence.verificationStatus).toBe("verified");
-    expect(JSON.stringify(evidence)).not.toContain("secret");
-    expect(JSON.stringify(evidence)).not.toContain("must-not-be-stored");
+    assert.match(evidence.identityKey, /android\\|com\\.example\\.app/);
+    assert.equal(evidence.verificationStatus, "verified");
+    assert.doesNotMatch(JSON.stringify(evidence), /secret/);
+    assert.doesNotMatch(JSON.stringify(evidence), /must-not-be-stored/);
 
     const event = recordApplicationExecutionEvidence(ledger, {
       identity: { platform: "android", packageName: "com.example.app" },
@@ -33,9 +35,9 @@ describe("application execution evidence", () => {
       verification: { status: "verified" },
     });
 
-    expect(event.type).toBe("application-execution");
-    expect(event.context.evidence.state).toBe("verified");
-    expect(event.context.evidence.actions).toContain("egress-verified");
+    assert.equal(event.type, "application-execution");
+    assert.equal(event.context.evidence.state, "verified");
+    assert.ok(event.context.evidence.actions.includes("egress-verified"));
   });
 
   test("records unverified execution explicitly", () => {
@@ -49,7 +51,7 @@ describe("application execution evidence", () => {
       verification: { status: "unverified" },
     });
 
-    expect(event.context.evidence.state).toBe("unverified");
-    expect(event.context.evidence.actions).toContain("egress-unverified");
+    assert.equal(event.context.evidence.state, "unverified");
+    assert.ok(event.context.evidence.actions.includes("egress-unverified"));
   });
 });
