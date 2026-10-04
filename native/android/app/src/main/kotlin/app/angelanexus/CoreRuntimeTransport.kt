@@ -48,7 +48,7 @@ class NativeCoreRuntimeTransport(
 
     private fun String.unescapeJsonString(): String =
         replace("\\\\", "\\")
-            .replace("\\\"", """)
+            .replace("\\\"", "\"")
             .replace("\\n", "\n")
             .replace("\\r", "\r")
             .replace("\\t", "\t")
