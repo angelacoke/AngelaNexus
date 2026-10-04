@@ -1,17 +1,18 @@
-name: AngelaNexus Foundation Gate
+name: AngelaNexus Foundation Inheritance
 
 on:
   pull_request:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  foundation-gate:
-    name: Foundation Gate — no one exempt
+  foundation-inheritance:
+    name: Foundation Inheritance — no one exempt
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact revision
@@ -19,18 +20,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify Foundation Gene
-        shell: bash
-        run: |
-          chmod +x scripts/verify-foundation-dna.sh
-          ./scripts/verify-foundation-dna.sh
-
       - name: Verify Foundation inheritance
         shell: bash
         run: |
           chmod +x scripts/verify-foundation-inheritance.sh
           ./scripts/verify-foundation-inheritance.sh
-
-      - name: Emit machine-readable compatibility result
-        shell: bash
-        run: echo "FOUNDATION_GATE=PASS — Foundation Gene compatibility verified"

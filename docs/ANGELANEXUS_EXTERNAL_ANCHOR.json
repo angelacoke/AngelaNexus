@@ -1,0 +1,18 @@
+{
+  "schema": "AN-ANCHOR/v1",
+  "status": "pending_external_publication",
+  "project": "AngelaNexus",
+  "root_repository": "angelacoke/AngelaNexus",
+  "foundation_path": "docs/ANGELANEXUS_FOUNDATION.md",
+  "foundation_blob_sha": "4f047d7a53ef7db1d18174916ea9ed5cacbd8133",
+  "dna_id": "da14d8750b5f8af9a41902b752dca6dcc8930bb866fdbc44b493c2a646e22c8e",
+  "canonical_payload_path": "docs/ANGELANEXUS_EXTERNAL_ANCHOR_PAYLOAD.json",
+  "canonical_payload_sha256": "1f69492e1bd9e5771faf218bc822081e369c5b5b5dcd66a5def4e5570fba690e",
+  "external_source": null,
+  "external_signature": null,
+  "trust_boundary": {
+    "local_repository_is_not_anchor": true,
+    "external_anchor_required_for_strong_identity": false,
+    "fail_closed_when_anchor_is_declared": true
+  }
+}

@@ -1,5 +1,5 @@
 {
-  "schema": "AN-DNA/v1",
+  "schema": "AN-DNA/v2",
   "project": "AngelaNexus",
   "identity": "AngelaNexus",
   "foundation_root": {
@@ -7,6 +7,13 @@
     "git_blob_sha": "4f047d7a53ef7db1d18174916ea9ed5cacbd8133"
   },
   "dna_id": "da14d8750b5f8af9a41902b752dca6dcc8930bb866fdbc44b493c2a646e22c8e",
+  "lineage": {
+    "role": "root",
+    "root_repository": "angelacoke/AngelaNexus",
+    "parent_repository": null,
+    "parent_foundation_blob_sha": null,
+    "parent_dna_id": null
+  },
   "parent": null,
   "inheritance": {
     "required": true,
@@ -15,10 +22,56 @@
   },
   "verification": {
     "foundation_gate_required": true,
+    "inheritance_gate_required": true,
+    "gene_compatibility_required": true,
     "fail_closed": true
   },
   "trust_model": {
     "manifest_is_not_root_of_trust": true,
-    "external_anchor_required_for_strong_identity": true
+    "external_anchor_is_optional_evidence": true,
+    "external_anchor_required_for_strong_identity": false
+  },
+  "gene_schema": "AN-GENE/v1",
+  "gene": {
+    "purpose": "Make the Foundation the project's inherited gene, not an external authority or an ever-growing lock system.",
+    "immutable_root_goals": [
+      "preserve the project's fundamental purpose",
+      "preserve user choice and control as the fundamental goal",
+      "preserve Foundation as the highest root principle"
+    ],
+    "evolution_principle": "implementation may evolve freely when it remains compatible with the immutable root goals",
+    "compatibility_dimensions": [
+      "purpose",
+      "user_choice",
+      "platform_independence",
+      "security_and_privacy",
+      "verifiability",
+      "cross_platform_continuity"
+    ],
+    "root_conflict_definition": "A root conflict is a fundamental abandonment or weakening of an immutable root goal, not an implementation change, technology replacement, workflow change, or ordinary feature tradeoff.",
+    "forbidden_root_conflicts": [
+      "abandoning the project's fundamental purpose",
+      "weakening user choice as a fundamental goal",
+      "replacing Foundation with a lower-level implementation preference"
+    ]
+  },
+  "inheritance_contract": {
+    "default": "inherit",
+    "fork": "inherit unless the descendant explicitly leaves the AngelaNexus identity chain",
+    "migration": "identity survives repository, platform, organization, and technology migration",
+    "split": "descendants carrying AngelaNexus identity or core lineage inherit the gene",
+    "implementation": "ordinary implementation changes do not require governance re-authorization of the root"
+  },
+  "derivation_requirements": {
+    "architecture": "must explain how major architectural decisions derive from or remain compatible with the gene",
+    "security": "must preserve the root goals while enforcing safety boundaries",
+    "ux": "must preserve user visibility, choice, control, and revocability",
+    "release": "must verify gene compatibility before release",
+    "documentation": "must distinguish immutable root goals from evolving implementation rules"
+  },
+  "change_classification": {
+    "implementation": "normal evolution; verify compatibility",
+    "structural": "normal evolution; verify compatibility and migration impact",
+    "root_goal_change": "constitutional/root-level change; not an ordinary implementation change"
   }
 }
