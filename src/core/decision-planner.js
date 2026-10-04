@@ -26,6 +26,8 @@ function assertEvidence(input) {
 function deriveAction(route) {
   if (route.chain === true || Array.isArray(route.hops)) return "chain";
   if (route.bypass === true || route.mode === "direct") return "bypass";
+  if (route.mode === "reject") return "reject";
+  if (route.mode === "dns") return "dns";
   return "routing";
 }
 
@@ -34,6 +36,8 @@ function deriveChoice(route) {
     return Object.freeze({ mode: "chain", hops: Array.isArray(route.hops) ? route.hops : [] });
   }
   if (route.bypass === true || route.mode === "direct") return Object.freeze({ mode: "direct" });
+  if (route.mode === "reject") return Object.freeze({ mode: "reject" });
+  if (route.mode === "dns") return Object.freeze({ mode: "dns", target: text(route.target) || null });
   return Object.freeze({ mode: text(route.mode) || "proxy", target: text(route.target) || null });
 }
 
