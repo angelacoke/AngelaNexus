@@ -94,6 +94,7 @@ class SingBoxAndroidKernelDriver(
         require(tunFd >= 0) { "tunFd must be non-negative" }
         check(tun == null) { "sing-box TUN is already attached" }
         tun = ParcelFileDescriptor.adoptFd(tunFd)
+        platform.pendingTunFd = tun
         attached = true
     }
 
