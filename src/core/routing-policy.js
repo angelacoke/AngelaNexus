@@ -1,3 +1,5 @@
+import { evaluateParallelMatchSet, resolveParallelRoutingDecision } from "./parallel-rule-engine.js";
+
 export const RoutingMatchTypes = Object.freeze([
   "domain",
   "domain_suffix",
