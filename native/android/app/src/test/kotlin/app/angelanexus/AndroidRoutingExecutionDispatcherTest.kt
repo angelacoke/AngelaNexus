@@ -53,6 +53,31 @@ class AndroidRoutingExecutionDispatcherTest {
             ), null)
     }
 
+    @Test(expected = IllegalArgumentException::class)
+    fun proxyRejectsResolverThatReturnsDifferentKernel() {
+        val driver = object : AndroidKernelDriver {
+            override val id = "mihomo"
+            override val capabilities = emptySet<String>()
+            override fun preparePlatform(service: android.net.VpnService) = Unit
+            override fun initialize(homeDir: String) = Unit
+            override fun applyConfiguration(configuration: String) = Unit
+            override fun attachTun(tunFd: Int, policy: AndroidVpnRuntimePolicy) = Unit
+            override fun start() = Unit
+            override fun stop() = Unit
+            override fun status() = AndroidKernelDriverStatus(id, false)
+        }
+
+        AndroidRoutingExecutionDispatcher { driver }.dispatch(parse(
+            """{
+                "version":1,
+                "kind":"routing-execution-intent",
+                "mode":"proxy",
+                "action":"route",
+                "target":"node-1"
+            }"""
+        ), "xray")
+    }
+
     @Test
     fun directDoesNotResolveOrFallbackToKernel() {
         val result = AndroidRoutingExecutionDispatcher {
