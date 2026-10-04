@@ -58,16 +58,16 @@ class MihomoJniNativeHost(
         return nativeGetTotalTraffic(onlyStatisticsProxy)
     }
 
-    fun setVpnService(service: android.net.VpnService) {
+    override fun setVpnService(service: android.net.VpnService) {
         ensureLoaded()
         nativeSetVpnService(service)
     }
 
-    fun clearVpnService() {
+    override fun clearVpnService() {
         if (loaded) nativeSetVpnService(null)
     }
 
-    fun hasVpnProtector(): Boolean {
+    override fun hasVpnProtector(): Boolean {
         ensureLoaded()
         return nativeHasVpnProtector()
     }
