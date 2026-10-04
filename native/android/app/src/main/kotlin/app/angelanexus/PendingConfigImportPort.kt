@@ -14,7 +14,13 @@ class PendingConfigImportPort : ConfigImportPort {
 
     override suspend fun importConfiguration(request: ConfigImportRequest): CoreRuntimeImportResult {
         latestRequest = request
-        return CoreRuntimeImportResult(\n            source = request.source.name.lowercase().replace('_', '-'),\n            nodeCount = 0,\n            kernel = null,\n            detectionConfidence = "pending",\n        )\n    }
+        return CoreRuntimeImportResult(
+            source = request.source.name.lowercase().replace('_', '-'),
+            nodeCount = 0,
+            kernel = null,
+            detectionConfidence = "pending",
+        )
+    }
 
     fun latestRequest(): ConfigImportRequest? = latestRequest
 }
