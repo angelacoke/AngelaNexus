@@ -65,11 +65,10 @@ class AngelaNexusVpnService : VpnService() {
         return runCatching {
             stopRuntime(keepService = true)
 
-            val registeredDrivers = AndroidKernelDriverRegistry.all(this)
-            val selection = KernelDriverScheduler(registeredDrivers).select(
-                KernelExecutionIntent(preferredKernelId = kernelId),
-            )
-            val selectedDriver = registeredDrivers.first { it.id == selection.kernelId }
+            // Core has already resolved the kernel. Android only resolves the
+            // corresponding registered driver and executes the dispatched intent.
+            // No Android-local kernel fallback or re-selection is allowed here.
+            val selectedDriver = AndroidKernelDriverRegistry.resolve(this, kernelId)
             driver = selectedDriver
             selectedDriver.preparePlatform(this)
             selectedDriver.initialize(File(filesDir, CORE_HOME).absolutePath)
@@ -102,7 +101,7 @@ class AngelaNexusVpnService : VpnService() {
 
             tunEstablished = true
             AndroidKernelExecutionStateStore.markRunning(selectedDriver.id)
-            updateNotification("VPN runtime active — $kernelId")
+            updateNotification("VPN runtime active — \\${selectedDriver.id}")
             START_NOT_STICKY
         }.getOrElse { error ->
             stopRuntime()
