@@ -5,17 +5,32 @@
 DNA 版本：AN-DNA v1
 
 ## 一、定义
-Foundation DNA 是 AngelaNexus 项目身份与纲领继承关系的机器可验证载体。
-任何主体只有能够证明其继承 AngelaNexus Foundation DNA，才能主张自己属于 AngelaNexus 的正式继承链。
-复制代码、创建 Fork、重命名仓库、迁移平台、重写历史或拥有最高仓库权限，均不会自动产生 Foundation DNA。
 
-## 二、没有法外之人
-Foundation DNA 与 Foundation Gate 不因身份、权限或自动化身份产生例外，包括创建者、Owner、Administrator、Maintainer、Developer、Contributor、治理审查者、CI/CD、Bot、AI Agent、Fork 维护者、继任者及迁移后的治理主体。
-最高权限不等于最高原则豁免权。
+Foundation DNA 是 AngelaNexus 项目身份、纲领继承关系与**项目基因契约**的机器可验证载体。
 
-## 三、DNA 继承关系
-AngelaNexus Foundation Root → Foundation Identity → Foundation DNA → Foundation Gate → Governance → Implementation
-后继项目必须能够回溯到 Foundation Root。
+它的核心目的不是建立一个越来越多的权限锁，而是让纲领之基自然成为项目的共同遗传根：
+
+`Foundation → DNA → Inheritance → Architecture / Product / Development / Security / Release`
+
+技术实现可以自由演进，只要仍然与 DNA 中定义的根本目标兼容。
+
+## 二、项目基因，而非外部权威
+
+Foundation DNA 固化的是三类内容：
+
+1. **不可丢失的根本目标**：项目初衷、用户选择与控制、纲领之基的最高地位；
+2. **可演进的实现边界**：架构、技术栈、内核、平台、UI、CI、发布方式均可变化；
+3. **继承契约**：Fork、迁移、重构、拆分和版本演进默认继承基因，不因工程形式变化而自动失效。
+
+因此：
+
+> **Foundation 约束项目的方向，而不是把项目的每一个动作都锁死。**
+
+## 三、继承关系
+
+AngelaNexus Foundation Root → Foundation DNA → Inheritance → Architecture / Product / Development / Security / Release
+
+后继项目默认继承 DNA。Fork、迁移、重命名或技术替换本身不是豁免理由；同时，普通实现变化也不需要重新获得“根本原则批准”。
 
 ## 四、当前根锚
 Foundation Root：docs/ANGELANEXUS_FOUNDATION.md
