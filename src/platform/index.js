@@ -218,7 +218,7 @@ export {
 } from "./platform-native-driver-factory.js";
 export {
   ANDROID_NATIVE_TRANSPARENT_BINDING_VERSION,
-  createAndroidTransparentBinding,
+  createAndroidNativeTransparentBinding,
 } from "./android-transparent-runtime-factory.js";
 export { createNetworkControlPlane } from "./network-control-plane.js";
 
