@@ -32,6 +32,7 @@ export * from "./core/execution-contract.js";
 export * from "./core/decision-planner.js";
 export * from "./core/pipeline.js";
 export * from "./core/driver-scheduler.js";
+export * from "./core/unified-kernel-selection.js";
 
 export * from "./core/session-invalidation.js";
 export * from "./core/execution-event-ledger.js";
