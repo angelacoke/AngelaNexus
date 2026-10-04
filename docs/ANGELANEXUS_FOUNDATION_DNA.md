@@ -2,7 +2,7 @@
 
 项目：AngelaNexus
 定位：智能网络代理平台
-DNA 版本：AN-DNA v1
+DNA 版本：AN-DNA v2 / Gene v1
 
 ## 一、定义
 
@@ -39,24 +39,46 @@ DNA ID：sha256(AngelaNexus|FOUNDATION|4f047d7a53ef7db1d18174916ea9ed5cacbd8133|
 当前 DNA ID：da14d8750b5f8af9a41902b752dca6dcc8930bb866fdbc44b493c2a646e22c8e
 
 ## 五、信任边界
+
 DNA 文件本身不能成为自己的信任根。
-1. DNA 清单只描述继承关系。
-2. Foundation Gate 保存独立的根锚验证条件。
-3. Foundation Gate 必须受到独立于普通代码提交的治理保护。
-4. GitHub Required Status Check、Code Owner 审查和分支/Ruleset 保护负责形成实际权限约束。
-5. 后续应使用仓库外部或不可由单一维护者单方面修改的密码学信任锚，对 Foundation Root、DNA 与继承证书进行签名。
+
+1. DNA 清单负责表达项目基因与继承契约；
+2. Foundation Gate / Gene Verifier 负责验证当前实现是否仍与基因兼容；
+3. GitHub Required Status Check、Ruleset、Code Owner 等属于工程保护手段，不是新的最高原则；
+4. 外部锚定可以作为额外的独立证据，但不是 AngelaNexus 项目基因成立的前提；
+5. 外部锚定不得获得修改、解释或替代纲领之基的权力。
 
 ## 六、Fork 与后继项目
-继续主张 AngelaNexus 身份的 Fork 或衍生项目必须携带 Foundation Root ID、Foundation DNA ID、父项目身份、当前项目身份、继承声明以及可验证的 Foundation Gate 结果。
-复制关系可以存在，但不能自动获得 AngelaNexus 的正式继承身份。
 
-## 七、不可伪造边界
-拥有仓库权限 ≠ 获得 Foundation DNA
-拥有管理员权限 ≠ 获得 Foundation DNA
-创建 Fork ≠ 获得 Foundation DNA
-复制代码 ≠ 获得 Foundation DNA
-删除 DNA 文件 ≠ 解除 Foundation 继承义务
+继续主张 AngelaNexus 身份的 Fork 或衍生项目默认继承 Foundation DNA。
+
+它们可以自由改变：
+
+- 技术栈；
+- 架构实现；
+- 平台；
+- 执行后端；
+- UI；
+- 工程流程。
+
+但必须保留根本目标兼容性。Fork 不是豁免机制，也不是重新定义项目根本目标的机制。
+
+## 七、变化分类
+
+普通实现变化属于正常演进：
+
+Implementation / Structural Change → Gene Compatibility Verification → Continue
+
+只有真正触及项目根本目标的变化才属于：
+
+Root Goal Change → Constitutional Process
+
+因此，CI 不应因为“实现不同”而阻止项目演进，而应识别是否发生了根本方向冲突。
 
 ## 八、最终原则
-只要一个主体仍然属于 AngelaNexus 的项目继承链，它就必须与 Foundation DNA 一起存在；任何利益方，包括创建者本人，都没有法外豁免。
-Foundation DNA PASS 只证明身份、继承与纲领一致性满足机器门槛，不自动授予代码合并、治理或发布权限。
+
+只要一个主体仍然属于 AngelaNexus 的项目继承链，它就默认携带 Foundation Gene。
+
+**Foundation 是项目的基因，不是项目的枷锁。**
+
+Foundation Gate PASS 表示当前变更与项目基因兼容；它不等于治理批准，也不授予代码合并、治理或发布权限。
