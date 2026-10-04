@@ -52,7 +52,9 @@ class XrayAndroidKernelDriver(
         val config = configuration ?: error("Xray configuration has not been applied")
         check(attached) { "Xray driver has no attached TUN" }
 
-        val protector = XrayVpnProtectorBinder { fd -> service.protect(fd) }
+        val protector = XrayVpnProtectorBinder(object : XrayVpnProtector {
+            override fun protect(fd: Int): Boolean = service.protect(fd)
+        })
         val pfd = ParcelFileDescriptor.adoptFd(tunFd)
         val result = send(
             Intent(context, XrayRuntimeService::class.java)
@@ -60,7 +62,10 @@ class XrayAndroidKernelDriver(
                 .putExtra(XrayRuntimeProtocol.EXTRA_CONFIG, config)
                 .putExtra(XrayRuntimeProtocol.EXTRA_DNS, "198.18.0.2:53")
                 .putExtra(XrayRuntimeProtocol.EXTRA_TUN, pfd)
-                .putExtra(XrayRuntimeProtocol.EXTRA_PROTECTOR, protector),
+                .putExtra(
+                    XrayRuntimeProtocol.EXTRA_PROTECTOR,
+                    Bundle().apply { putBinder("binder", protector) },
+                ),
         )
         if (!result.first) {
             pfd.close()
