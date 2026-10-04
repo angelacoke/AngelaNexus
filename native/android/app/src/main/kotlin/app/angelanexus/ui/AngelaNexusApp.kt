@@ -75,7 +75,7 @@ private fun HomeScreen(
         item { TrafficCard() }
         item { SectionTitle(R.string.section_environment); EnvironmentCard() }
         item { SectionTitle(R.string.section_quick_actions); QuickActions(onImport) }
-        item { SectionTitle(R.string.section_runtime); RuntimeCard(importResult) }
+        item { SectionTitle(R.string.section_runtime); RuntimeCard(importResult, executionState) }
     }
 }
 
