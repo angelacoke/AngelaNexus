@@ -18,7 +18,11 @@ class MihomoAndroidKernelDriver(
     private var attached = false
     private var running = false
 
-    override fun preparePlatform(service: android.net.VpnService) {\n        runtime.setVpnService(service)\n    }\n\n    override fun initialize(homeDir: String) {
+    override fun preparePlatform(service: android.net.VpnService) {
+        runtime.setVpnService(service)
+    }
+
+    override fun initialize(homeDir: String) {
         runtime.initialize(File(homeDir).absolutePath)
         initialized = true
     }
