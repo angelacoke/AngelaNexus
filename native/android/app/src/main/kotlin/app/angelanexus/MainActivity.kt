@@ -87,6 +87,7 @@ private fun AngelaNexusRoot() {
             .setAction(AngelaNexusVpnService.ACTION_START)
             .putExtra(AngelaNexusVpnService.EXTRA_KERNEL_ID, kernelId)
             .putExtra(AngelaNexusVpnService.EXTRA_CONFIGURATION, importResult?.configuration)
+            .putExtra(AngelaNexusVpnService.EXTRA_EXECUTION_INTENT_JSON, importResult?.executionIntentJson)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(intent)
         } else {
