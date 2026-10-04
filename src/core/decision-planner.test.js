@@ -52,3 +52,58 @@ test("kernel-aware planning fails closed when config does not match selection", 
     /different kernel/
   );
 });
+
+import { createRoutingExecutionDecision } from "./decision-planner.js";
+
+test("routing decision is normalized into execution intent before decision creation", () => {
+  const result = createRoutingExecutionDecision({
+    ...evidence(),
+    id: "routing-decision-1",
+    routingDecision: {
+      status: "matched",
+      action: { type: "route", target: "proxy-us" },
+      ruleIds: ["app-browser"],
+      reason: "application-rule",
+    },
+    application: { platform: "android", package_name: "com.example.browser" },
+  });
+
+  assert.equal(result.intent.kind, "routing-execution-intent");
+  assert.equal(result.intent.mode, "proxy");
+  assert.equal(result.intent.target, "proxy-us");
+  assert.equal(result.decision.choice.target, "proxy-us");
+  assert.equal(result.decision.action, "routing");
+});
+
+test("reject routing intent remains reject in the execution decision", () => {
+  const result = createRoutingExecutionDecision({
+    ...evidence(),
+    id: "routing-reject-1",
+    routingDecision: {
+      status: "matched",
+      action: { type: "reject" },
+      reason: "policy-reject",
+    },
+  });
+
+  assert.equal(result.intent.mode, "reject");
+  assert.equal(result.decision.action, "reject");
+  assert.equal(result.decision.choice.mode, "reject");
+});
+
+test("chain routing intent preserves ordered hops without selecting a kernel", () => {
+  const result = createRoutingExecutionDecision({
+    ...evidence(),
+    id: "routing-chain-1",
+    routingDecision: {
+      status: "matched",
+      action: { type: "chain", hops: ["node-a", "node-b"] },
+      reason: "application-chain",
+    },
+  });
+
+  assert.equal(result.intent.mode, "chain");
+  assert.deepEqual(result.intent.hops, ["node-a", "node-b"]);
+  assert.deepEqual(result.decision.choice.hops, ["node-a", "node-b"]);
+  assert.equal(result.intent.kernel, undefined);
+});
