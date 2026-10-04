@@ -5,14 +5,8 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class AndroidRoutingExecutionDispatcherTest {
-    private fun intent(mode: String, action: String, target: String? = null): AndroidRoutingExecutionIntent {
-        val targetJson = target?.let { ""target":"" + it + ""," } ?: ""
-        val hopsJson = if (mode == "chain") ""hops":["first","second"]" else ""
-        val comma = if (targetJson.isNotEmpty() && hopsJson.isNotEmpty()) "," else ""
-        return AndroidRoutingExecutionIntent.parse(
-            "{"version":1,"kind":"routing-execution-intent","mode":"$mode","action":"$action",$targetJson$hopsJson}"
-        )
-    }
+    private fun parse(json: String): AndroidRoutingExecutionIntent =
+        AndroidRoutingExecutionIntent.parse(json.trimIndent())
 
     @Test
     fun proxyUsesOnlyCoreSelectedKernel() {
@@ -30,7 +24,15 @@ class AndroidRoutingExecutionDispatcherTest {
         val result = AndroidRoutingExecutionDispatcher { kernelId ->
             assertEquals("xray", kernelId)
             driver
-        }.dispatch(intent("proxy", "route", "node-1"), "xray")
+        }.dispatch(parse(
+            """{
+                "version":1,
+                "kind":"routing-execution-intent",
+                "mode":"proxy",
+                "action":"route",
+                "target":"node-1"
+            }"""
+        ), "xray")
 
         assertEquals("xray", result.kernelId)
         assertEquals("xray", result.driver?.id)
@@ -40,14 +42,30 @@ class AndroidRoutingExecutionDispatcherTest {
     @Test(expected = IllegalArgumentException::class)
     fun proxyWithoutCoreKernelFailsClosed() {
         AndroidRoutingExecutionDispatcher { error("must not resolve a driver") }
-            .dispatch(intent("proxy", "route", "node-1"), null)
+            .dispatch(parse(
+                """{
+                    "version":1,
+                    "kind":"routing-execution-intent",
+                    "mode":"proxy",
+                    "action":"route",
+                    "target":"node-1"
+                }"""
+            ), null)
     }
 
     @Test
     fun directDoesNotResolveOrFallbackToKernel() {
         val result = AndroidRoutingExecutionDispatcher {
             error("direct mode must not resolve a kernel")
-        }.dispatch(intent("direct", "bypass", "direct"), "mihomo")
+        }.dispatch(parse(
+            """{
+                "version":1,
+                "kind":"routing-execution-intent",
+                "mode":"direct",
+                "action":"bypass",
+                "target":"direct"
+            }"""
+        ), "mihomo")
 
         assertEquals("direct", result.mode)
         assertNull(result.kernelId)
@@ -58,10 +76,18 @@ class AndroidRoutingExecutionDispatcherTest {
     fun chainPreservesOrderedHopPayloadWithoutKernelFallback() {
         val result = AndroidRoutingExecutionDispatcher {
             error("chain intent must not silently select a kernel")
-        }.dispatch(intent("chain", "chain"), "mihomo")
+        }.dispatch(parse(
+            """{
+                "version":1,
+                "kind":"routing-execution-intent",
+                "mode":"chain",
+                "action":"chain",
+                "hops":["first","second"]
+            }"""
+        ), "mihomo")
 
         assertEquals("chain", result.mode)
         assertNull(result.kernelId)
-        assertEquals("["first","second"]", result.hopsJson)
+        assertEquals("""["first","second"]""", result.hopsJson)
     }
 }
