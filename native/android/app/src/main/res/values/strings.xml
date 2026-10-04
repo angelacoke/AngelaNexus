@@ -54,4 +54,9 @@
     <string name="security">Security</string>
     <string name="security_description">Accidental direct connections and DNS/IPv6/QUIC policies are managed by the Core</string>
     <string name="core_label">Core</string>
+    <string name="import_result_ready">Core import verified</string>
+    <string name="import_result_kernel">Kernel binding: %1$s</string>
+    <string name="import_result_nodes">Detected nodes: %1$d</string>
+    <string name="import_result_source">Source: %1$s</string>
+    <string name="unknown_value">unknown</string>
 </resources>
