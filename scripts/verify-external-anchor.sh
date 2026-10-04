@@ -41,12 +41,12 @@ assert payload["dna_id"] == expected_dna
 
 trust = anchor["trust_boundary"]
 assert trust["local_repository_is_not_anchor"] is True
-assert trust["external_anchor_required_for_strong_identity"] is True
+assert trust["external_anchor_required_for_strong_identity"] is False
 assert trust["fail_closed_when_anchor_is_declared"] is True
 
 status = anchor["status"]
 if status == "pending_external_publication":
-    print("EXTERNAL_ANCHOR=PASS_PENDING_EXTERNAL_PUBLICATION")
+    print("EXTERNAL_ANCHOR=OPTIONAL_PENDING_EXTERNAL_PUBLICATION")
 elif status == "active":
     source = anchor.get("external_source")
     signature = anchor.get("external_signature")
