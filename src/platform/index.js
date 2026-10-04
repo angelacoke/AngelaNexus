@@ -259,3 +259,5 @@ export {
   LINUX_NATIVE_DNS_PROBE_RUNTIME_VERSION,
   createLinuxNativeDnsTrafficProbe,
 } from "./linux-native-dns-probe.js";
+
+export { ANDROID_ROUTING_EXECUTION_VERSION, createAndroidRoutingExecution, validateAndroidRoutingExecution } from "./android-routing-execution.js";
