@@ -10,6 +10,7 @@ interface AndroidKernelDriver {
     val id: String
     val capabilities: Set<String>
 
+    fun preparePlatform(service: android.net.VpnService)
     fun initialize(homeDir: String)
     fun applyConfiguration(configuration: String)
     fun attachTun(tunFd: Int, policy: AndroidVpnRuntimePolicy)
