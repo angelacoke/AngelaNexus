@@ -60,8 +60,9 @@ jobs:
         run: |
           set -euo pipefail
           go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
           export PATH="$(go env GOPATH)/bin:$PATH"
-          gomobile version || true
+          gomobile version
 
       - name: Build libbox AARs with upstream build entrypoint
         shell: bash
