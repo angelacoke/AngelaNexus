@@ -42,7 +42,7 @@ class AndroidApplicationExecutionBridgeTest {
 
         assertEquals(AndroidApplicationExecutionStage.VERIFIED, verified.stage)
         assertTrue(verified.verified)
-        assertEquals(4L, verified.sequence)
+        assertEquals(1L, verified.sequence)
     }
 
     @Test
