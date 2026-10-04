@@ -27,7 +27,8 @@ private class UnsupportedAndroidKernelDriver(
             "Android $id driver is registered in the parallel execution registry but its native runtime is not yet available"
         )
 
-    override fun preparePlatform(service: android.net.VpnService) = unsupported()\n    override fun initialize(homeDir: String) = unsupported()
+    override fun preparePlatform(service: android.net.VpnService) = unsupported()
+    override fun initialize(homeDir: String) = unsupported()
     override fun applyConfiguration(configuration: String) = unsupported()
     override fun attachTun(tunFd: Int, policy: AndroidVpnRuntimePolicy) = unsupported()
     override fun start() = unsupported()
