@@ -1742,115 +1742,130 @@ Retain Previous Active State
 
 
 
-## 第二十八章：普遍纲领门禁原则
+## 第二十八章：纲领之基基因化原则
 
-### 第七十六条：没有法外之人
+### 第七十六条：纲领之基是项目的基因，不是项目的枷锁
 
-纲领之基的约束对象不因身份、权限、组织关系或自动化身份而产生例外。项目创建者、Repository Owner、Administrator、Maintainer、Developer、Contributor、治理审查者、CI/CD、Bot、AI Agent、Fork 维护者、继任者以及迁移后的治理主体，均必须经过 **AngelaNexus Foundation Gate**。
+Foundation 是 AngelaNexus 的最高根本方向；Foundation DNA 是这一根本方向的机器可验证遗传表达。
 
-Foundation Gate 的 `PASS` 仅表示变更满足纲领一致性门槛，不等同于治理批准，也不得替代必要的人类审查、安全检查和 GitHub 合并保护。
-
-### 第七十七条：门禁本身不得自证
-
-Foundation Gate、其信任基线、CODEOWNERS 与相关治理配置属于更高信任边界。任何待审变更不得通过修改门禁本身、修改信任基线或修改治理配置后，再由修改后的机制为自身产生有效豁免。
-
-### 第七十八条：最高权限同样受门禁约束
-
-拥有最高仓库权限的主体也不得获得 Foundation Gate 豁免。要使本原则具有实际约束力，GitHub 主分支必须配置不可绕过的 Required Status Check、Code Owner 审查及适当的管理员绕过限制。
-
-## 第二十七章：纲领之基恒定与项目连续性原则
-
-### 第六十九条：纲领之基为最高级根本约束
-
-AngelaNexus 的最高级根本原则由《docs/ANGELANEXUS_FOUNDATION.md（纲领之基）》定义。
-
-本宪级纲领负责将纲领之基转化为可执行的架构、工程、验证和治理规则；不得反向修改纲领之基以迁就具体实现。
-
-治理层级：
+治理层级保持：
 
 ```
-纲领之基（最高级、根本性）
-        ↓
+纲领之基
+   ↓
 宪级纲领
-        ↓
-架构原则
-        ↓
-工程规范
-        ↓
-代码 / 配置 / 构建 / 发布
+   ↓
+Foundation DNA / Gene
+   ↓
+Architecture / Product / Development / Security / Release
 ```
 
-### 第七十条：除非用户选择自由成为现实，否则纲领之基恒定
+验证机制的职责是确认项目仍然沿着这条根本方向演进，而不是把每一次实现变化都变成需要重新授权的治理事件。
 
-除非世界互联网真正实现用户对网络连接、信息访问与网络路径的选择自由，否则纲领之基持续有效。
+### 第七十七条：继承默认发生
 
-在该条件成立之前，任何开发、维护、重构、平台迁移、内核替换、商业安排或版本迭代均不得削弱、绕过、篡改或废止纲领之基。
+只要实现继续属于 AngelaNexus 项目继承链，就默认继承 Foundation Gene。
 
-### 第七十一条：允许实现演进，不允许根本方向漂移
+以下变化本身不构成根本方向改变，也不得仅因变化本身被 Foundation Gate 阻止：
 
-以下事项可以随着实践演进：
+- 技术栈变化；
+- 模块重构；
+- 平台迁移；
+- Mihomo、sing-box、Xray 或其他执行后端替换；
+- UI / UX 变化；
+- CI、测试与发布流程变化；
+- 仓库组织方式变化；
+- 性能优化与资源策略变化。
 
-- 代码实现
-- 技术栈
-- 模块结构
-- 平台适配
-- 内核与执行后端
-- 协议与传输实现
-- UI / UX
-- 性能优化
-- 测试与 CI 方法
+这些变化只需要通过与 Foundation Gene 的兼容性验证。
 
-但不得以这些变化为理由改变：
+### 第七十八条：根本冲突与普通演进必须区分
 
-- AngelaNexus 的根本初衷；
-- 用户选择自由这一根本目标；
-- 纲领之基作为项目最高级约束的地位。
+只有真正触及根本目标的变化，才属于 Root Goal Change。
 
-### 第七十二条：未来开发者继承原则
+Root Goal Change 指：
 
-任何未来开发者、维护者、贡献者或接手团队，在修改上述受保护内容或其直接治理机制之前，必须首先阅读并遵守纲领之基。
+- 放弃项目根本初衷；
+- 削弱用户选择与控制这一根本目标；
+- 用低层实现便利替代 Foundation 的最高地位；
+- 将项目发展方向根本性改造成与 Foundation 相冲突的目标。
 
-当实现与纲领之基冲突时，必须优先修正实现；不得为了使现有实现通过而降低纲领之基的约束。
+普通实现困难、商业压力、技术债、性能折衷、内核限制或平台限制，不得被伪装成根本方向改变；同样，也不得把普通实现变化夸大为根本冲突。
 
-### 第七十三条：受保护文件与完整性门禁
+### 第七十九条：Foundation Gate 的新定位
 
-纲领之基、宪级纲领及其完整性检查机制属于项目治理边界。
+Foundation Gate 保留为 Required Status Check，但其语义调整为：
 
-以下路径必须受到代码所有者审查：
+> **验证当前变更是否继续继承并兼容 Foundation Gene。**
 
-- `docs/ANGELANEXUS_FOUNDATION.md`
-- `docs/ANGELANEXUS_CONSTITUTION.md`
-- `.github/CODEOWNERS`
-- `.github/workflows/foundation-integrity.yml`
+它不是一个新的最高权威，不是外部审批机构，也不是无限增长的权限锁。
 
-CI 必须验证纲领之基的固定 SHA-256 完整性。完整性验证失败时，不得将对应变更视为通过。
+Gate 应优先检查：
 
-GitHub 仓库的分支保护 / Ruleset 应将上述 CODEOWNERS 审查和完整性检查设置为合并前强制条件。
+1. Foundation Root 身份完整；
+2. Foundation DNA 结构与根本目标完整；
+3. 继承关系连续；
+4. 变更分类正确；
+5. 普通实现变化没有被误判为 Root Goal Change；
+6. 已声明的架构、产品、安全与发布原则仍与 Gene 兼容。
 
-### 第七十四条：变更必须留下永久可追溯证据
+### 第八十条：没有法外之人，但也没有自锁义务
 
-任何未来对纲领之基的拟议变更，都必须同时具备：
+所有属于 AngelaNexus 继承链的主体都继承 Foundation Gene，包括创建者、Owner、Administrator、Maintainer、Developer、Contributor、Bot、AI Agent、Fork 维护者和继任者。
 
-1. 明确的变更理由；
-2. 对项目根本初衷影响的说明；
-3. 对“用户选择自由”这一根本目标未被削弱的证明；
-4. 项目最高治理主体的明确、可追溯授权；
-5. 独立审查记录；
-6. CI 完整性与相关测试证据。
+这里的“没有法外之人”只表示**没有人可以把自己从项目根本目标中豁免出去**；它不表示任何人都必须接受无限增加的人工审批、外部授权或不可演进的治理锁。
 
-在上述证据链不完整时，变更不得进入项目主线。
+治理机制本身可以演进，但演进后仍必须服务于 Foundation Gene。
 
-### 第七十五条：项目连续性
+### 第八十一条：外部锚定属于可选证据层
 
-开发者可以更换，维护团队可以更替，平台可以扩展，技术可以淘汰，执行后端可以替换，代码可以重构；但 AngelaNexus 必须保持其根本初衷的一致性。
+外部 Foundation Anchor 可以用于增强 Foundation 身份的独立可验证性。
 
-> **技术可以世代更替，开发者可以不断更换，但 AngelaNexus 为什么存在，不由后来者重新决定。**
+但外部锚定不是 Foundation 成立的前提，不是项目基因的来源，也不是新的最高权威。
 
+其关系为：
 
-### 第七十九条：Foundation DNA 普遍继承原则
+```
+Foundation
+   ↓
+Foundation DNA / Gene
+   ↓
+Implementation
 
-AngelaNexus Foundation DNA 是纲领之基在项目身份与继承链上的机器可验证表达。任何主体只要继续属于 AngelaNexus 项目继承链，就必须携带并通过 Foundation DNA 验证；创建者、Owner、Administrator、Maintainer、Developer、Contributor、治理审查者、CI/CD、Bot、AI Agent、Fork 维护者、继任者及迁移后的治理主体均不得获得豁免。
+External Anchor → optional independent evidence
+```
 
-Foundation DNA 清单不得成为自己的信任根。其根锚必须回溯到受保护的 Foundation Root，并通过独立 Foundation Gate 验证。复制代码、创建 Fork、重命名、迁移、重写历史或拥有最高权限，均不得自动产生合法继承身份。
+外部锚定不得反向定义、修改或替代 Foundation。
 
-Foundation DNA PASS 只是身份、继承与纲领一致性的机器门槛，不等同于治理批准、代码合并权限或发布权限。
+### 第八十二条：基因继承的自动化要求
+
+Foundation Gene 必须尽可能机器可读、机器可验证并随项目自然传播。
+
+项目至少应让以下类别能够追溯其与 Foundation Gene 的关系：
+
+- Product；
+- Architecture；
+- Development；
+- Security；
+- UX；
+- Kernel / Protocol；
+- Platform；
+- Testing；
+- Release；
+- Fork / Migration / Derived Project。
+
+验证目标是回答：
+
+> **这个变化如何从 Foundation 演化而来，或者为什么它仍然与 Foundation 兼容？**
+
+能够回答并通过兼容性验证，即属于正常演进；不能证明根本目标兼容时，才进入 Root Goal Change 处理流程。
+
+### 第八十三条：项目连续性
+
+开发者可以更换，维护团队可以更替，平台可以扩展，技术可以淘汰，执行后端可以替换，代码可以重构。
+
+但只要项目仍然属于 AngelaNexus 继承链，其 Foundation Gene 就继续存在。
+
+> **技术可以世代更替，开发者可以不断更换，但 AngelaNexus 为什么存在，不由后来者通过一次普通实现变更重新决定。**
+
+本章取代将 Foundation Gate 定义为无限制治理锁的解释；它不削弱纲领之基，只把纲领之基从“外部门禁对象”转化为“项目自身的遗传根”。
