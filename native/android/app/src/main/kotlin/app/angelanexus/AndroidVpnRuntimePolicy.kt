@@ -9,14 +9,14 @@ package app.angelanexus
 data class AndroidVpnRuntimePolicy(
     val stack: String = "system",
     val addresses: List<String> = listOf(
-        "172.19.0.1/30",
-        "fd00:4e58:0:1::1/126",
+        "198.18.0.2/30",
+        "fd00:198:18::2/126",
     ),
     val routes: List<String> = listOf(
         "0.0.0.0/0",
         "::/0",
     ),
-    val dnsHijack: String = "",
+    val dnsHijack: String = "198.18.0.2",
     val mtu: Int = 1500,
 ) {
     init {
