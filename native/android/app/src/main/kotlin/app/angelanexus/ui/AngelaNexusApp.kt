@@ -15,6 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.angelanexus.AndroidTransparentMode
+import app.angelanexus.CoreRuntimeImportResult
 import app.angelanexus.R
 
 private data class AppDestination(val label: Int, val icon: androidx.compose.ui.graphics.vector.ImageVector)
@@ -29,6 +30,7 @@ fun AngelaNexusApp(
     darkTheme: Boolean,
     transparentMode: AndroidTransparentMode,
     rootAvailable: Boolean,
+    importResult: CoreRuntimeImportResult?,
     onTransparentModeChange: (AndroidTransparentMode) -> Unit,
     onImportConfig: () -> Unit,
     onStartVpn: () -> Unit,
@@ -46,8 +48,8 @@ fun AngelaNexusApp(
         } } }
     ) { padding ->
         when (selected) {
-            0 -> HomeScreen(padding, transparentMode, rootAvailable, onTransparentModeChange, onImportConfig, onStartVpn)
-            1 -> ProfilesScreen(padding, onImportConfig)
+            0 -> HomeScreen(padding, transparentMode, rootAvailable, importResult, onTransparentModeChange, onImportConfig, onStartVpn)
+            1 -> ProfilesScreen(padding, onImportConfig, importResult)
             2 -> ProxiesScreen(padding)
             3 -> RulesScreen(padding)
             else -> SettingsScreen(padding, darkTheme, currentLocaleTag, onLocaleSelected)
@@ -56,13 +58,21 @@ fun AngelaNexusApp(
 }
 
 @Composable
-private fun HomeScreen(padding: PaddingValues, mode: AndroidTransparentMode, rootAvailable: Boolean, onMode: (AndroidTransparentMode) -> Unit, onImport: () -> Unit, onStart: () -> Unit) {
+private fun HomeScreen(
+    padding: PaddingValues,
+    mode: AndroidTransparentMode,
+    rootAvailable: Boolean,
+    importResult: CoreRuntimeImportResult?,
+    onMode: (AndroidTransparentMode) -> Unit,
+    onImport: () -> Unit,
+    onStart: () -> Unit
+) {
     LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { ConnectionCard(mode, rootAvailable, onMode, onStart) }
         item { TrafficCard() }
         item { SectionTitle(R.string.section_environment); EnvironmentCard() }
         item { SectionTitle(R.string.section_quick_actions); QuickActions(onImport) }
-        item { SectionTitle(R.string.section_runtime); RuntimeCard() }
+        item { SectionTitle(R.string.section_runtime); RuntimeCard(importResult) }
     }
 }
 
@@ -86,8 +96,22 @@ private fun ConnectionCard(mode: AndroidTransparentMode, rootAvailable: Boolean,
 @Composable private fun TrafficCard() { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(18.dp)) { Text(stringResource(R.string.traffic_title), fontWeight = FontWeight.SemiBold); Spacer(Modifier.height(12.dp)); Text(stringResource(R.string.traffic_idle)) } } }
 @Composable private fun EnvironmentCard() { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { InfoRow(R.string.route_policy, R.string.route_smart); InfoRow(R.string.leak_prevention, R.string.pending_policy); InfoRow(R.string.gfw_awareness, R.string.core_available); InfoRow(R.string.kernels, R.string.kernel_list) } } }
 @Composable private fun QuickActions(onImport: () -> Unit) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { FilledTonalButton(onClick = onImport, Modifier.weight(1f)) { Icon(Icons.Default.ImportExport, null); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.import_config)) }; OutlinedButton(onClick = {}, Modifier.weight(1f)) { Icon(Icons.Default.Speed, null); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.speed_test)) } } }
-@Composable private fun RuntimeCard() { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(18.dp)) { Text(stringResource(R.string.runtime_title), fontWeight = FontWeight.SemiBold); Spacer(Modifier.height(8.dp)); Text(stringResource(R.string.runtime_description), style = MaterialTheme.typography.bodySmall) } } }
-@Composable private fun ProfilesScreen(padding: PaddingValues, onImport: () -> Unit) { LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { item { PageHeader(R.string.nav_profiles, R.string.profiles_description) }; item { FilledTonalButton(onClick = onImport, Modifier.fillMaxWidth()) { Text(stringResource(R.string.add_config)) } }; item { ProfileCard(R.string.no_profiles, R.string.profile_support) } } }
+@Composable private fun RuntimeCard(result: CoreRuntimeImportResult?) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(stringResource(R.string.runtime_title), fontWeight = FontWeight.SemiBold)
+            if (result == null) {
+                Text(stringResource(R.string.runtime_description), style = MaterialTheme.typography.bodySmall)
+            } else {
+                Text(stringResource(R.string.import_result_ready), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.import_result_kernel, result.kernel ?: stringResource(R.string.unknown_value)))
+                Text(stringResource(R.string.import_result_nodes, result.nodeCount))
+                result.source?.let { Text(stringResource(R.string.import_result_source, it)) }
+            }
+        }
+    }
+}
+@Composable private fun ProfilesScreen(padding: PaddingValues, onImport: () -> Unit, result: CoreRuntimeImportResult?) { LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { item { PageHeader(R.string.nav_profiles, R.string.profiles_description) }; item { FilledTonalButton(onClick = onImport, Modifier.fillMaxWidth()) { Text(stringResource(R.string.add_config)) } }; item { if (result == null) ProfileCard(R.string.no_profiles, R.string.profile_support) else ProfileCard(R.string.import_result_ready, R.string.profile_support) } } }
 @Composable private fun ProxiesScreen(padding: PaddingValues) { LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp)) { item { PageHeader(R.string.nav_proxies, R.string.proxies_description) } } }
 @Composable private fun RulesScreen(padding: PaddingValues) { LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp)) { item { PageHeader(R.string.nav_rules, R.string.rules_description) } } }
 @Composable
@@ -113,9 +137,7 @@ private fun SettingsScreen(
                     Text(stringResource(R.string.language), style = MaterialTheme.typography.labelLarge)
                     Text(languageName, style = MaterialTheme.typography.bodyLarge)
                     Spacer(Modifier.height(8.dp))
-                    OutlinedButton(onClick = { languageDialog = true }) {
-                        Text(stringResource(R.string.language))
-                    }
+                    OutlinedButton(onClick = { languageDialog = true }) { Text(stringResource(R.string.language)) }
                 }
             }
         }
@@ -134,13 +156,7 @@ private fun SettingsScreen(
                         "ru" to stringResource(R.string.language_russian),
                         "fa" to stringResource(R.string.language_persian)
                     ).forEach { (tag, label) ->
-                        TextButton(
-                            onClick = {
-                                languageDialog = false
-                                onLocaleSelected(tag)
-                            },
-                            Modifier.fillMaxWidth()
-                        ) { Text(label) }
+                        TextButton(onClick = { languageDialog = false; onLocaleSelected(tag) }, Modifier.fillMaxWidth()) { Text(label) }
                     }
                 }
             },
