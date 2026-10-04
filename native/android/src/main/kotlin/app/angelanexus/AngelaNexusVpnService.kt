@@ -73,16 +73,21 @@ class AngelaNexusVpnService : VpnService() {
             stopRuntime(keepService = true)
 
             val executionIntent = executionIntentJson?.let(AndroidRoutingExecutionIntent::parse)
-            if (executionIntent != null) {
-                check(executionIntent.mode == "proxy") {
-                    "Android system VPN data plane cannot execute this routing mode yet; refusing implicit reinterpretation"
-                }
-            }
+                ?: error("canonical routing execution intent is required for Android VPN startup")
 
-            // Core has already resolved the kernel. Android only resolves the
-            // corresponding registered driver and executes the dispatched intent.
-            // No Android-local kernel fallback or re-selection is allowed here.
-            val selectedDriver = AndroidKernelDriverRegistry.resolve(this, kernelId)
+            val dispatch = AndroidRoutingExecutionDispatcher { selectedKernelId ->
+                AndroidKernelDriverRegistry.resolve(this, selectedKernelId)
+            }.dispatch(executionIntent, kernelId)
+
+            // Only a proxy intent currently has a kernel-backed Android TUN
+            // executor. Other canonical modes remain fail-closed until their
+            // platform data-plane implementation is available. They must never
+            // be silently reinterpreted as proxy.
+            val selectedDriver = dispatch.driver
+                ?: error(
+                    "Android system VPN data plane cannot execute routing mode '${dispatch.mode}' yet; refusing implicit reinterpretation",
+                )
+
             driver = selectedDriver
             selectedDriver.preparePlatform(this)
             selectedDriver.initialize(File(filesDir, CORE_HOME).absolutePath)
