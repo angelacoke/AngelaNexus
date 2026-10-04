@@ -54,4 +54,9 @@
     <string name="security">安全</string>
     <string name="security_description">零意外直连、DNS/IPv6/QUIC 等策略由 Core 统一管理</string>
     <string name="core_label">核心</string>
+    <string name="import_result_ready">核心导入已验证</string>
+    <string name="import_result_kernel">内核绑定：%1$s</string>
+    <string name="import_result_nodes">检测节点数：%1$d</string>
+    <string name="import_result_source">来源：%1$s</string>
+    <string name="unknown_value">未知</string>
 </resources>

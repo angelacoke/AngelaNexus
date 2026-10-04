@@ -54,4 +54,9 @@
     <string name="security">Безопасность</string>
     <string name="security_description">Политики защиты от непреднамеренного прямого доступа и DNS/IPv6/QUIC управляются ядром</string>
     <string name="core_label">Ядро</string>
+    <string name="import_result_ready">Импорт в ядро подтверждён</string>
+    <string name="import_result_kernel">Привязка ядра: %1$s</string>
+    <string name="import_result_nodes">Обнаружено узлов: %1$d</string>
+    <string name="import_result_source">Источник: %1$s</string>
+    <string name="unknown_value">неизвестно</string>
 </resources>

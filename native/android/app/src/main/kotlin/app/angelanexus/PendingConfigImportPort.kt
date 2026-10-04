@@ -12,8 +12,14 @@ class PendingConfigImportPort : ConfigImportPort {
     @Volatile
     private var latestRequest: ConfigImportRequest? = null
 
-    override suspend fun importConfiguration(request: ConfigImportRequest) {
+    override suspend fun importConfiguration(request: ConfigImportRequest): CoreRuntimeImportResult {
         latestRequest = request
+        return CoreRuntimeImportResult(
+            source = request.source.name.lowercase().replace('_', '-'),
+            nodeCount = 0,
+            kernel = null,
+            detectionConfidence = "pending",
+        )
     }
 
     fun latestRequest(): ConfigImportRequest? = latestRequest

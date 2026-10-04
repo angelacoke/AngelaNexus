@@ -10,32 +10,27 @@ import kotlin.coroutines.Continuation
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.coroutines.startCoroutine
 
-
 class HttpCoreRuntimeTransportTest {
     @Test
-    fun sendsSerializedEnvelopeToCoreEndpoint() = runSuspend {
-        var method: String? = null
-        var contentType: String? = null
-        var accept: String? = null
-        var body = ""
-
-        val connection = RecordingConnection(URI("http://127.0.0.1:18181/v1/runtime/import"))
+    fun sendsSerializedEnvelopeAndReturnsCoreResult() = runSuspend {
+        val connection = RecordingConnection(
+            URI("http://127.0.0.1:18181/v1/runtime/import"),
+            responseBody = """{"ok":true,"result":{"version":1,"source":"local-file","nodeCount":2,"kernel":"mihomo","detectionConfidence":"detected"}}""",
+        )
         val transport = HttpCoreRuntimeTransport(
             URI("http://127.0.0.1:18181/"),
             connectionFactory = { connection }
         )
 
-        transport.sendConfigurationImport("""{"type":"angelanexus.config-import"}""")
+        val result = transport.sendConfigurationImport("""{"type":"angelanexus.config-import"}""")
 
-        method = connection.requestMethod
-        contentType = connection.getRequestProperty("Content-Type")
-        accept = connection.getRequestProperty("Accept")
-        body = connection.body
-
-        assertEquals("POST", method)
-        assertEquals("application/json; charset=utf-8", contentType)
-        assertEquals("application/json", accept)
-        assertEquals("""{"type":"angelanexus.config-import"}""", body)
+        assertEquals("POST", connection.requestMethod)
+        assertEquals("application/json; charset=utf-8", connection.getRequestProperty("Content-Type"))
+        assertEquals("application/json", connection.getRequestProperty("Accept"))
+        assertEquals("""{"type":"angelanexus.config-import"}""", connection.body)
+        assertEquals("local-file", result.source)
+        assertEquals(2, result.nodeCount)
+        assertEquals("mihomo", result.kernel)
         assertTrue(connection.disconnected)
     }
 
@@ -43,7 +38,7 @@ class HttpCoreRuntimeTransportTest {
     fun failsClosedWhenCoreRejectsImport() = runSuspend {
         val connection = RecordingConnection(
             URI("http://127.0.0.1:18181/v1/runtime/import"),
-            responseCode = 503
+            responseCode = 503,
         )
         val transport = HttpCoreRuntimeTransport(
             URI("http://127.0.0.1:18181/"),
@@ -70,8 +65,11 @@ class HttpCoreRuntimeTransportTest {
         failure?.let { throw it }
     }
 
-    private class RecordingConnection(url: URI, private val responseCode: Int = 204) :
-        HttpURLConnection(url.toURL()) {
+    private class RecordingConnection(
+        url: URI,
+        private val responseCode: Int = 204,
+        private val responseBody: String = """{"ok":true,"result":{"version":1,"source":"local-file","nodeCount":0,"kernel":null,"detectionConfidence":null}}""",
+    ) : HttpURLConnection(url.toURL()) {
         private val properties = mutableMapOf<String, String>()
         private val output = java.io.ByteArrayOutputStream()
         var disconnected = false
@@ -87,10 +85,9 @@ class HttpCoreRuntimeTransportTest {
         override fun usingProxy(): Boolean = false
         override fun connect() {}
         override fun getResponseCode(): Int = responseCode
-        override fun setRequestProperty(key: String, value: String) {
-            properties[key] = value
-        }
         override fun getRequestProperty(key: String): String? = properties[key]
+        override fun setRequestProperty(key: String, value: String) { properties[key] = value }
         override fun getOutputStream(): java.io.OutputStream = output
+        override fun getInputStream(): java.io.InputStream = responseBody.byteInputStream(Charsets.UTF_8)
     }
 }

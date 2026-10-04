@@ -10,9 +10,11 @@ class ConfigImportCoordinatorTest {
     @Test
     fun convertsLocalFileIntoVersionedPortRequest() {
         var received: ConfigImportRequest? = null
+        val expected = CoreRuntimeImportResult("local-file", 3, "mihomo", "detected")
         val port = object : ConfigImportPort {
-            override suspend fun importConfiguration(request: ConfigImportRequest) {
+            override suspend fun importConfiguration(request: ConfigImportRequest): CoreRuntimeImportResult {
                 received = request
+                return expected
             }
         }
 
@@ -20,10 +22,11 @@ class ConfigImportCoordinatorTest {
         val content = "proxies:\n  - name: example"
 
         kotlinx.coroutines.runBlocking {
-            coordinator.importLocalFile(
+            val result = coordinator.importLocalFile(
                 ByteArrayInputStream(content.toByteArray(StandardCharsets.UTF_8)),
                 "config.yaml"
             )
+            assertEquals(expected, result)
         }
 
         val request = assertNotNull(received)

@@ -9,11 +9,13 @@ import kotlin.test.assertTrue
 
 class SerializedConfigImportPortTest {
     @Test
-    fun forwardsOnlySerializedEnvelopeToCoreTransport() {
+    fun forwardsSerializedEnvelopeAndReturnsCoreResult() {
         var received: String? = null
+        val expected = CoreRuntimeImportResult("local-file", 1, "mihomo", "detected")
         val transport = object : CoreRuntimeTransport {
-            override suspend fun sendConfigurationImport(payload: String) {
+            override suspend fun sendConfigurationImport(payload: String): CoreRuntimeImportResult {
                 received = payload
+                return expected
             }
         }
         val port = SerializedConfigImportPort(transport)
@@ -27,7 +29,8 @@ class SerializedConfigImportPortTest {
 
         var completed = false
         var failure: Throwable? = null
-        suspend { port.importConfiguration(request) }.startCoroutine(
+        var actual: CoreRuntimeImportResult? = null
+        suspend { actual = port.importConfiguration(request) }.startCoroutine(
             object : Continuation<Unit> {
                 override val context = EmptyCoroutineContext
                 override fun resumeWith(result: Result<Unit>) {
@@ -39,9 +42,7 @@ class SerializedConfigImportPortTest {
 
         assertTrue(completed)
         failure?.let { throw it }
-        assertEquals(
-            ConfigImportEnvelope.serialize(request),
-            received,
-        )
+        assertEquals(ConfigImportEnvelope.serialize(request), received)
+        assertEquals(expected, actual)
     }
 }

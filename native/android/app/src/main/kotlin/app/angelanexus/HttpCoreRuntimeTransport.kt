@@ -4,12 +4,6 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URI
 
-/**
- * Concrete transport from the Android shell to a locally hosted Core runtime.
- *
- * The Android layer sends the already-serialized import envelope only. Core remains
- * responsible for parsing, detection, normalization, and kernel binding.
- */
 class HttpCoreRuntimeTransport(
     endpoint: URI,
     private val connectTimeoutMs: Int = 1500,
@@ -28,7 +22,7 @@ class HttpCoreRuntimeTransport(
         require(readTimeoutMs > 0) { "read timeout must be positive" }
     }
 
-    override suspend fun sendConfigurationImport(payload: String) {
+    override suspend fun sendConfigurationImport(payload: String): CoreRuntimeImportResult {
         require(payload.isNotEmpty()) { "configuration import payload must not be empty" }
 
         val connection = connectionFactory(importEndpoint)
@@ -45,11 +39,45 @@ class HttpCoreRuntimeTransport(
             }
 
             val status = connection.responseCode
+            val responseBody = runCatching {
+                connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            }.getOrElse { "" }
+
             if (status !in 200..299) {
-                throw IOException("Core runtime rejected configuration import: HTTP $status")
+                throw IOException(
+                    "Core runtime rejected configuration import: HTTP $status" +
+                        responseBody.takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty(),
+                )
             }
+
+            return CoreRuntimeImportResultParser.parse(responseBody)
         } finally {
             connection.disconnect()
         }
     }
+}
+
+internal object CoreRuntimeImportResultParser {
+    private val okPattern = Regex("\"ok\"\\s*:\\s*true")
+    private val sourcePattern = Regex("\"source\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"")
+    private val nodeCountPattern = Regex("\"nodeCount\"\\s*:\\s*(\\d+)")
+    private val kernelPattern = Regex("\"kernel\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"")
+    private val confidencePattern = Regex("\"detectionConfidence\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"")
+
+    fun parse(body: String): CoreRuntimeImportResult {
+        require(okPattern.containsMatchIn(body)) { "Core runtime returned an invalid success response" }
+        val nodeCount = nodeCountPattern.find(body)?.groupValues?.get(1)?.toIntOrNull()
+            ?: throw IllegalArgumentException("Core runtime response is missing nodeCount")
+        require(nodeCount >= 0) { "Core runtime returned a negative nodeCount" }
+
+        return CoreRuntimeImportResult(
+            source = sourcePattern.find(body)?.groupValues?.get(1)?.unescapeJsonString(),
+            nodeCount = nodeCount,
+            kernel = kernelPattern.find(body)?.groupValues?.get(1)?.unescapeJsonString(),
+            detectionConfidence = confidencePattern.find(body)?.groupValues?.get(1)?.unescapeJsonString(),
+        )
+    }
+
+    private fun String.unescapeJsonString(): String =
+        replace("\\\\", "\\").replace("\\\"", "\"")
 }
