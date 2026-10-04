@@ -60,7 +60,11 @@ class AngelaNexusVpnService : VpnService() {
         return runCatching {
             stopRuntime(keepService = true)
 
-            val selectedDriver = AndroidKernelDriverRegistry.resolve(this, kernelId)
+            val registeredDrivers = AndroidKernelDriverRegistry.all(this)
+            val selection = KernelDriverScheduler(registeredDrivers).select(
+                KernelExecutionIntent(preferredKernelId = kernelId),
+            )
+            val selectedDriver = registeredDrivers.first { it.id == selection.kernelId }
             driver = selectedDriver
             selectedDriver.preparePlatform(this)
             selectedDriver.initialize(File(filesDir, CORE_HOME).absolutePath)
