@@ -57,11 +57,11 @@ class HttpCoreRuntimeTransport(
     }
 }
 
-internal object CoreRuntimeImportResultParser {
-    private val okPattern = Regex(""""ok"s*:s*true""")
-    private val sourcePattern = Regex(""""source"s*:s*"((?:\.|[^"\])*)"""")
-    private val nodeCountPattern = Regex(""""nodeCount"s*:s*(d+)""")
-    private val kernelPattern = Regex(""""kernel"s*:s*"((?:\.|[^"\])*)"""")
+    private val okPattern = Regex("\"ok\"\\s*:\\s*true")
+    private val sourcePattern = Regex("\"source\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"")
+    private val nodeCountPattern = Regex("\"nodeCount\"\\s*:\\s*(\\d+)")
+    private val kernelPattern = Regex("\"kernel\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"")
+    private val confidencePattern = Regex("\"detectionConfidence\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"")
     private val confidencePattern = Regex(""""detectionConfidence"s*:s*"((?:\.|[^"\])*)"""")
 
     fun parse(body: String): CoreRuntimeImportResult {
