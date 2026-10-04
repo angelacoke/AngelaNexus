@@ -17,7 +17,7 @@ jobs:
           java-version: '17'
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26.7'
+          go-version: '1.26.8'
       - name: Install Android NDK
         shell: bash
         env:
@@ -46,11 +46,35 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/native/android/app/libs"
           cp libXray.aar "$GITHUB_WORKSPACE/native/android/app/libs/libXray.aar"
           sha256sum "$GITHUB_WORKSPACE/native/android/app/libs/libXray.aar"
-      - name: Upload prepared libXray AAR
+      - name: Build pinned sing-box libbox AAR
+        shell: bash
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.0.13004108
+          SINGBOX_REF: "v1.14.0-beta.4"
+        run: |
+          set -euo pipefail
+          go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+          go install github.com/sagernet/gomobile/cmd/gobind@v0.1.12
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          gomobile init
+          git clone --depth 1 --branch "$SINGBOX_REF" https://github.com/SagerNet/sing-box.git "$RUNNER_TEMP/sing-box"
+          test "$(git -C "$RUNNER_TEMP/sing-box" describe --tags --exact-match)" = "$SINGBOX_REF"
+          cd "$RUNNER_TEMP/sing-box"
+          go run ./cmd/internal/build_libbox -target android
+          test -s libbox.aar
+          test -s libbox-legacy.aar
+          cp libbox.aar "$GITHUB_WORKSPACE/native/android/app/libs/libbox.aar"
+          cp libbox-legacy.aar "$GITHUB_WORKSPACE/native/android/app/libs/libbox-legacy.aar"
+          sha256sum "$GITHUB_WORKSPACE/native/android/app/libs/libbox.aar" "$GITHUB_WORKSPACE/native/android/app/libs/libbox-legacy.aar"
+      - name: Upload prepared Android native kernel AARs
         uses: actions/upload-artifact@v4
         with:
-          name: angelanexus-libxray-aar
-          path: native/android/app/libs/libXray.aar
+          name: angelanexus-android-native-kernel-aars
+          path: |
+            native/android/app/libs/libXray.aar
+            native/android/app/libs/libbox.aar
+            native/android/app/libs/libbox-legacy.aar
           if-no-files-found: error
           retention-days: 1
 
@@ -76,7 +100,9 @@ jobs:
         run: |
           set -euo pipefail
           test -s native/android/app/libs/libXray.aar
+          test -s native/android/app/libs/libbox.aar
           unzip -t native/android/app/libs/libXray.aar >/dev/null
+          unzip -t native/android/app/libs/libbox.aar >/dev/null
       - name: Run Android unit tests
         working-directory: native/android
         run: gradle --no-daemon --console=plain --stacktrace testDebugUnitTest
