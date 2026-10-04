@@ -36,6 +36,7 @@ export * from "./core/application-identity.js";
 export * from "./core/app-proxy-driver.js";
 export * from "./core/application-routing.js";
 export * from "./core/application-routing-policy.js";
+export * from "./core/application-execution-evidence.js";
 
 export * from "./core/session-invalidation.js";
 export * from "./core/execution-event-ledger.js";
