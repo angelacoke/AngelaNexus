@@ -39,7 +39,8 @@ class XrayRuntimeService : Service() {
                 ?: error("Xray configuration is missing")
             val dns = intent.getStringExtra(XrayRuntimeProtocol.EXTRA_DNS)
                 ?: error("Xray DNS endpoint is missing")
-            val protectorBinder = intent.getBinderExtra(XrayRuntimeProtocol.EXTRA_PROTECTOR)
+            val protectorBinder = intent.getBundleExtra(XrayRuntimeProtocol.EXTRA_PROTECTOR)
+                ?.getBinder("binder")
                 ?: error("Xray VPN protector is missing")
 
             val protector = object : XrayVpnProtector {
@@ -142,7 +143,6 @@ private class XrayVpnProtectorBinderRemote(
         val data = Parcel.obtain()
         val reply = Parcel.obtain()
         return try {
-            data.writeInterfaceToken(binder.interfaceDescriptor ?: "app.angelanexus.XrayVpnProtector")
             data.writeInt(fd)
             binder.transact(XrayVpnProtectorBinder.TRANSACTION_PROTECT, data, reply, 0)
             reply.readException()
@@ -209,8 +209,10 @@ private class XrayLibXrayApi {
                 } else null
             },
         )
-        val parameterTypes = arrayOf(controllerType) + extra.map { it.javaClass }
-        val method = clazz.getMethod(name, *parameterTypes)
-        method.invoke(null, *arrayOf(proxy) + extra)
+        if (extra.isEmpty()) {
+            clazz.getMethod(name, controllerType).invoke(null, proxy)
+        } else {
+            clazz.getMethod(name, controllerType, String::class.java).invoke(null, proxy, extra[0])
+        }
     }
 }
