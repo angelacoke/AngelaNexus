@@ -3,7 +3,7 @@ package app.angelanexus
 import java.io.File
 
 class MihomoAndroidKernelDriver(
-    private val runtime: MihomoJniNativeHost,
+    private val runtime: MihomoNativeHost,
 ) : AndroidKernelDriver {
     override val id: String = "mihomo"
 
