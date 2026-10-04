@@ -57,10 +57,10 @@ jobs:
       - name: Fetch pinned libXray source
         shell: bash
         env:
-          LIBXRAY_COMMIT: "main"
+          LIBXRAY_COMMIT: "3c694b23290f9849fe52284a345ebd4343bc90cd"
         run: |
           set -euo pipefail
-          git clone --depth 1 https://github.com/XTLS/libXray.git "$RUNNER_TEMP/libXray"
+          git clone --no-checkout https://github.com/XTLS/libXray.git "$RUNNER_TEMP/libXray"\n          git -C "$RUNNER_TEMP/libXray" fetch --depth 1 origin "$LIBXRAY_COMMIT"\n          git -C "$RUNNER_TEMP/libXray" checkout --detach "$LIBXRAY_COMMIT"\n          test "$(git -C "$RUNNER_TEMP/libXray" rev-parse HEAD)" = "$LIBXRAY_COMMIT"
           test -d "$RUNNER_TEMP/libXray"
           git -C "$RUNNER_TEMP/libXray" rev-parse HEAD
 
@@ -70,7 +70,7 @@ jobs:
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.0.13004108
-          LIBXRAY_GOMOBILE_VERSION: "latest"
+          LIBXRAY_GOMOBILE_VERSION: "v0.0.0-20260908204917-8b95e45f8d3e"
         run: |
           set -euo pipefail
           python3 build/main.py android
