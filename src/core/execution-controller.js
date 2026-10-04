@@ -141,8 +141,9 @@ export function createExecutionController(options = {}) {
         if (execution) await discardExecution();
         const preparedSessionId = ++sessionId;
         request = createExecutionRequest(input);
-        if (input.routingDecision) {
-          await emitEvent("routing-decision", createRoutingDecisionEventContext(input.routingDecision));
+        const routingDecision = executionOptions.routingDecision || input.routingDecision;
+        if (routingDecision) {
+          await emitEvent("routing-decision", createRoutingDecisionEventContext(routingDecision));
         }
         execution = await executionFactory(request.config, {
           binary: request.binary, workdir: request.workdir, cwd: request.cwd, env: request.env,
