@@ -1,6 +1,7 @@
 import { createDecisionRecord } from "./decision-registry.js";
 import { createExecutionContract } from "./execution-contract.js";
 import { createUnifiedKernelSelection } from "./unified-kernel-selection.js";
+import { createRoutingExecutionIntent } from "./routing-execution-intent.js";
 
 export const DecisionPlanVersion = 1;
 
@@ -34,6 +35,26 @@ function deriveChoice(route) {
   }
   if (route.bypass === true || route.mode === "direct") return Object.freeze({ mode: "direct" });
   return Object.freeze({ mode: text(route.mode) || "proxy", target: text(route.target) || null });
+}
+
+export function createRoutingExecutionDecision(input = {}) {
+  if (!input || typeof input !== "object") throw new TypeError("routing execution decision input is required");
+  const intent = createRoutingExecutionIntent(input.routingDecision, {
+    application: input.application,
+    metadata: input.metadata,
+  });
+  const route = {
+    mode: intent.mode,
+    target: intent.target,
+    chain: intent.mode === "chain",
+    hops: intent.hops,
+  };
+  const decision = createExecutionDecision({
+    ...input,
+    route,
+    id: input.id,
+  });
+  return Object.freeze({ decision, intent });
 }
 
 export function createExecutionDecision(input = {}) {
