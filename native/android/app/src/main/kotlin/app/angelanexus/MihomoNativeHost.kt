@@ -2,6 +2,9 @@ package app.angelanexus
 
 interface MihomoNativeHost {
     fun initialize(homeDir: String)
+    fun setVpnService(service: android.net.VpnService)
+    fun clearVpnService()
+    fun hasVpnProtector(): Boolean
     fun applyConfig(configJson: String): String?
     fun startTun(tunFd: Int, stack: String, address: String, dns: String): Boolean
     fun stopTun()
