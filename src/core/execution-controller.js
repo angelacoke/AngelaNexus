@@ -1,7 +1,7 @@
 import { createKernelExecution } from "./kernel-execution.js";
 import { Kernels } from "./model.js";
 import { createExecutionContract } from "./execution-contract.js";
-import { createPlannedExecutionContract } from "./decision-planner.js";
+import { createKernelAwareExecutionContract, createPlannedExecutionContract } from "./decision-planner.js";
 import { createExecutionEventLedger } from "./execution-event-ledger.js";
 import { evaluatePathTrust } from "./path-trust.js";
 
