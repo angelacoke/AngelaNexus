@@ -123,7 +123,7 @@ class AngelaNexusVpnService : VpnService() {
                 tunEstablished = true
             } finally {
                 if (!driverOwnsTun) {
-                    runCatching { android.system.Os.close(fd) }
+                    runCatching { android.os.ParcelFileDescriptor.adoptFd(fd).close() }
                 }
             }
             AndroidKernelExecutionStateStore.markRunning(selectedDriver.id)
