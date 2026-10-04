@@ -27,7 +27,7 @@ function normalizePlatform(value) {
 
 function normalizePath(value) {
   const path = text(value);
-  return path ? path.replaceAll("\\\\", "/") : null;
+  return path ? path.replaceAll("\\", "/") : null;
 }
 
 /**
