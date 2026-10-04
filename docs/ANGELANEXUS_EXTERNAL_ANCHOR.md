@@ -2,9 +2,9 @@
 
 ## Purpose
 
-The external anchor is the independent trust layer above the repository-local Foundation DNA and inheritance verifier.
+The external anchor is an optional independent evidence layer below the Foundation's authority and alongside repository-local verification.
 
-It exists because a repository-local verifier cannot independently prove its own continued integrity if a compromised maintainer can modify both the manifest and the verifier.
+It exists to provide additional independently retrievable evidence when desired. It does not become the project's root principle or a prerequisite for ordinary Foundation inheritance.
 
 ## Current state
 
@@ -19,7 +19,7 @@ Therefore this repository currently proves:
 3. the canonical anchor payload;
 4. the required format for an independent anchor.
 
-It does **not** yet claim independently anchored lineage.
+It does not claim that an external anchor is active. This does not invalidate Foundation Gene inheritance.
 
 ## Canonical identity
 
@@ -30,7 +30,7 @@ It does **not** yet claim independently anchored lineage.
 
 ## Required external anchor properties
 
-An external anchor must:
+If activated, an external anchor must:
 
 - exist outside the AngelaNexus repository's normal write path;
 - publish the exact canonical payload;
@@ -61,6 +61,8 @@ The external anchor does not become a new supreme authority. It only independent
 
 Hierarchy remains:
 
-`纲领之基 → 宪级纲领 → 外部锚定证据 → 继承验证 → 架构 → 实现`
+`纲领之基 → 宪级纲领 → Foundation DNA / Gene → 继承验证 → 架构 → 实现`
+
+外部锚定证据是可选的独立旁证，不是层级上的新权威。
 
 The external anchor can prove what the Foundation identity was; it cannot redefine why AngelaNexus exists.
