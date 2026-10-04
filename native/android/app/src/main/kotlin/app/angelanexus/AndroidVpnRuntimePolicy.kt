@@ -10,7 +10,7 @@ data class AndroidVpnRuntimePolicy(
     val stack: String = "system",
     val addresses: List<String> = listOf(
         "172.19.0.1/30",
-        "fd00:angelanexus::1/126",
+        "fd00:4e58:0:1::1/126",
     ),
     val routes: List<String> = listOf(
         "0.0.0.0/0",
