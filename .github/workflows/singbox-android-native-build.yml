@@ -55,6 +55,14 @@ jobs:
           test -x "$SDKMANAGER"
           "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "ndk;28.0.13004108"
 
+      - name: Install upstream gomobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          gomobile version || true
+
       - name: Build libbox AARs with upstream build entrypoint
         shell: bash
         working-directory: ${{ runner.temp }}/sing-box
