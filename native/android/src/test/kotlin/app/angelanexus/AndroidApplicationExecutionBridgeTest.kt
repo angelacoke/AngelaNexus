@@ -25,7 +25,7 @@ class AndroidApplicationExecutionBridgeTest {
 
         assertEquals(AndroidApplicationExecutionStage.ACTIVE, active.stage)
         assertFalse(active.verified)
-        assertEquals("egress verification pending", active.reason?.substringAfter("— ")?.trim())
+        assertEquals("driver execution active; egress verification pending", active.reason)
     }
 
     @Test
