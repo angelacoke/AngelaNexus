@@ -82,13 +82,13 @@ function normalizeAction(action) {
   }
 
   if (type === "chain") {
-    if (action.target !== undefined && action.target !== null && text(action.target)) {
-      normalized.target = text(action.target);
+    const target = typeof action.target === "string" ? action.target.trim() : "";
+    const hasHops = Array.isArray(action.hops) && action.hops.length >= 2;
+    if (target) normalized.target = target;
+    if (hasHops) normalized.hops = clone(action.hops);
+    if (!target && !hasHops) {
+      throw new Error("routing chain action requires a target or at least two hops");
     }
-    if (!Array.isArray(action.hops) || action.hops.length < 2) {
-      throw new Error("routing chain action requires at least two hops");
-    }
-    normalized.hops = clone(action.hops);
   }
 
   if (type === "dns") {
