@@ -60,7 +60,10 @@ jobs:
           LIBXRAY_COMMIT: "3c694b23290f9849fe52284a345ebd4343bc90cd"
         run: |
           set -euo pipefail
-          git clone --no-checkout https://github.com/XTLS/libXray.git "$RUNNER_TEMP/libXray"\n          git -C "$RUNNER_TEMP/libXray" fetch --depth 1 origin "$LIBXRAY_COMMIT"\n          git -C "$RUNNER_TEMP/libXray" checkout --detach "$LIBXRAY_COMMIT"\n          test "$(git -C "$RUNNER_TEMP/libXray" rev-parse HEAD)" = "$LIBXRAY_COMMIT"
+          git clone --no-checkout https://github.com/XTLS/libXray.git "$RUNNER_TEMP/libXray"
+          git -C "$RUNNER_TEMP/libXray" fetch origin "$LIBXRAY_COMMIT"
+          git -C "$RUNNER_TEMP/libXray" checkout --detach "$LIBXRAY_COMMIT"
+          test "$(git -C "$RUNNER_TEMP/libXray" rev-parse HEAD)" = "$LIBXRAY_COMMIT"
           test -d "$RUNNER_TEMP/libXray"
           git -C "$RUNNER_TEMP/libXray" rev-parse HEAD
 
