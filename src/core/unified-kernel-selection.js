@@ -1,4 +1,6 @@
 import { Kernels, normalizeNode } from "./model.js";
+
+export { Kernels };
 import { createRuntimePlan } from "./runtime-plan.js";
 
 export const UNIFIED_KERNEL_SELECTION_VERSION = 1;
