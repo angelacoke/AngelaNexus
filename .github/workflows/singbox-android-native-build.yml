@@ -59,15 +59,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          export GOBIN="$RUNNER_TEMP/gobin"
-          mkdir -p "$GOBIN"
+          GOPATH_BIN="$(go env GOPATH)/bin"
+          mkdir -p "$GOPATH_BIN"
           go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
           go install github.com/sagernet/gomobile/cmd/gobind@v0.1.12
-          test -x "$GOBIN/gomobile"
-          test -x "$GOBIN/gobind"
-          echo "$GOBIN" >> "$GITHUB_PATH"
-          export PATH="$GOBIN:$PATH"
+          test -x "$GOPATH_BIN/gomobile"
+          test -x "$GOPATH_BIN/gobind"
+          echo "$GOPATH_BIN" >> "$GITHUB_PATH"
+          export PATH="$GOPATH_BIN:$PATH"
           command -v gomobile
+          command -v gobind
           gomobile init
 
       - name: Build libbox AARs with upstream build entrypoint
@@ -76,7 +77,6 @@ jobs:
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.0.13004108
-          GOMOBILE: ${{ runner.temp }}/gobin/gomobile
         run: |
           set -euo pipefail
           go run ./cmd/internal/build_libbox -target android
