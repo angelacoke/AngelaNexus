@@ -1746,6 +1746,8 @@ Retain Previous Active State
 
 ### 第七十六条：纲领之基是项目的基因，不是项目的枷锁
 
+纲领之基文件：`docs/ANGELANEXUS_FOUNDATION.md`。
+
 Foundation 是 AngelaNexus 的最高根本方向；Foundation DNA 是这一根本方向的机器可验证遗传表达。
 
 治理层级保持：
