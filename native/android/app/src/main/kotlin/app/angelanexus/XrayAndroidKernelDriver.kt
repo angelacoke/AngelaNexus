@@ -105,7 +105,7 @@ class XrayAndroidKernelDriver(
                 latch.countDown()
             }
         }
-        intent.putExtra(XrayRuntimeProtocol.EXTRA_RESULT, receiver)
+        intent .putExtra(XrayRuntimeProtocol.EXTRA_RESULT, receiver)
         context.startService(intent)
         check(latch.await(20, TimeUnit.SECONDS)) {
             "Timed out waiting for isolated Xray runtime"
