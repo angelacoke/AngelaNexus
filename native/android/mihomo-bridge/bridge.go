@@ -207,7 +207,7 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
         }
         prefix, ok := parsePrefix(value)
         if !ok {
-            _ = syscall.Close(int(fd))
+            // The caller retains ownership until this function succeeds.
             return 0
         }
         if prefix.Addr().Is4() {
@@ -219,16 +219,15 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
 
     dnsHijack, err := parseDNS(cString(dns))
     if err != nil {
-        _ = syscall.Close(int(fd))
+        // The caller retains ownership until this function succeeds.
         return 0
     }
 
     dupFd, err := syscall.Dup(int(fd))
     if err != nil {
-        _ = syscall.Close(int(fd))
+        // The caller retains ownership until this function succeeds.
         return 0
     }
-    defer func() { _ = syscall.Close(int(fd)) }()
 
     vpnProtectionRequired.Store(true)
 
@@ -248,8 +247,14 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
     listener, err := sing_tun.New(options, tunnel.Tunnel)
     if err != nil {
         vpnProtectionRequired.Store(false)
+        _ = syscall.Close(dupFd)
         return 0
     }
+
+    // The listener owns the duplicated descriptor. The caller's descriptor
+    // is released only after successful construction so failure remains
+    // unambiguous at the JNI/service boundary.
+    _ = syscall.Close(int(fd))
     androidTun = listener
     return 1
 }
