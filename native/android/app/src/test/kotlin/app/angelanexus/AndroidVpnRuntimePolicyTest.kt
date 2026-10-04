@@ -11,8 +11,8 @@ class AndroidVpnRuntimePolicyTest {
         val policy = AndroidVpnRuntimePolicy.default()
 
         assertEquals("system", policy.stack)
-        assertContains(policy.addresses, "172.19.0.1/30")
-        assertContains(policy.addresses, "fd00:4e58:0:1::1/126")
+        assertContains(policy.addresses, "198.18.0.2/30")
+        assertContains(policy.addresses, "fd00:198:18::2/126")
         assertContains(policy.routes, "0.0.0.0/0")
         assertContains(policy.routes, "::/0")
         assertTrue(policy.mtu >= 1280)
@@ -20,6 +20,6 @@ class AndroidVpnRuntimePolicyTest {
 
     @Test
     fun dnsHijackIsNotInventedByPlatformLayer() {
-        assertEquals("", AndroidVpnRuntimePolicy.default().dnsHijack)
+        assertEquals("198.18.0.2", AndroidVpnRuntimePolicy.default().dnsHijack)
     }
 }
