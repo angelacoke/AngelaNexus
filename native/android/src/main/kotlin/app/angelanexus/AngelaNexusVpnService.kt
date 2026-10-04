@@ -22,6 +22,7 @@ class AngelaNexusVpnService : VpnService() {
         const val ACTION_START = "app.angelanexus.action.START"
         const val ACTION_STOP = "app.angelanexus.action.STOP"
         const val EXTRA_KERNEL_ID = "app.angelanexus.extra.KERNEL_ID"
+        const val EXTRA_CONFIGURATION = "app.angelanexus.extra.CONFIGURATION"
 
         private const val CHANNEL_ID = "angelanexus-vpn"
         private const val NOTIFICATION_ID = 18181
@@ -68,6 +69,7 @@ class AngelaNexusVpnService : VpnService() {
             driver = selectedDriver
             selectedDriver.preparePlatform(this)
             selectedDriver.initialize(File(filesDir, CORE_HOME).absolutePath)
+            intent?.getStringExtra(EXTRA_CONFIGURATION)?.let { selectedDriver.applyConfiguration(it) }
 
             val builder = Builder()
                 .setSession(getString(R.string.app_name))
