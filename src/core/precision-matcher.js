@@ -116,19 +116,33 @@ function matchDimension(actual, expected, matcher = oneOf) {
 }
 
 export function matchesPrecisionRule(ruleMatch = {}, identity = {}) {
-  const app = identity.app || {};
-  const process = identity.process || {};
+  // Accept both the nested precision identity and the platform routing
+  // context emitted by application-routing.js. This keeps application/process
+  // matching in the platform layer instead of coupling it to a kernel.
+  const app = identity.app || {
+    packageId: identity.package_name || identity.packageName,
+    bundleId: identity.bundle_id || identity.bundleId,
+    appId: identity.applicationId || identity.app_id || identity.appId,
+    uid: identity.uid,
+    instanceId: identity.app_instance_id || identity.instanceId,
+  };
+  const process = identity.process || {
+    name: identity.process_name || identity.processName,
+    executable: identity.executable,
+    path: identity.process_path || identity.processPath,
+  };
   const destination = identity.destination || {};
   const dns = identity.dns || {};
 
   const checks = [
-    matchDimension(app.packageId, ruleMatch.package_id),
+    matchDimension(app.packageId, ruleMatch.package_id ?? ruleMatch.package_name),
     matchDimension(app.bundleId, ruleMatch.bundle_id),
-    matchDimension(app.appId, ruleMatch.app_id),
+    matchDimension(app.appId, ruleMatch.application_id ?? ruleMatch.app_id),
     matchDimension(app.uid, ruleMatch.uid),
     matchDimension(app.instanceId, ruleMatch.app_instance_id),
-    matchDimension(process.name, ruleMatch.process),
+    matchDimension(process.name, ruleMatch.process ?? ruleMatch.process_name),
     matchDimension(process.executable, ruleMatch.executable),
+    matchDimension(process.path, ruleMatch.process_path),
     matchDimension(destination.domain, ruleMatch.domain, domainEquals),
     matchDimension(destination.domain, ruleMatch.domain_suffix, domainSuffix),
     matchDimension(destination.sni, ruleMatch.sni, domainEquals),
