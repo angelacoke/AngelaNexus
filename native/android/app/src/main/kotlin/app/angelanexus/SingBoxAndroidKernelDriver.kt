@@ -76,8 +76,6 @@ class SingBoxAndroidKernelDriver(
             tempPath = temp.path
             debug = false
             logMaxLines = 3000
-            appVersion = "1"
-            appMarketingVersion = "0.1.0"
         })
         initialized = true
     }
