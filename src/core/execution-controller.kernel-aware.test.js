@@ -25,22 +25,28 @@ function input() {
 
 test("execution controller prepares through unified kernel selection", async () => {
   let started = false;
+  let runtimePlan = null;
   const controller = createExecutionController({
     pathRevalidator: async (path) => path,
-    executionFactory: async () => ({
+    executionFactory: async (_config, options) => {
+      runtimePlan = options.runtimePlan;
+      return ({
       configPath: null,
       async start() { started = true; },
       async stop() {},
       async reload() {},
       async status() { return { running: started }; },
       async logs() { return []; },
-    }),
+      });
+    },
   });
 
   const prepared = await controller.prepareKernelAware(input());
   assert.equal(prepared.state, "ready");
   assert.equal(prepared.kernel, Kernels.MIHOMO);
   assert.equal(prepared.kernelSelection.selected.kernel, Kernels.MIHOMO);
+  assert.equal(runtimePlan.ok, true);
+  assert.equal(runtimePlan.plan.kernel, Kernels.MIHOMO);
 
   await controller.start();
   assert.equal(controller.state, "running");
