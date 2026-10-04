@@ -64,6 +64,23 @@ angelanexus_protect_fd(int fd) {
 }
 
 extern "C" JNIEXPORT jstring JNICALL
+Java_app_angelanexus_MihomoJniNativeHost_nativeInitialize(JNIEnv* env, jobject, jstring homeDir) {
+    using Init = char* (*)(const char*);
+    const auto init = resolve<Init>("angelaInit");
+    const auto freeCString = resolve<void (*)(char*)>("freeCString");
+    if (init == nullptr || freeCString == nullptr) {
+        throwState(env, "Mihomo initialization exports are unavailable");
+        return nullptr;
+    }
+    const char* value = homeDir == nullptr ? "" : env->GetStringUTFChars(homeDir, nullptr);
+    char* error = init(value);
+    if (homeDir != nullptr) env->ReleaseStringUTFChars(homeDir, value);
+    jstring result = makeString(env, error);
+    freeCString(error);
+    return result;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
 Java_app_angelanexus_MihomoJniNativeHost_nativeApplyConfig(
     JNIEnv* env, jobject, jstring configJson) {
     using ApplyConfig = char* (*)(const char*);
