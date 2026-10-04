@@ -118,6 +118,8 @@ export function createUnifiedKernelSelection(nodeInput, options = {}) {
       reason: selected.reason,
       runtime: selected.plan?.runtime || null,
       backend: selected.plan?.backend || null,
+      plan: selected.plan || null,
+      driverSelection: selected.driverSelection || null,
     }),
     candidates: Object.freeze(candidates),
     reason: fixed
