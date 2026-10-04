@@ -90,10 +90,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      ANGELANEXUS_RELEASE_KEYSTORE_B64: \${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_B64 }}
-      ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD: \${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD }}
-      ANGELANEXUS_RELEASE_KEY_ALIAS: \${{ secrets.ANGELANEXUS_RELEASE_KEY_ALIAS }}
-      ANGELANEXUS_RELEASE_KEY_PASSWORD: \${{ secrets.ANGELANEXUS_RELEASE_KEY_PASSWORD }}
+      ANGELANEXUS_RELEASE_KEYSTORE_B64: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_B64 }}
+      ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD }}
+      ANGELANEXUS_RELEASE_KEY_ALIAS: ${{ secrets.ANGELANEXUS_RELEASE_KEY_ALIAS }}
+      ANGELANEXUS_RELEASE_KEY_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -156,7 +156,7 @@ jobs:
       - name: Upload signed release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: AngelaNexus-android-release-\${{ github.sha }}
+          name: AngelaNexus-android-release-${{ github.sha }}
           path: |
             native/android/app/build/outputs/apk/release/app-release.apk
             native/android/app/build/outputs/bundle/release/app-release.aab
