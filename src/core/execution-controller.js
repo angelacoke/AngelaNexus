@@ -132,7 +132,7 @@ export function createExecutionController(options = {}) {
     get state() { return state; },
     events() { return eventLedger.snapshot(); },
 
-    async prepare(input) {
+    async prepare(input, executionOptions = {}) {
       if (state !== ExecutionStates.IDLE && state !== ExecutionStates.FAILED) throw new Error("execution controller is not idle");
       state = ExecutionStates.PREPARING;
       failure = null;
@@ -142,7 +142,15 @@ export function createExecutionController(options = {}) {
         request = createExecutionRequest(input);
         execution = await executionFactory(request.config, {
           binary: request.binary, workdir: request.workdir, cwd: request.cwd, env: request.env,
-          reloadSignal: request.reloadSignal, runtimeFactory: request.runtimeFactory
+          reloadSignal: request.reloadSignal,
+          runtimeFactory: request.runtimeFactory,
+          nativeRuntimeFactory: request.nativeRuntimeFactory,
+          platform: request.platform,
+          requestedRuntimeMode: request.requestedRuntimeMode,
+          requireNative: request.requireNative,
+          preferNative: request.preferNative,
+          runtimeArtifactCompliance: request.runtimeArtifactCompliance,
+          runtimePlan: executionOptions.runtimePlan,
         });
         if (sessionInvalidationSource) {
           unsubscribeInvalidation = await sessionInvalidationSource((reason) => {
@@ -169,7 +177,11 @@ export function createExecutionController(options = {}) {
 
     async prepareKernelAware(input) {
       const planned = createKernelAwareExecutionContract(input);
-      const snapshot = await this.prepare(planned.contract);
+      const snapshot = await this.prepare(planned.contract, {
+        runtimePlan: planned.kernelSelection.selected?.plan
+          ? { ok: true, plan: planned.kernelSelection.selected.plan }
+          : undefined,
+      });
       return Object.freeze({
         ...snapshot,
         kernelSelection: planned.kernelSelection,
