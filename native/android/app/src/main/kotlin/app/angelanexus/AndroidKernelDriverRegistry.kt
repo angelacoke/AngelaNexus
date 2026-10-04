@@ -6,7 +6,7 @@ object AndroidKernelDriverRegistry {
     fun all(context: Context): List<AndroidKernelDriver> = listOf(
         MihomoAndroidKernelDriver(MihomoNativeRuntimeFactory.create(context)),
         UnsupportedAndroidKernelDriver("sing-box"),
-        UnsupportedAndroidKernelDriver("xray"),
+        XrayAndroidKernelDriver(context),
     )
 
     fun resolve(context: Context, kernelId: String?): AndroidKernelDriver {
