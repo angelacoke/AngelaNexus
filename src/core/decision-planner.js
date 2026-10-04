@@ -1,6 +1,7 @@
 import { createDecisionRecord } from "./decision-registry.js";
 import { createExecutionContract } from "./execution-contract.js";
 import { createUnifiedKernelSelection } from "./unified-kernel-selection.js";
+import { createRoutingExecutionIntent } from "./routing-execution-intent.js";
 
 export const DecisionPlanVersion = 1;
 
@@ -25,6 +26,8 @@ function assertEvidence(input) {
 function deriveAction(route) {
   if (route.chain === true || Array.isArray(route.hops)) return "chain";
   if (route.bypass === true || route.mode === "direct") return "bypass";
+  if (route.mode === "reject") return "reject";
+  if (route.mode === "dns") return "dns";
   return "routing";
 }
 
@@ -33,7 +36,29 @@ function deriveChoice(route) {
     return Object.freeze({ mode: "chain", hops: Array.isArray(route.hops) ? route.hops : [] });
   }
   if (route.bypass === true || route.mode === "direct") return Object.freeze({ mode: "direct" });
+  if (route.mode === "reject") return Object.freeze({ mode: "reject" });
+  if (route.mode === "dns") return Object.freeze({ mode: "dns", target: text(route.target) || null });
   return Object.freeze({ mode: text(route.mode) || "proxy", target: text(route.target) || null });
+}
+
+export function createRoutingExecutionDecision(input = {}) {
+  if (!input || typeof input !== "object") throw new TypeError("routing execution decision input is required");
+  const intent = createRoutingExecutionIntent(input.routingDecision, {
+    application: input.application,
+    metadata: input.metadata,
+  });
+  const route = {
+    mode: intent.mode,
+    target: intent.target,
+    chain: intent.mode === "chain",
+    hops: intent.hops,
+  };
+  const decision = createExecutionDecision({
+    ...input,
+    route,
+    id: input.id,
+  });
+  return Object.freeze({ decision, intent });
 }
 
 export function createExecutionDecision(input = {}) {
