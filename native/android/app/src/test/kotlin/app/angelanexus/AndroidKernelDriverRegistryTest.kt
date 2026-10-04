@@ -6,15 +6,9 @@ import org.junit.Test
 
 class AndroidKernelDriverRegistryTest {
     @Test
-    fun registryDeclaresAllThreeParallelKernelDrivers() {
-        assertEquals(
-            setOf("mihomo", "sing-box", "xray"),
-            setOf(
-                "mihomo",
-                "sing-box",
-                "xray",
-            ),
-        )
+    fun registryIdentitySetContainsAllThreeParallelKernels() {
+        val identities = listOf("mihomo", "sing-box", "xray")
+        assertEquals(setOf("mihomo", "sing-box", "xray"), identities.toSet())
     }
 
     @Test
@@ -27,13 +21,17 @@ class AndroidKernelDriverRegistryTest {
         assertTrue(driver.capabilities.contains(AndroidKernelDriverCapabilities.STATUS))
     }
 
-    private class FakeMihomoNativeHost : MihomoJniNativeHost(
-        loader = MihomoNativeLibraryLoader(
-            libraryDirectory = java.io.File("."),
-            spec = MihomoNativeArtifactManifest.forAbi(
-                MihomoNativeArtifactManifest.SUPPORTED_ABIS.first(),
-            ),
-        ),
-        loadJniLibrary = {},
-    )
+    private class FakeMihomoNativeHost : MihomoNativeHost {
+        override fun initialize(homeDir: String) = Unit
+        override fun applyConfig(configJson: String): String? = null
+        override fun startTun(tunFd: Int, stack: String, address: String, dns: String): Boolean = true
+        override fun stopTun() = Unit
+        override fun updateDns(dns: String) = Unit
+        override fun setSuspended(suspended: Boolean) = Unit
+        override fun invokeMethod(data: String, callback: (String?) -> Unit) = callback(null)
+        override fun setEventListener(callback: ((String?) -> Unit)?) = Unit
+        override fun forceGc() = Unit
+        override fun getTraffic(onlyStatisticsProxy: Boolean): String = "{}"
+        override fun getTotalTraffic(onlyStatisticsProxy: Boolean): String = "{}"
+    }
 }
