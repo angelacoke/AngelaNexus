@@ -56,23 +56,27 @@ class XrayAndroidKernelDriver(
             override fun protect(fd: Int): Boolean = service.protect(fd)
         })
         val pfd = ParcelFileDescriptor.adoptFd(tunFd)
-        val result = send(
-            Intent(context, XrayRuntimeService::class.java)
-                .setAction(XrayRuntimeProtocol.ACTION_START)
-                .putExtra(XrayRuntimeProtocol.EXTRA_CONFIG, config)
-                .putExtra(XrayRuntimeProtocol.EXTRA_DNS, "198.18.0.2:53")
-                .putExtra(XrayRuntimeProtocol.EXTRA_TUN, pfd)
-                .putExtra(
-                    XrayRuntimeProtocol.EXTRA_PROTECTOR,
-                    Bundle().apply { putBinder("binder", protector) },
-                ),
-        )
-        if (!result.first) {
-            pfd.close()
-            error(result.second)
+        try {
+            val result = send(
+                Intent(context, XrayRuntimeService::class.java)
+                    .setAction(XrayRuntimeProtocol.ACTION_START)
+                    .putExtra(XrayRuntimeProtocol.EXTRA_CONFIG, config)
+                    .putExtra(XrayRuntimeProtocol.EXTRA_DNS, "198.18.0.2:53")
+                    .putExtra(XrayRuntimeProtocol.EXTRA_TUN, pfd)
+                    .putExtra(
+                        XrayRuntimeProtocol.EXTRA_PROTECTOR,
+                        Bundle().apply { putBinder("binder", protector) },
+                    ),
+            )
+            check(result.first) { result.second }
+            running = true
+        } finally {
+            // The runtime receives its own ParcelFileDescriptor through IPC.
+            // This local descriptor always belongs to the driver and must be
+            // closed after hand-off, including timeout/failure paths.
+            runCatching { pfd.close() }
+            tunFd = -1
         }
-        tunFd = -1
-        running = true
     }
 
     override fun stop() {
@@ -82,9 +86,14 @@ class XrayAndroidKernelDriver(
                     .setAction(XrayRuntimeProtocol.ACTION_STOP),
             )
         }
+        runCatching {
+            if (tunFd >= 0) {
+                ParcelFileDescriptor.adoptFd(tunFd).close()
+            }
+        }
+        tunFd = -1
         attached = false
         running = false
-        tunFd = -1
     }
 
     override fun status(): AndroidKernelDriverStatus =
