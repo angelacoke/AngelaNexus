@@ -32,7 +32,7 @@ def require(label, actual, expected):
         print(f"{label}: expected={expected!r} actual={actual!r}")
         raise SystemExit(1)
 
-require("schema", data.get("schema"), "AN-DNA/v1")
+require("schema", data.get("schema"), "AN-DNA/v2")
 require("project", data.get("project"), "AngelaNexus")
 require("identity", data.get("identity"), "AngelaNexus")
 
@@ -66,7 +66,8 @@ for section, fields in {
     },
     "trust_model": {
         "manifest_is_not_root_of_trust": True,
-        "external_anchor_required_for_strong_identity": True,
+        "external_anchor_is_optional_evidence": True,
+        "external_anchor_required_for_strong_identity": False,
     },
 }.items():
     obj = data.get(section)
@@ -100,5 +101,5 @@ require("computed_dna_id", actual_dna, expected_dna)
 print("FOUNDATION_INHERITANCE=PASS")
 print(f"LINEAGE_ROLE={role}")
 print(f"ROOT_REPOSITORY={root_repo}")
-print("EXTERNAL_ANCHOR=REQUIRED_NOT_LOCAL_TRUST")
+print("EXTERNAL_ANCHOR=OPTIONAL_EVIDENCE_NOT_LOCAL_TRUST")
 PY
