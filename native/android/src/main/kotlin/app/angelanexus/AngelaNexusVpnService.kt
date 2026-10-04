@@ -23,6 +23,7 @@ class AngelaNexusVpnService : VpnService() {
         const val ACTION_STOP = "app.angelanexus.action.STOP"
         const val EXTRA_KERNEL_ID = "app.angelanexus.extra.KERNEL_ID"
         const val EXTRA_CONFIGURATION = "app.angelanexus.extra.CONFIGURATION"
+        const val EXTRA_ALLOWED_APPLICATIONS = "app.angelanexus.extra.ALLOWED_APPLICATIONS"
 
         private const val CHANNEL_ID = "angelanexus-vpn"
         private const val NOTIFICATION_ID = 18181
@@ -43,6 +44,7 @@ class AngelaNexusVpnService : VpnService() {
             ACTION_START -> startRuntime(
                 intent.getStringExtra(EXTRA_KERNEL_ID),
                 intent.getStringExtra(EXTRA_CONFIGURATION),
+                intent.getStringArrayListExtra(EXTRA_ALLOWED_APPLICATIONS) ?: arrayListOf(),
                 startId,
             )
             ACTION_STOP -> {
@@ -56,7 +58,7 @@ class AngelaNexusVpnService : VpnService() {
         }
     }
 
-    private fun startRuntime(kernelId: String?, configuration: String?, startId: Int): Int {
+    private fun startRuntime(kernelId: String?, configuration: String?, allowedApplications: List<String>, startId: Int): Int {
         if (tunEstablished) return START_NOT_STICKY
 
         startForeground(NOTIFICATION_ID, notification("VPN runtime starting"))
@@ -80,7 +82,7 @@ class AngelaNexusVpnService : VpnService() {
                 .setMtu(policy.mtu)
                 .setBlocking(false)
 
-            policy.addresses.forEach { cidr ->
+            // Android package scoping narrows the OS interception boundary.\n            // Domain/IP/process matching remains a Core routing concern.\n            allowedApplications.distinct().forEach { packageName ->\n                require(packageName.matches(Regex("[A-Za-z0-9_\\.]+"))) { "invalid Android package name" }\n                builder.addAllowedApplication(packageName)\n            }\n\n            policy.addresses.forEach { cidr ->
                 builder.addAddress(cidr.substringBefore('/'), cidr.substringAfter('/').toInt())
             }
             policy.routes.forEach { cidr ->
