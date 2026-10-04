@@ -81,11 +81,8 @@ jobs:
                   aar.writestr(name, data)
           os.replace(temporary, aar_path)
           PY
-          printf '%s\n' "Verifying shared gomobile runtime ownership"
-          unzip -p "$GITHUB_WORKSPACE/native/android/app/libs/libXray.aar" classes.jar > "$RUNNER_TEMP/libXray-classes.jar"
-          unzip -p "$GITHUB_WORKSPACE/native/android/app/libs/libbox.aar" classes.jar > "$RUNNER_TEMP/libbox-classes.jar"
-          ! jar tf "$RUNNER_TEMP/libXray-classes.jar" | grep -q '^go/'
-          jar tf "$RUNNER_TEMP/libbox-classes.jar" | grep -q '^go/Seq.class
+      - name: Build pinned sing-box libbox AAR
+        shell: bash
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.0.13004108
@@ -105,6 +102,1157 @@ jobs:
           cp libbox.aar "$GITHUB_WORKSPACE/native/android/app/libs/libbox.aar"
           cp libbox-legacy.aar "$GITHUB_WORKSPACE/native/android/app/libs/libbox-legacy.aar"
           sha256sum "$GITHUB_WORKSPACE/native/android/app/libs/libbox.aar" "$GITHUB_WORKSPACE/native/android/app/libs/libbox-legacy.aar"
+          printf '%s\n' "Verifying shared gomobile runtime ownership"
+          unzip -p "$GITHUB_WORKSPACE/native/android/app/libs/libXray.aar" classes.jar > "$RUNNER_TEMP/libXray-classes.jar"
+          unzip -p "$GITHUB_WORKSPACE/native/android/app/libs/libbox.aar" classes.jar > "$RUNNER_TEMP/libbox-classes.jar"
+          ! jar tf "$RUNNER_TEMP/libXray-classes.jar" | grep -q '^go/'
+          jar tf "$RUNNER_TEMP/libbox-classes.jar" | grep -q '^go/Seq.class      - name: Upload prepared Android native kernel AARs
+        uses: actions/upload-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: |
+            native/android/app/libs/libXray.aar
+            native/android/app/libs/libbox.aar
+            native/android/app/libs/libbox-legacy.aar
+          if-no-files-found: error
+          retention-days: 1
+
+  android-debug:
+    needs: prepare-xray
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: native/android/app/libs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Verify libXray AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s native/android/app/libs/libXray.aar
+          test -s native/android/app/libs/libbox.aar
+          unzip -t native/android/app/libs/libXray.aar >/dev/null
+          unzip -t native/android/app/libs/libbox.aar >/dev/null
+      - name: Run Android unit tests
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace testDebugUnitTest
+      - name: Assemble Android debug APK
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace --info assembleDebug
+
+  android-release:
+    needs: prepare-xray
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ANGELANEXUS_RELEASE_KEYSTORE_B64: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_B64 }}
+      ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD }}
+      ANGELANEXUS_RELEASE_KEY_ALIAS: ${{ secrets.ANGELANEXUS_RELEASE_KEY_ALIAS }}
+      ANGELANEXUS_RELEASE_KEY_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: native/android/app/libs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Verify signing configuration is present
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_B64"
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD"
+          test -n "$ANGELANEXUS_RELEASE_KEY_ALIAS"
+          test -n "$ANGELANEXUS_RELEASE_KEY_PASSWORD"
+      - name: Verify Android native kernel AARs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s native/android/app/libs/libXray.aar
+          test -s native/android/app/libs/libbox.aar
+          unzip -t native/android/app/libs/libXray.aar >/dev/null
+          unzip -t native/android/app/libs/libbox.aar >/dev/null
+      - name: Assemble signed release APK and AAB
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace assembleRelease bundleRelease
+      - name: Verify release artifacts and signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="native/android/app/build/outputs/apk/release/app-release.apk"
+          AAB="native/android/app/build/outputs/bundle/release/app-release.aab"
+          test -s "$APK"
+          test -s "$AAB"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          printf '%s' "$ANGELANEXUS_RELEASE_KEYSTORE_B64" | base64 --decode > /tmp/angelanexus-release.keystore
+          chmod 600 /tmp/angelanexus-release.keystore
+          KEYTOOL_OUTPUT="$(keytool -list -v -keystore /tmp/angelanexus-release.keystore -storepass "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD" -alias "$ANGELANEXUS_RELEASE_KEY_ALIAS")"
+          EXPECTED_CERT_SHA256="$(printf '%s' "$KEYTOOL_OUTPUT" | awk '/^[[:space:]]*SHA256:/ {sub(/^[^:]*:[[:space:]]*/, ""); print; exit}')"
+          test -n "$EXPECTED_CERT_SHA256"
+          CERT_OUTPUT="$("$APKSIGNER" verify --print-certs "$APK")"
+          printf '%s' "$CERT_OUTPUT"
+          ACTUAL_CERT_SHA256="$(printf '%s' "$CERT_OUTPUT" | awk '/certificate SHA-256 digest:/ {print $NF; exit}')"
+          test -n "$ACTUAL_CERT_SHA256"
+          EXPECTED="$(printf '%s' "$EXPECTED_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
+          ACTUAL="$(printf '%s' "$ACTUAL_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "ERROR: release APK certificate does not match the configured production keystore."
+            echo "Expected: $EXPECTED"
+            echo "Actual:   $ACTUAL"
+            exit 1
+          fi
+          echo "Production signing certificate verified: $ACTUAL"
+          rm -f /tmp/angelanexus-release.keystore
+      - name: Upload signed release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AngelaNexus-android-release-${{ github.sha }}
+          path: |
+            native/android/app/build/outputs/apk/release/app-release.apk
+            native/android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
+
+          sha256sum "$GITHUB_WORKSPACE/native/android/app/libs/libXray.aar"
+      - name: Build pinned sing-box libbox AAR
+        shell: bash
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.0.13004108
+          SINGBOX_REF: "v1.14.0-beta.4"
+        run: |
+          set -euo pipefail
+          go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+          go install github.com/sagernet/gomobile/cmd/gobind@v0.1.12
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          gomobile init
+          git clone --depth 1 --branch "$SINGBOX_REF" https://github.com/SagerNet/sing-box.git "$RUNNER_TEMP/sing-box"
+          test "$(git -C "$RUNNER_TEMP/sing-box" describe --tags --exact-match)" = "$SINGBOX_REF"
+          cd "$RUNNER_TEMP/sing-box"
+          go run ./cmd/internal/build_libbox -target android
+          test -s libbox.aar
+          test -s libbox-legacy.aar
+          cp libbox.aar "$GITHUB_WORKSPACE/native/android/app/libs/libbox.aar"
+          cp libbox-legacy.aar "$GITHUB_WORKSPACE/native/android/app/libs/libbox-legacy.aar"
+          sha256sum "$GITHUB_WORKSPACE/native/android/app/libs/libbox.aar" "$GITHUB_WORKSPACE/native/android/app/libs/libbox-legacy.aar"
+      - name: Upload prepared Android native kernel AARs
+        uses: actions/upload-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: |
+            native/android/app/libs/libXray.aar
+            native/android/app/libs/libbox.aar
+            native/android/app/libs/libbox-legacy.aar
+          if-no-files-found: error
+          retention-days: 1
+
+  android-debug:
+    needs: prepare-xray
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: native/android/app/libs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Verify libXray AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s native/android/app/libs/libXray.aar
+          test -s native/android/app/libs/libbox.aar
+          unzip -t native/android/app/libs/libXray.aar >/dev/null
+          unzip -t native/android/app/libs/libbox.aar >/dev/null
+      - name: Run Android unit tests
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace testDebugUnitTest
+      - name: Assemble Android debug APK
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace --info assembleDebug
+
+  android-release:
+    needs: prepare-xray
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ANGELANEXUS_RELEASE_KEYSTORE_B64: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_B64 }}
+      ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD }}
+      ANGELANEXUS_RELEASE_KEY_ALIAS: ${{ secrets.ANGELANEXUS_RELEASE_KEY_ALIAS }}
+      ANGELANEXUS_RELEASE_KEY_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: native/android/app/libs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Verify signing configuration is present
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_B64"
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD"
+          test -n "$ANGELANEXUS_RELEASE_KEY_ALIAS"
+          test -n "$ANGELANEXUS_RELEASE_KEY_PASSWORD"
+      - name: Verify Android native kernel AARs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s native/android/app/libs/libXray.aar
+          test -s native/android/app/libs/libbox.aar
+          unzip -t native/android/app/libs/libXray.aar >/dev/null
+          unzip -t native/android/app/libs/libbox.aar >/dev/null
+      - name: Assemble signed release APK and AAB
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace assembleRelease bundleRelease
+      - name: Verify release artifacts and signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="native/android/app/build/outputs/apk/release/app-release.apk"
+          AAB="native/android/app/build/outputs/bundle/release/app-release.aab"
+          test -s "$APK"
+          test -s "$AAB"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          printf '%s' "$ANGELANEXUS_RELEASE_KEYSTORE_B64" | base64 --decode > /tmp/angelanexus-release.keystore
+          chmod 600 /tmp/angelanexus-release.keystore
+          KEYTOOL_OUTPUT="$(keytool -list -v -keystore /tmp/angelanexus-release.keystore -storepass "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD" -alias "$ANGELANEXUS_RELEASE_KEY_ALIAS")"
+          EXPECTED_CERT_SHA256="$(printf '%s' "$KEYTOOL_OUTPUT" | awk '/^[[:space:]]*SHA256:/ {sub(/^[^:]*:[[:space:]]*/, ""); print; exit}')"
+          test -n "$EXPECTED_CERT_SHA256"
+          CERT_OUTPUT="$("$APKSIGNER" verify --print-certs "$APK")"
+          printf '%s' "$CERT_OUTPUT"
+          ACTUAL_CERT_SHA256="$(printf '%s' "$CERT_OUTPUT" | awk '/certificate SHA-256 digest:/ {print $NF; exit}')"
+          test -n "$ACTUAL_CERT_SHA256"
+          EXPECTED="$(printf '%s' "$EXPECTED_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
+          ACTUAL="$(printf '%s' "$ACTUAL_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "ERROR: release APK certificate does not match the configured production keystore."
+            echo "Expected: $EXPECTED"
+            echo "Actual:   $ACTUAL"
+            exit 1
+          fi
+          echo "Production signing certificate verified: $ACTUAL"
+          rm -f /tmp/angelanexus-release.keystore
+      - name: Upload signed release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AngelaNexus-android-release-${{ github.sha }}
+          path: |
+            native/android/app/build/outputs/apk/release/app-release.apk
+            native/android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
+
+          printf '%s\n' "libXray AAR Java runtime deduplicated successfully"
+      - name: Build pinned sing-box libbox AAR
+        shell: bash
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.0.13004108
+          SINGBOX_REF: "v1.14.0-beta.4"
+        run: |
+          set -euo pipefail
+          go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+          go install github.com/sagernet/gomobile/cmd/gobind@v0.1.12
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          gomobile init
+          git clone --depth 1 --branch "$SINGBOX_REF" https://github.com/SagerNet/sing-box.git "$RUNNER_TEMP/sing-box"
+          test "$(git -C "$RUNNER_TEMP/sing-box" describe --tags --exact-match)" = "$SINGBOX_REF"
+          cd "$RUNNER_TEMP/sing-box"
+          go run ./cmd/internal/build_libbox -target android
+          test -s libbox.aar
+          test -s libbox-legacy.aar
+          cp libbox.aar "$GITHUB_WORKSPACE/native/android/app/libs/libbox.aar"
+          cp libbox-legacy.aar "$GITHUB_WORKSPACE/native/android/app/libs/libbox-legacy.aar"
+          sha256sum "$GITHUB_WORKSPACE/native/android/app/libs/libbox.aar" "$GITHUB_WORKSPACE/native/android/app/libs/libbox-legacy.aar"
+      - name: Upload prepared Android native kernel AARs
+        uses: actions/upload-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: |
+            native/android/app/libs/libXray.aar
+            native/android/app/libs/libbox.aar
+            native/android/app/libs/libbox-legacy.aar
+          if-no-files-found: error
+          retention-days: 1
+
+  android-debug:
+    needs: prepare-xray
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: native/android/app/libs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Verify libXray AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s native/android/app/libs/libXray.aar
+          test -s native/android/app/libs/libbox.aar
+          unzip -t native/android/app/libs/libXray.aar >/dev/null
+          unzip -t native/android/app/libs/libbox.aar >/dev/null
+      - name: Run Android unit tests
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace testDebugUnitTest
+      - name: Assemble Android debug APK
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace --info assembleDebug
+
+  android-release:
+    needs: prepare-xray
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ANGELANEXUS_RELEASE_KEYSTORE_B64: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_B64 }}
+      ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD }}
+      ANGELANEXUS_RELEASE_KEY_ALIAS: ${{ secrets.ANGELANEXUS_RELEASE_KEY_ALIAS }}
+      ANGELANEXUS_RELEASE_KEY_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: native/android/app/libs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Verify signing configuration is present
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_B64"
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD"
+          test -n "$ANGELANEXUS_RELEASE_KEY_ALIAS"
+          test -n "$ANGELANEXUS_RELEASE_KEY_PASSWORD"
+      - name: Verify Android native kernel AARs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s native/android/app/libs/libXray.aar
+          test -s native/android/app/libs/libbox.aar
+          unzip -t native/android/app/libs/libXray.aar >/dev/null
+          unzip -t native/android/app/libs/libbox.aar >/dev/null
+      - name: Assemble signed release APK and AAB
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace assembleRelease bundleRelease
+      - name: Verify release artifacts and signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="native/android/app/build/outputs/apk/release/app-release.apk"
+          AAB="native/android/app/build/outputs/bundle/release/app-release.aab"
+          test -s "$APK"
+          test -s "$AAB"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          printf '%s' "$ANGELANEXUS_RELEASE_KEYSTORE_B64" | base64 --decode > /tmp/angelanexus-release.keystore
+          chmod 600 /tmp/angelanexus-release.keystore
+          KEYTOOL_OUTPUT="$(keytool -list -v -keystore /tmp/angelanexus-release.keystore -storepass "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD" -alias "$ANGELANEXUS_RELEASE_KEY_ALIAS")"
+          EXPECTED_CERT_SHA256="$(printf '%s' "$KEYTOOL_OUTPUT" | awk '/^[[:space:]]*SHA256:/ {sub(/^[^:]*:[[:space:]]*/, ""); print; exit}')"
+          test -n "$EXPECTED_CERT_SHA256"
+          CERT_OUTPUT="$("$APKSIGNER" verify --print-certs "$APK")"
+          printf '%s' "$CERT_OUTPUT"
+          ACTUAL_CERT_SHA256="$(printf '%s' "$CERT_OUTPUT" | awk '/certificate SHA-256 digest:/ {print $NF; exit}')"
+          test -n "$ACTUAL_CERT_SHA256"
+          EXPECTED="$(printf '%s' "$EXPECTED_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
+          ACTUAL="$(printf '%s' "$ACTUAL_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "ERROR: release APK certificate does not match the configured production keystore."
+            echo "Expected: $EXPECTED"
+            echo "Actual:   $ACTUAL"
+            exit 1
+          fi
+          echo "Production signing certificate verified: $ACTUAL"
+          rm -f /tmp/angelanexus-release.keystore
+      - name: Upload signed release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AngelaNexus-android-release-${{ github.sha }}
+          path: |
+            native/android/app/build/outputs/apk/release/app-release.apk
+            native/android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
+
+          sha256sum "$GITHUB_WORKSPACE/native/android/app/libs/libXray.aar"
+      - name: Build pinned sing-box libbox AAR
+        shell: bash
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.0.13004108
+          SINGBOX_REF: "v1.14.0-beta.4"
+        run: |
+          set -euo pipefail
+          go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+          go install github.com/sagernet/gomobile/cmd/gobind@v0.1.12
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          gomobile init
+          git clone --depth 1 --branch "$SINGBOX_REF" https://github.com/SagerNet/sing-box.git "$RUNNER_TEMP/sing-box"
+          test "$(git -C "$RUNNER_TEMP/sing-box" describe --tags --exact-match)" = "$SINGBOX_REF"
+          cd "$RUNNER_TEMP/sing-box"
+          go run ./cmd/internal/build_libbox -target android
+          test -s libbox.aar
+          test -s libbox-legacy.aar
+          cp libbox.aar "$GITHUB_WORKSPACE/native/android/app/libs/libbox.aar"
+          cp libbox-legacy.aar "$GITHUB_WORKSPACE/native/android/app/libs/libbox-legacy.aar"
+          sha256sum "$GITHUB_WORKSPACE/native/android/app/libs/libbox.aar" "$GITHUB_WORKSPACE/native/android/app/libs/libbox-legacy.aar"
+      - name: Upload prepared Android native kernel AARs
+        uses: actions/upload-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: |
+            native/android/app/libs/libXray.aar
+            native/android/app/libs/libbox.aar
+            native/android/app/libs/libbox-legacy.aar
+          if-no-files-found: error
+          retention-days: 1
+
+  android-debug:
+    needs: prepare-xray
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: native/android/app/libs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Verify libXray AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s native/android/app/libs/libXray.aar
+          test -s native/android/app/libs/libbox.aar
+          unzip -t native/android/app/libs/libXray.aar >/dev/null
+          unzip -t native/android/app/libs/libbox.aar >/dev/null
+      - name: Run Android unit tests
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace testDebugUnitTest
+      - name: Assemble Android debug APK
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace --info assembleDebug
+
+  android-release:
+    needs: prepare-xray
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ANGELANEXUS_RELEASE_KEYSTORE_B64: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_B64 }}
+      ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD }}
+      ANGELANEXUS_RELEASE_KEY_ALIAS: ${{ secrets.ANGELANEXUS_RELEASE_KEY_ALIAS }}
+      ANGELANEXUS_RELEASE_KEY_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: native/android/app/libs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Verify signing configuration is present
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_B64"
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD"
+          test -n "$ANGELANEXUS_RELEASE_KEY_ALIAS"
+          test -n "$ANGELANEXUS_RELEASE_KEY_PASSWORD"
+      - name: Verify Android native kernel AARs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s native/android/app/libs/libXray.aar
+          test -s native/android/app/libs/libbox.aar
+          unzip -t native/android/app/libs/libXray.aar >/dev/null
+          unzip -t native/android/app/libs/libbox.aar >/dev/null
+      - name: Assemble signed release APK and AAB
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace assembleRelease bundleRelease
+      - name: Verify release artifacts and signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="native/android/app/build/outputs/apk/release/app-release.apk"
+          AAB="native/android/app/build/outputs/bundle/release/app-release.aab"
+          test -s "$APK"
+          test -s "$AAB"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          printf '%s' "$ANGELANEXUS_RELEASE_KEYSTORE_B64" | base64 --decode > /tmp/angelanexus-release.keystore
+          chmod 600 /tmp/angelanexus-release.keystore
+          KEYTOOL_OUTPUT="$(keytool -list -v -keystore /tmp/angelanexus-release.keystore -storepass "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD" -alias "$ANGELANEXUS_RELEASE_KEY_ALIAS")"
+          EXPECTED_CERT_SHA256="$(printf '%s' "$KEYTOOL_OUTPUT" | awk '/^[[:space:]]*SHA256:/ {sub(/^[^:]*:[[:space:]]*/, ""); print; exit}')"
+          test -n "$EXPECTED_CERT_SHA256"
+          CERT_OUTPUT="$("$APKSIGNER" verify --print-certs "$APK")"
+          printf '%s' "$CERT_OUTPUT"
+          ACTUAL_CERT_SHA256="$(printf '%s' "$CERT_OUTPUT" | awk '/certificate SHA-256 digest:/ {print $NF; exit}')"
+          test -n "$ACTUAL_CERT_SHA256"
+          EXPECTED="$(printf '%s' "$EXPECTED_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
+          ACTUAL="$(printf '%s' "$ACTUAL_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "ERROR: release APK certificate does not match the configured production keystore."
+            echo "Expected: $EXPECTED"
+            echo "Actual:   $ACTUAL"
+            exit 1
+          fi
+          echo "Production signing certificate verified: $ACTUAL"
+          rm -f /tmp/angelanexus-release.keystore
+      - name: Upload signed release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AngelaNexus-android-release-${{ github.sha }}
+          path: |
+            native/android/app/build/outputs/apk/release/app-release.apk
+            native/android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
+
+          printf '%s\n' "libXray AAR Java runtime deduplicated successfully"
+      - name: Build pinned sing-box libbox AAR
+        shell: bash
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.0.13004108
+          SINGBOX_REF: "v1.14.0-beta.4"
+        run: |
+          set -euo pipefail
+          go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+          go install github.com/sagernet/gomobile/cmd/gobind@v0.1.12
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          gomobile init
+          git clone --depth 1 --branch "$SINGBOX_REF" https://github.com/SagerNet/sing-box.git "$RUNNER_TEMP/sing-box"
+          test "$(git -C "$RUNNER_TEMP/sing-box" describe --tags --exact-match)" = "$SINGBOX_REF"
+          cd "$RUNNER_TEMP/sing-box"
+          go run ./cmd/internal/build_libbox -target android
+          test -s libbox.aar
+          test -s libbox-legacy.aar
+          cp libbox.aar "$GITHUB_WORKSPACE/native/android/app/libs/libbox.aar"
+          cp libbox-legacy.aar "$GITHUB_WORKSPACE/native/android/app/libs/libbox-legacy.aar"
+          sha256sum "$GITHUB_WORKSPACE/native/android/app/libs/libbox.aar" "$GITHUB_WORKSPACE/native/android/app/libs/libbox-legacy.aar"
+      - name: Upload prepared Android native kernel AARs
+        uses: actions/upload-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: |
+            native/android/app/libs/libXray.aar
+            native/android/app/libs/libbox.aar
+            native/android/app/libs/libbox-legacy.aar
+          if-no-files-found: error
+          retention-days: 1
+
+  android-debug:
+    needs: prepare-xray
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: native/android/app/libs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Verify libXray AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s native/android/app/libs/libXray.aar
+          test -s native/android/app/libs/libbox.aar
+          unzip -t native/android/app/libs/libXray.aar >/dev/null
+          unzip -t native/android/app/libs/libbox.aar >/dev/null
+      - name: Run Android unit tests
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace testDebugUnitTest
+      - name: Assemble Android debug APK
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace --info assembleDebug
+
+  android-release:
+    needs: prepare-xray
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ANGELANEXUS_RELEASE_KEYSTORE_B64: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_B64 }}
+      ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD }}
+      ANGELANEXUS_RELEASE_KEY_ALIAS: ${{ secrets.ANGELANEXUS_RELEASE_KEY_ALIAS }}
+      ANGELANEXUS_RELEASE_KEY_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: native/android/app/libs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Verify signing configuration is present
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_B64"
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD"
+          test -n "$ANGELANEXUS_RELEASE_KEY_ALIAS"
+          test -n "$ANGELANEXUS_RELEASE_KEY_PASSWORD"
+      - name: Verify Android native kernel AARs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s native/android/app/libs/libXray.aar
+          test -s native/android/app/libs/libbox.aar
+          unzip -t native/android/app/libs/libXray.aar >/dev/null
+          unzip -t native/android/app/libs/libbox.aar >/dev/null
+      - name: Assemble signed release APK and AAB
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace assembleRelease bundleRelease
+      - name: Verify release artifacts and signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="native/android/app/build/outputs/apk/release/app-release.apk"
+          AAB="native/android/app/build/outputs/bundle/release/app-release.aab"
+          test -s "$APK"
+          test -s "$AAB"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          printf '%s' "$ANGELANEXUS_RELEASE_KEYSTORE_B64" | base64 --decode > /tmp/angelanexus-release.keystore
+          chmod 600 /tmp/angelanexus-release.keystore
+          KEYTOOL_OUTPUT="$(keytool -list -v -keystore /tmp/angelanexus-release.keystore -storepass "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD" -alias "$ANGELANEXUS_RELEASE_KEY_ALIAS")"
+          EXPECTED_CERT_SHA256="$(printf '%s' "$KEYTOOL_OUTPUT" | awk '/^[[:space:]]*SHA256:/ {sub(/^[^:]*:[[:space:]]*/, ""); print; exit}')"
+          test -n "$EXPECTED_CERT_SHA256"
+          CERT_OUTPUT="$("$APKSIGNER" verify --print-certs "$APK")"
+          printf '%s' "$CERT_OUTPUT"
+          ACTUAL_CERT_SHA256="$(printf '%s' "$CERT_OUTPUT" | awk '/certificate SHA-256 digest:/ {print $NF; exit}')"
+          test -n "$ACTUAL_CERT_SHA256"
+          EXPECTED="$(printf '%s' "$EXPECTED_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
+          ACTUAL="$(printf '%s' "$ACTUAL_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "ERROR: release APK certificate does not match the configured production keystore."
+            echo "Expected: $EXPECTED"
+            echo "Actual:   $ACTUAL"
+            exit 1
+          fi
+          echo "Production signing certificate verified: $ACTUAL"
+          rm -f /tmp/angelanexus-release.keystore
+      - name: Upload signed release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AngelaNexus-android-release-${{ github.sha }}
+          path: |
+            native/android/app/build/outputs/apk/release/app-release.apk
+            native/android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
+
+          sha256sum "$GITHUB_WORKSPACE/native/android/app/libs/libXray.aar"
+      - name: Build pinned sing-box libbox AAR
+        shell: bash
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.0.13004108
+          SINGBOX_REF: "v1.14.0-beta.4"
+        run: |
+          set -euo pipefail
+          go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+          go install github.com/sagernet/gomobile/cmd/gobind@v0.1.12
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          gomobile init
+          git clone --depth 1 --branch "$SINGBOX_REF" https://github.com/SagerNet/sing-box.git "$RUNNER_TEMP/sing-box"
+          test "$(git -C "$RUNNER_TEMP/sing-box" describe --tags --exact-match)" = "$SINGBOX_REF"
+          cd "$RUNNER_TEMP/sing-box"
+          go run ./cmd/internal/build_libbox -target android
+          test -s libbox.aar
+          test -s libbox-legacy.aar
+          cp libbox.aar "$GITHUB_WORKSPACE/native/android/app/libs/libbox.aar"
+          cp libbox-legacy.aar "$GITHUB_WORKSPACE/native/android/app/libs/libbox-legacy.aar"
+          sha256sum "$GITHUB_WORKSPACE/native/android/app/libs/libbox.aar" "$GITHUB_WORKSPACE/native/android/app/libs/libbox-legacy.aar"
+      - name: Upload prepared Android native kernel AARs
+        uses: actions/upload-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: |
+            native/android/app/libs/libXray.aar
+            native/android/app/libs/libbox.aar
+            native/android/app/libs/libbox-legacy.aar
+          if-no-files-found: error
+          retention-days: 1
+
+  android-debug:
+    needs: prepare-xray
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: native/android/app/libs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Verify libXray AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s native/android/app/libs/libXray.aar
+          test -s native/android/app/libs/libbox.aar
+          unzip -t native/android/app/libs/libXray.aar >/dev/null
+          unzip -t native/android/app/libs/libbox.aar >/dev/null
+      - name: Run Android unit tests
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace testDebugUnitTest
+      - name: Assemble Android debug APK
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace --info assembleDebug
+
+  android-release:
+    needs: prepare-xray
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ANGELANEXUS_RELEASE_KEYSTORE_B64: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_B64 }}
+      ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD }}
+      ANGELANEXUS_RELEASE_KEY_ALIAS: ${{ secrets.ANGELANEXUS_RELEASE_KEY_ALIAS }}
+      ANGELANEXUS_RELEASE_KEY_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: native/android/app/libs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Verify signing configuration is present
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_B64"
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD"
+          test -n "$ANGELANEXUS_RELEASE_KEY_ALIAS"
+          test -n "$ANGELANEXUS_RELEASE_KEY_PASSWORD"
+      - name: Verify Android native kernel AARs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s native/android/app/libs/libXray.aar
+          test -s native/android/app/libs/libbox.aar
+          unzip -t native/android/app/libs/libXray.aar >/dev/null
+          unzip -t native/android/app/libs/libbox.aar >/dev/null
+      - name: Assemble signed release APK and AAB
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace assembleRelease bundleRelease
+      - name: Verify release artifacts and signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="native/android/app/build/outputs/apk/release/app-release.apk"
+          AAB="native/android/app/build/outputs/bundle/release/app-release.aab"
+          test -s "$APK"
+          test -s "$AAB"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          printf '%s' "$ANGELANEXUS_RELEASE_KEYSTORE_B64" | base64 --decode > /tmp/angelanexus-release.keystore
+          chmod 600 /tmp/angelanexus-release.keystore
+          KEYTOOL_OUTPUT="$(keytool -list -v -keystore /tmp/angelanexus-release.keystore -storepass "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD" -alias "$ANGELANEXUS_RELEASE_KEY_ALIAS")"
+          EXPECTED_CERT_SHA256="$(printf '%s' "$KEYTOOL_OUTPUT" | awk '/^[[:space:]]*SHA256:/ {sub(/^[^:]*:[[:space:]]*/, ""); print; exit}')"
+          test -n "$EXPECTED_CERT_SHA256"
+          CERT_OUTPUT="$("$APKSIGNER" verify --print-certs "$APK")"
+          printf '%s' "$CERT_OUTPUT"
+          ACTUAL_CERT_SHA256="$(printf '%s' "$CERT_OUTPUT" | awk '/certificate SHA-256 digest:/ {print $NF; exit}')"
+          test -n "$ACTUAL_CERT_SHA256"
+          EXPECTED="$(printf '%s' "$EXPECTED_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
+          ACTUAL="$(printf '%s' "$ACTUAL_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "ERROR: release APK certificate does not match the configured production keystore."
+            echo "Expected: $EXPECTED"
+            echo "Actual:   $ACTUAL"
+            exit 1
+          fi
+          echo "Production signing certificate verified: $ACTUAL"
+          rm -f /tmp/angelanexus-release.keystore
+      - name: Upload signed release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AngelaNexus-android-release-${{ github.sha }}
+          path: |
+            native/android/app/build/outputs/apk/release/app-release.apk
+            native/android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
+
+          printf '%s\n' "libXray AAR Java runtime deduplicated successfully"
+      - name: Build pinned sing-box libbox AAR
+        shell: bash
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.0.13004108
+          SINGBOX_REF: "v1.14.0-beta.4"
+        run: |
+          set -euo pipefail
+          go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+          go install github.com/sagernet/gomobile/cmd/gobind@v0.1.12
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          gomobile init
+          git clone --depth 1 --branch "$SINGBOX_REF" https://github.com/SagerNet/sing-box.git "$RUNNER_TEMP/sing-box"
+          test "$(git -C "$RUNNER_TEMP/sing-box" describe --tags --exact-match)" = "$SINGBOX_REF"
+          cd "$RUNNER_TEMP/sing-box"
+          go run ./cmd/internal/build_libbox -target android
+          test -s libbox.aar
+          test -s libbox-legacy.aar
+          cp libbox.aar "$GITHUB_WORKSPACE/native/android/app/libs/libbox.aar"
+          cp libbox-legacy.aar "$GITHUB_WORKSPACE/native/android/app/libs/libbox-legacy.aar"
+          sha256sum "$GITHUB_WORKSPACE/native/android/app/libs/libbox.aar" "$GITHUB_WORKSPACE/native/android/app/libs/libbox-legacy.aar"
+      - name: Upload prepared Android native kernel AARs
+        uses: actions/upload-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: |
+            native/android/app/libs/libXray.aar
+            native/android/app/libs/libbox.aar
+            native/android/app/libs/libbox-legacy.aar
+          if-no-files-found: error
+          retention-days: 1
+
+  android-debug:
+    needs: prepare-xray
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: native/android/app/libs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Verify libXray AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s native/android/app/libs/libXray.aar
+          test -s native/android/app/libs/libbox.aar
+          unzip -t native/android/app/libs/libXray.aar >/dev/null
+          unzip -t native/android/app/libs/libbox.aar >/dev/null
+      - name: Run Android unit tests
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace testDebugUnitTest
+      - name: Assemble Android debug APK
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace --info assembleDebug
+
+  android-release:
+    needs: prepare-xray
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ANGELANEXUS_RELEASE_KEYSTORE_B64: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_B64 }}
+      ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD }}
+      ANGELANEXUS_RELEASE_KEY_ALIAS: ${{ secrets.ANGELANEXUS_RELEASE_KEY_ALIAS }}
+      ANGELANEXUS_RELEASE_KEY_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: native/android/app/libs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Verify signing configuration is present
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_B64"
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD"
+          test -n "$ANGELANEXUS_RELEASE_KEY_ALIAS"
+          test -n "$ANGELANEXUS_RELEASE_KEY_PASSWORD"
+      - name: Verify Android native kernel AARs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s native/android/app/libs/libXray.aar
+          test -s native/android/app/libs/libbox.aar
+          unzip -t native/android/app/libs/libXray.aar >/dev/null
+          unzip -t native/android/app/libs/libbox.aar >/dev/null
+      - name: Assemble signed release APK and AAB
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace assembleRelease bundleRelease
+      - name: Verify release artifacts and signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="native/android/app/build/outputs/apk/release/app-release.apk"
+          AAB="native/android/app/build/outputs/bundle/release/app-release.aab"
+          test -s "$APK"
+          test -s "$AAB"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          printf '%s' "$ANGELANEXUS_RELEASE_KEYSTORE_B64" | base64 --decode > /tmp/angelanexus-release.keystore
+          chmod 600 /tmp/angelanexus-release.keystore
+          KEYTOOL_OUTPUT="$(keytool -list -v -keystore /tmp/angelanexus-release.keystore -storepass "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD" -alias "$ANGELANEXUS_RELEASE_KEY_ALIAS")"
+          EXPECTED_CERT_SHA256="$(printf '%s' "$KEYTOOL_OUTPUT" | awk '/^[[:space:]]*SHA256:/ {sub(/^[^:]*:[[:space:]]*/, ""); print; exit}')"
+          test -n "$EXPECTED_CERT_SHA256"
+          CERT_OUTPUT="$("$APKSIGNER" verify --print-certs "$APK")"
+          printf '%s' "$CERT_OUTPUT"
+          ACTUAL_CERT_SHA256="$(printf '%s' "$CERT_OUTPUT" | awk '/certificate SHA-256 digest:/ {print $NF; exit}')"
+          test -n "$ACTUAL_CERT_SHA256"
+          EXPECTED="$(printf '%s' "$EXPECTED_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
+          ACTUAL="$(printf '%s' "$ACTUAL_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "ERROR: release APK certificate does not match the configured production keystore."
+            echo "Expected: $EXPECTED"
+            echo "Actual:   $ACTUAL"
+            exit 1
+          fi
+          echo "Production signing certificate verified: $ACTUAL"
+          rm -f /tmp/angelanexus-release.keystore
+      - name: Upload signed release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AngelaNexus-android-release-${{ github.sha }}
+          path: |
+            native/android/app/build/outputs/apk/release/app-release.apk
+            native/android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
+
+          sha256sum "$GITHUB_WORKSPACE/native/android/app/libs/libXray.aar"
+      - name: Build pinned sing-box libbox AAR
+        shell: bash
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.0.13004108
+          SINGBOX_REF: "v1.14.0-beta.4"
+        run: |
+          set -euo pipefail
+          go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+          go install github.com/sagernet/gomobile/cmd/gobind@v0.1.12
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          gomobile init
+          git clone --depth 1 --branch "$SINGBOX_REF" https://github.com/SagerNet/sing-box.git "$RUNNER_TEMP/sing-box"
+          test "$(git -C "$RUNNER_TEMP/sing-box" describe --tags --exact-match)" = "$SINGBOX_REF"
+          cd "$RUNNER_TEMP/sing-box"
+          go run ./cmd/internal/build_libbox -target android
+          test -s libbox.aar
+          test -s libbox-legacy.aar
+          cp libbox.aar "$GITHUB_WORKSPACE/native/android/app/libs/libbox.aar"
+          cp libbox-legacy.aar "$GITHUB_WORKSPACE/native/android/app/libs/libbox-legacy.aar"
+          sha256sum "$GITHUB_WORKSPACE/native/android/app/libs/libbox.aar" "$GITHUB_WORKSPACE/native/android/app/libs/libbox-legacy.aar"
+      - name: Upload prepared Android native kernel AARs
+        uses: actions/upload-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: |
+            native/android/app/libs/libXray.aar
+            native/android/app/libs/libbox.aar
+            native/android/app/libs/libbox-legacy.aar
+          if-no-files-found: error
+          retention-days: 1
+
+  android-debug:
+    needs: prepare-xray
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: native/android/app/libs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Verify libXray AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s native/android/app/libs/libXray.aar
+          test -s native/android/app/libs/libbox.aar
+          unzip -t native/android/app/libs/libXray.aar >/dev/null
+          unzip -t native/android/app/libs/libbox.aar >/dev/null
+      - name: Run Android unit tests
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace testDebugUnitTest
+      - name: Assemble Android debug APK
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace --info assembleDebug
+
+  android-release:
+    needs: prepare-xray
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ANGELANEXUS_RELEASE_KEYSTORE_B64: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_B64 }}
+      ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD }}
+      ANGELANEXUS_RELEASE_KEY_ALIAS: ${{ secrets.ANGELANEXUS_RELEASE_KEY_ALIAS }}
+      ANGELANEXUS_RELEASE_KEY_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: native/android/app/libs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Verify signing configuration is present
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_B64"
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD"
+          test -n "$ANGELANEXUS_RELEASE_KEY_ALIAS"
+          test -n "$ANGELANEXUS_RELEASE_KEY_PASSWORD"
+      - name: Verify Android native kernel AARs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s native/android/app/libs/libXray.aar
+          test -s native/android/app/libs/libbox.aar
+          unzip -t native/android/app/libs/libXray.aar >/dev/null
+          unzip -t native/android/app/libs/libbox.aar >/dev/null
+      - name: Assemble signed release APK and AAB
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace assembleRelease bundleRelease
+      - name: Verify release artifacts and signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="native/android/app/build/outputs/apk/release/app-release.apk"
+          AAB="native/android/app/build/outputs/bundle/release/app-release.aab"
+          test -s "$APK"
+          test -s "$AAB"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          printf '%s' "$ANGELANEXUS_RELEASE_KEYSTORE_B64" | base64 --decode > /tmp/angelanexus-release.keystore
+          chmod 600 /tmp/angelanexus-release.keystore
+          KEYTOOL_OUTPUT="$(keytool -list -v -keystore /tmp/angelanexus-release.keystore -storepass "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD" -alias "$ANGELANEXUS_RELEASE_KEY_ALIAS")"
+          EXPECTED_CERT_SHA256="$(printf '%s' "$KEYTOOL_OUTPUT" | awk '/^[[:space:]]*SHA256:/ {sub(/^[^:]*:[[:space:]]*/, ""); print; exit}')"
+          test -n "$EXPECTED_CERT_SHA256"
+          CERT_OUTPUT="$("$APKSIGNER" verify --print-certs "$APK")"
+          printf '%s' "$CERT_OUTPUT"
+          ACTUAL_CERT_SHA256="$(printf '%s' "$CERT_OUTPUT" | awk '/certificate SHA-256 digest:/ {print $NF; exit}')"
+          test -n "$ACTUAL_CERT_SHA256"
+          EXPECTED="$(printf '%s' "$EXPECTED_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
+          ACTUAL="$(printf '%s' "$ACTUAL_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "ERROR: release APK certificate does not match the configured production keystore."
+            echo "Expected: $EXPECTED"
+            echo "Actual:   $ACTUAL"
+            exit 1
+          fi
+          echo "Production signing certificate verified: $ACTUAL"
+          rm -f /tmp/angelanexus-release.keystore
+      - name: Upload signed release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AngelaNexus-android-release-${{ github.sha }}
+          path: |
+            native/android/app/build/outputs/apk/release/app-release.apk
+            native/android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
+
+          printf '%s\n' "libXray AAR Java runtime deduplicated successfully"
       - name: Upload prepared Android native kernel AARs
         uses: actions/upload-artifact@v4
         with:
