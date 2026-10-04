@@ -103,3 +103,24 @@ test("global policies remain explicit and bypass rule evaluation", () => {
     { type: "bypass", target: "direct" }
   );
 });
+
+test("policy dispatch accepts an explicit chain action with ordered hops", () => {
+  const chainPolicy = createRoutingPolicy({
+    rules: [{
+      id: "app-chain",
+      name: "Application chain",
+      match: { package_name: ["com.example.chain"] },
+      action: { type: "chain", hops: ["node-a", "node-b"] },
+    }],
+  });
+
+  const decision = resolveRoutingPolicyDecision(chainPolicy, {
+    package_name: "com.example.chain",
+  });
+
+  assert.equal(decision.status, "matched");
+  assert.deepEqual(decision.action, {
+    type: "chain",
+    hops: ["node-a", "node-b"],
+  });
+});
