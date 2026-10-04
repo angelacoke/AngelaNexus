@@ -38,7 +38,7 @@ class NativeCoreRuntimeTransport(
         for (index in valueStart until payload.length) {
             val char = payload[index]
             if (escaped) { escaped = false; continue }
-            if (char == '\\\\') { escaped = true; continue }
+            if (char == '\\') { escaped = true; continue }
             if (char == '\"') {
                 return payload.substring(valueStart, index).unescapeJsonString()
             }
@@ -47,9 +47,9 @@ class NativeCoreRuntimeTransport(
     }
 
     private fun String.unescapeJsonString(): String =
-        replace("\\\\\\\\", "\\\\")
-            .replace("\\\\\"", "\"")
-            .replace("\\\\n", "\n")
-            .replace("\\\\r", "\r")
-            .replace("\\\\t", "\t")
+        replace("\\\\", "\\")
+            .replace("\\\"", """)
+            .replace("\\n", "\n")
+            .replace("\\r", "\r")
+            .replace("\\t", "\t")
 }
