@@ -19,37 +19,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify immutable foundation Git object
+      - name: Verify Foundation Gene
         shell: bash
         run: |
-          set -euo pipefail
-          file="docs/ANGELANEXUS_FOUNDATION.md"
-          expected="4f047d7a53ef7db1d18174916ea9ed5cacbd8133"
-          test -f "$file"
-          actual="$(git rev-parse "HEAD:$file")"
-          if [ "$actual" != "$expected" ]; then
-            echo "::error file=$file::FOUNDATION_GATE=FAIL — immutable foundation changed."
-            echo "Expected Git blob: $expected"
-            echo "Actual Git blob:   $actual"
-            exit 1
-          fi
+          chmod +x scripts/verify-foundation-dna.sh
+          ./scripts/verify-foundation-dna.sh
 
-      - name: Verify foundation is referenced by the constitution
+      - name: Verify Foundation inheritance
         shell: bash
         run: |
-          set -euo pipefail
-          grep -Fq 'docs/ANGELANEXUS_FOUNDATION.md' docs/ANGELANEXUS_CONSTITUTION.md
-          grep -Fq '纲领之基' docs/ANGELANEXUS_CONSTITUTION.md
+          chmod +x scripts/verify-foundation-inheritance.sh
+          ./scripts/verify-foundation-inheritance.sh
 
-      - name: Verify mandatory foundation clauses
+      - name: Emit machine-readable compatibility result
         shell: bash
-        run: |
-          set -euo pipefail
-          file="docs/ANGELANEXUS_FOUNDATION.md"
-          grep -Fq '不得被任何个人、团队、维护者、贡献者、开发者、技术方案、商业安排或版本迭代以任何理由削弱、绕过、篡改或废止' "$file"
-          grep -Fq 'Fork 不构成对纲领之基的豁免' "$file"
-          grep -Fq '只要仍然属于 AngelaNexus 的项目继承链，纲领之基就必须被完整继承' "$file"
-
-      - name: Emit machine-readable gate result
-        shell: bash
-        run: echo "FOUNDATION_GATE=PASS"
+        run: echo "FOUNDATION_GATE=PASS — Foundation Gene compatibility verified"
