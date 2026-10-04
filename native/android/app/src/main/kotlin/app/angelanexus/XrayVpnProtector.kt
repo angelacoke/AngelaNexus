@@ -14,12 +14,11 @@ class XrayVpnProtectorBinder(
         const val TRANSACTION_PROTECT = FIRST_CALL_TRANSACTION + 1
     }
 
-    override fun onTransact(code: Int, data: Parcel, reply: Parcel, flags: Int): Boolean {
+    override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
         if (code == TRANSACTION_PROTECT) {
-            data.enforceInterface(descriptor)
             val fd = data.readInt()
-            reply.writeNoException()
-            reply.writeInt(if (protector.protect(fd)) 1 else 0)
+            reply?.writeNoException()
+            reply?.writeInt(if (protector.protect(fd)) 1 else 0)
             return true
         }
         return super.onTransact(code, data, reply, flags)
