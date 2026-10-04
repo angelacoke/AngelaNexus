@@ -44,6 +44,8 @@ jobs:
           python3 build/main.py android
           test -s libXray.aar
           mkdir -p "$GITHUB_WORKSPACE/native/android/app/libs"
+          cp libXray.aar "$GITHUB_WORKSPACE/native/android/app/libs/libXray.aar"
+          sha256sum "$GITHUB_WORKSPACE/native/android/app/libs/libXray.aar"
       - name: Build pinned sing-box libbox AAR
         shell: bash
         env:
@@ -73,7 +75,7 @@ jobs:
           jar tf "$RUNNER_TEMP/libbox-classes.jar" | grep -q "^go/Seq.class$"
           echo "libXray AAR Java runtime deduplicated successfully"
 
-      - name: Upload prepared libXray AAR
+      - name: Upload prepared Android native kernel AARs
         uses: actions/upload-artifact@v4
         with:
           name: angelanexus-android-native-kernel-aars
