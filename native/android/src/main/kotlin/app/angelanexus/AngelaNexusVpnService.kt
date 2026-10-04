@@ -40,7 +40,11 @@ class AngelaNexusVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         return when (intent?.action) {
-            ACTION_START -> startRuntime(intent.getStringExtra(EXTRA_KERNEL_ID), startId)
+            ACTION_START -> startRuntime(
+                intent.getStringExtra(EXTRA_KERNEL_ID),
+                intent.getStringExtra(EXTRA_CONFIGURATION),
+                startId,
+            )
             ACTION_STOP -> {
                 stopRuntime()
                 START_NOT_STICKY
@@ -52,7 +56,7 @@ class AngelaNexusVpnService : VpnService() {
         }
     }
 
-    private fun startRuntime(kernelId: String?, startId: Int): Int {
+    private fun startRuntime(kernelId: String?, configuration: String?, startId: Int): Int {
         if (tunEstablished) return START_NOT_STICKY
 
         startForeground(NOTIFICATION_ID, notification("VPN runtime starting"))
@@ -69,7 +73,7 @@ class AngelaNexusVpnService : VpnService() {
             driver = selectedDriver
             selectedDriver.preparePlatform(this)
             selectedDriver.initialize(File(filesDir, CORE_HOME).absolutePath)
-            intent?.getStringExtra(EXTRA_CONFIGURATION)?.let { selectedDriver.applyConfiguration(it) }
+            configuration?.let { selectedDriver.applyConfiguration(it) }
 
             val builder = Builder()
                 .setSession(getString(R.string.app_name))
