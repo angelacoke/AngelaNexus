@@ -14,6 +14,13 @@ class MihomoJniNativeHost(
         }
     }
 
+    override fun initialize(homeDir: String) {
+        require(homeDir.isNotBlank()) { "homeDir must not be blank" }
+        ensureLoaded()
+        val error = nativeInitialize(homeDir)
+        if (!error.isNullOrEmpty()) error(error)
+    }
+
     override fun applyConfig(configJson: String): String? {
         require(configJson.isNotBlank()) { "configJson must not be blank" }
         ensureLoaded()
@@ -27,20 +34,9 @@ class MihomoJniNativeHost(
         return nativeStartTun(tunFd, stack, address, dns)
     }
 
-    override fun stopTun() {
-        if (!loaded) return
-        nativeStopTun()
-    }
-
-    override fun updateDns(dns: String) {
-        ensureLoaded()
-        nativeUpdateDns(dns)
-    }
-
-    override fun setSuspended(suspended: Boolean) {
-        ensureLoaded()
-        nativeSetSuspended(suspended)
-    }
+    override fun stopTun() { if (loaded) nativeStopTun() }
+    override fun updateDns(dns: String) { ensureLoaded(); nativeUpdateDns(dns) }
+    override fun setSuspended(suspended: Boolean) { ensureLoaded(); nativeSetSuspended(suspended) }
 
     override fun invokeMethod(data: String, callback: (String?) -> Unit) {
         ensureLoaded()
@@ -52,16 +48,11 @@ class MihomoJniNativeHost(
         nativeSetEventListener(callback)
     }
 
-    override fun forceGc() {
-        ensureLoaded()
-        nativeForceGc()
-    }
-
+    override fun forceGc() { ensureLoaded(); nativeForceGc() }
     override fun getTraffic(onlyStatisticsProxy: Boolean): String {
         ensureLoaded()
         return nativeGetTraffic(onlyStatisticsProxy)
     }
-
     override fun getTotalTraffic(onlyStatisticsProxy: Boolean): String {
         ensureLoaded()
         return nativeGetTotalTraffic(onlyStatisticsProxy)
@@ -73,8 +64,7 @@ class MihomoJniNativeHost(
     }
 
     fun clearVpnService() {
-        if (!loaded) return
-        nativeSetVpnService(null)
+        if (loaded) nativeSetVpnService(null)
     }
 
     fun hasVpnProtector(): Boolean {
@@ -82,6 +72,7 @@ class MihomoJniNativeHost(
         return nativeHasVpnProtector()
     }
 
+    private external fun nativeInitialize(homeDir: String): String?
     private external fun nativeApplyConfig(configJson: String): String?
     private external fun nativeSetVpnService(service: android.net.VpnService?)
     private external fun nativeHasVpnProtector(): Boolean
