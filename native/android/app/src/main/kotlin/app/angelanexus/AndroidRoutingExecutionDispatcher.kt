@@ -29,6 +29,9 @@ class AndroidRoutingExecutionDispatcher(
                     "proxy execution intent requires Core-selected kernel identity"
                 }
                 val driver = driverResolver(kernelId)
+                require(driver.id == kernelId) {
+                    "Android driver resolver returned '${driver.id}' for Core-selected kernel '$kernelId'"
+                }
                 Dispatch(intent.mode, intent.target, intent.hopsJson, kernelId, driver)
             }
             "direct", "reject", "dns", "chain" -> {
