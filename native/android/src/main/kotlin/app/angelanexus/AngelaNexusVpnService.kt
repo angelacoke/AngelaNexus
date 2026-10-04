@@ -23,6 +23,7 @@ class AngelaNexusVpnService : VpnService() {
         const val ACTION_STOP = "app.angelanexus.action.STOP"
         const val EXTRA_KERNEL_ID = "app.angelanexus.extra.KERNEL_ID"
         const val EXTRA_CONFIGURATION = "app.angelanexus.extra.CONFIGURATION"
+        const val EXTRA_EXECUTION_INTENT_JSON = "app.angelanexus.extra.EXECUTION_INTENT_JSON"
 
         private const val CHANNEL_ID = "angelanexus-vpn"
         private const val NOTIFICATION_ID = 18181
@@ -43,6 +44,7 @@ class AngelaNexusVpnService : VpnService() {
             ACTION_START -> startRuntime(
                 intent.getStringExtra(EXTRA_KERNEL_ID),
                 intent.getStringExtra(EXTRA_CONFIGURATION),
+                intent.getStringExtra(EXTRA_EXECUTION_INTENT_JSON),
                 startId,
             )
             ACTION_STOP -> {
@@ -56,7 +58,12 @@ class AngelaNexusVpnService : VpnService() {
         }
     }
 
-    private fun startRuntime(kernelId: String?, configuration: String?, startId: Int): Int {
+    private fun startRuntime(
+        kernelId: String?,
+        configuration: String?,
+        executionIntentJson: String?,
+        startId: Int,
+    ): Int {
         if (tunEstablished) return START_NOT_STICKY
 
         startForeground(NOTIFICATION_ID, notification("VPN runtime starting"))
@@ -64,6 +71,13 @@ class AngelaNexusVpnService : VpnService() {
 
         return runCatching {
             stopRuntime(keepService = true)
+
+            val executionIntent = executionIntentJson?.let(AndroidRoutingExecutionIntent::parse)
+            if (executionIntent != null) {
+                check(executionIntent.mode == "proxy") {
+                    "Android system VPN data plane cannot execute this routing mode yet; refusing implicit reinterpretation"
+                }
+            }
 
             // Core has already resolved the kernel. Android only resolves the
             // corresponding registered driver and executes the dispatched intent.
