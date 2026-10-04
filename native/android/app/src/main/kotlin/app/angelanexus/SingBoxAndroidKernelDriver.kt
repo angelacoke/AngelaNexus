@@ -117,8 +117,13 @@ class SingBoxAndroidKernelDriver(
             server.startOrReloadService(config, null)
             running = true
         } catch (error: Throwable) {
+            runCatching { commandServer?.closeService() }
             runCatching { commandServer?.close() }
             commandServer = null
+            runCatching { tun?.close() }
+            tun = null
+            platform.pendingTunFd = null
+            attached = false
             running = false
             throw error
         }
@@ -130,6 +135,7 @@ class SingBoxAndroidKernelDriver(
         commandServer = null
         runCatching { tun?.close() }
         tun = null
+        platform.pendingTunFd = null
         attached = false
         running = false
         platform.service = null
@@ -150,8 +156,7 @@ class SingBoxAndroidKernelDriver(
         }
 
         override fun openTun(options: TunOptions): Int {
-            val descriptor = (this@Platform.service
-                ?: error("Android VpnService is unavailable"))
+            check(service != null) { "Android VpnService is unavailable" }
             return pendingTunFd?.fd ?: error("Android TUN descriptor is unavailable")
         }
 
