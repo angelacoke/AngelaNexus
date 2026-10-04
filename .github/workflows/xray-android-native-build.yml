@@ -102,7 +102,7 @@ jobs:
               "core": {"repository": "https://github.com/XTLS/Xray-core", "version": "pinned by libXray go.mod at build time"},
               "platform": "android",
               "abi": "${{ matrix.abi }}",
-              "toolchain": {"go": "$(go version)", "java": "$(java -version 2>&1 | head -n 1)", "androidNdk": "28.0.13004108"},
+              "toolchain": {"go": "$(go version)", "java": "$(printf temurin-17)", "androidNdk": "28.0.13004108"},
               "artifact": {"name": "libXray-${{ matrix.abi }}.aar", "sha256": "$SHA256"},
               "isolation": "separate Android process required; libXray must not share a process with another independent Go runtime"
           }, indent=2) + "\n", encoding="utf-8")
