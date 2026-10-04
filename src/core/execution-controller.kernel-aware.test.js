@@ -75,3 +75,45 @@ test("execution controller does not prepare when kernel selection fails", async 
   assert.equal(factoryCalled, false);
   assert.equal(controller.state, "idle");
 });
+
+test("execution controller records privacy-safe routing decision evidence", async () => {
+  const controller = createExecutionController({
+    pathRevalidator: async (path) => path,
+    executionFactory: async () => ({
+      async start() {},
+      async stop() {},
+      async reload() {},
+      async status() { return { running: false }; },
+      async logs() { return []; },
+    }),
+  });
+
+  await controller.prepareKernelAware({
+    ...input(),
+    routingDecision: {
+      status: "matched",
+      reason: "matched-rules-converge-on-one-action",
+      action: { type: "route", target: "proxy-us" },
+      ruleIds: ["browser-app", "browser-process"],
+      evidence: {
+        mode: "rule",
+        flow: {
+          package_name: "com.example.browser",
+          process_name: "browser",
+          destination: { domain: "private.example.com" },
+        },
+        matches: [{ ruleId: "browser-app" }],
+      },
+    },
+  });
+
+  const event = controller.events().find((item) => item.type === "routing-decision");
+  assert.ok(event);
+  assert.equal(event.context.state, "matched");
+  assert.deepEqual(event.context.evidence.actions, ["route"]);
+  assert.equal(event.context.evidence.signals.includes("rule:browser-app"), true);
+  assert.equal(event.context.evidence.signals.some((item) => item.includes("private.example.com")), false);
+  assert.equal(event.context.evidence.signals.some((item) => item.includes("com.example.browser")), false);
+
+  await controller.stop();
+});
