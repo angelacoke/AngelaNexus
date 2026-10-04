@@ -18,7 +18,7 @@ import { createApplicationExecutionEvidence, recordApplicationExecutionEvidence 
       payload: "must-not-be-stored",
     });
 
-    assert.match(evidence.identityKey, /android\\|com\\.example\\.app/);
+    assert.ok(evidence.identityKey.startsWith("android|com.example.app"));
     assert.equal(evidence.verificationStatus, "verified");
     assert.doesNotMatch(JSON.stringify(evidence), /secret/);
     assert.doesNotMatch(JSON.stringify(evidence), /must-not-be-stored/);
