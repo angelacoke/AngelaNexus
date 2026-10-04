@@ -7,6 +7,12 @@ on:
       - ".github/workflows/xray-android-native-build.yml"
       - "docs/upstream/XRAY_ANDROID_RUNTIME_COMPLIANCE.json"
       - "native/android/xray-bridge/**"
+      - "native/android/app/src/main/kotlin/app/angelanexus/XrayRuntime*.kt"
+      - "native/android/app/src/main/kotlin/app/angelanexus/XrayAndroidKernelDriver.kt"
+      - "native/android/app/src/main/kotlin/app/angelanexus/XrayVpnProtector.kt"
+      - "native/android/app/src/main/kotlin/app/angelanexus/AndroidKernelDriverRegistry.kt"
+      - "native/android/app/build.gradle.kts"
+      - "native/android/app/src/main/AndroidManifest.xml"
 
 permissions:
   contents: read
