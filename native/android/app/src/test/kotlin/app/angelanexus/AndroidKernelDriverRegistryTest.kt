@@ -23,6 +23,9 @@ class AndroidKernelDriverRegistryTest {
 
     private class FakeMihomoNativeHost : MihomoNativeHost {
         override fun initialize(homeDir: String) = Unit
+        override fun setVpnService(service: android.net.VpnService) = Unit
+        override fun clearVpnService() = Unit
+        override fun hasVpnProtector(): Boolean = true
         override fun applyConfig(configJson: String): String? = null
         override fun startTun(tunFd: Int, stack: String, address: String, dns: String): Boolean = true
         override fun stopTun() = Unit
