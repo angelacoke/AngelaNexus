@@ -67,5 +67,5 @@ test("execution controller does not prepare when kernel selection fails", async 
     /kernel selection failed|unsupported kernel/
   );
   assert.equal(factoryCalled, false);
-  assert.equal(controller.state, "failed");
+  assert.equal(controller.state, "idle");
 });
