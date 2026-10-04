@@ -3,6 +3,7 @@ package app.angelanexus
 import android.content.Intent
 import android.net.VpnService
 import android.os.Bundle
+import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -16,6 +17,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.tooling.preview.Preview
@@ -53,6 +55,7 @@ private fun AngelaNexusRoot() {
     var selectedMode by remember { mutableStateOf(AndroidTransparentMode.AUTO) }
     var status by remember { mutableStateOf(AndroidUiStatus.READY) }
     var importResult by remember { mutableStateOf<CoreRuntimeImportResult?>(null) }
+    val executionState by AndroidKernelExecutionStateStore.state.collectAsState()
 
     val documentLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) {
@@ -79,8 +82,26 @@ private fun AngelaNexusRoot() {
         }
     }
 
+    fun startVpnService(kernelId: String) {
+        val intent = Intent(context, AngelaNexusVpnService::class.java)
+            .setAction(AngelaNexusVpnService.ACTION_START)
+            .putExtra(AngelaNexusVpnService.EXTRA_KERNEL_ID, kernelId)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent)
+        } else {
+            context.startService(intent)
+        }
+    }
+
     val vpnLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val kernelId = importResult?.kernel
+            if (kernelId.isNullOrBlank()) {
+                status = AndroidUiStatus.CORE_RUNTIME_UNAVAILABLE
+            } else {
+                startVpnService(kernelId)
+            }
+        } else {
             status = AndroidUiStatus.VPN_RUNTIME_NOT_READY
         }
     }
@@ -96,9 +117,14 @@ private fun AngelaNexusRoot() {
                 status = AndroidUiStatus.ROOT_MODE_BACKEND_PENDING
             }
             AndroidTransparentMode.SYSTEM -> {
+                val kernelId = importResult?.kernel
+                if (kernelId.isNullOrBlank()) {
+                    status = AndroidUiStatus.CORE_RUNTIME_UNAVAILABLE
+                    return
+                }
                 val intent = VpnService.prepare(context)
                 if (intent == null) {
-                    status = AndroidUiStatus.VPN_RUNTIME_NOT_READY
+                    startVpnService(kernelId)
                 } else {
                     vpnLauncher.launch(intent)
                 }
@@ -123,6 +149,7 @@ private fun AngelaNexusRoot() {
         transparentMode = selectedMode,
         rootAvailable = rootCapabilities.rootAvailable && rootCapabilities.rootAuthorized,
         importResult = importResult,
+        executionState = executionState,
         onTransparentModeChange = { selectedMode = it },
         onImportConfig = {
             status = AndroidUiStatus.SELECTING_CONFIG
@@ -154,6 +181,7 @@ private fun AngelaNexusPreview() {
             transparentMode = AndroidTransparentMode.AUTO,
             rootAvailable = false,
             importResult = null,
+            executionState = KernelExecutionState(),
             onTransparentModeChange = {},
             onImportConfig = {},
             onStartVpn = {},

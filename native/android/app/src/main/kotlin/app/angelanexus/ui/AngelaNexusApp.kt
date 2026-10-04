@@ -16,6 +16,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.angelanexus.AndroidTransparentMode
 import app.angelanexus.CoreRuntimeImportResult
+import app.angelanexus.KernelExecutionState
 import app.angelanexus.R
 
 private data class AppDestination(val label: Int, val icon: androidx.compose.ui.graphics.vector.ImageVector)
@@ -31,6 +32,7 @@ fun AngelaNexusApp(
     transparentMode: AndroidTransparentMode,
     rootAvailable: Boolean,
     importResult: CoreRuntimeImportResult?,
+    executionState: KernelExecutionState,
     onTransparentModeChange: (AndroidTransparentMode) -> Unit,
     onImportConfig: () -> Unit,
     onStartVpn: () -> Unit,
@@ -48,7 +50,7 @@ fun AngelaNexusApp(
         } } }
     ) { padding ->
         when (selected) {
-            0 -> HomeScreen(padding, transparentMode, rootAvailable, importResult, onTransparentModeChange, onImportConfig, onStartVpn)
+            0 -> HomeScreen(padding, transparentMode, rootAvailable, importResult, executionState, onTransparentModeChange, onImportConfig, onStartVpn)
             1 -> ProfilesScreen(padding, onImportConfig, importResult)
             2 -> ProxiesScreen(padding)
             3 -> RulesScreen(padding)
@@ -63,6 +65,7 @@ private fun HomeScreen(
     mode: AndroidTransparentMode,
     rootAvailable: Boolean,
     importResult: CoreRuntimeImportResult?,
+    executionState: KernelExecutionState,
     onMode: (AndroidTransparentMode) -> Unit,
     onImport: () -> Unit,
     onStart: () -> Unit
@@ -72,7 +75,7 @@ private fun HomeScreen(
         item { TrafficCard() }
         item { SectionTitle(R.string.section_environment); EnvironmentCard() }
         item { SectionTitle(R.string.section_quick_actions); QuickActions(onImport) }
-        item { SectionTitle(R.string.section_runtime); RuntimeCard(importResult) }
+        item { SectionTitle(R.string.section_runtime); RuntimeCard(importResult, executionState) }
     }
 }
 
@@ -96,10 +99,13 @@ private fun ConnectionCard(mode: AndroidTransparentMode, rootAvailable: Boolean,
 @Composable private fun TrafficCard() { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(18.dp)) { Text(stringResource(R.string.traffic_title), fontWeight = FontWeight.SemiBold); Spacer(Modifier.height(12.dp)); Text(stringResource(R.string.traffic_idle)) } } }
 @Composable private fun EnvironmentCard() { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { InfoRow(R.string.route_policy, R.string.route_smart); InfoRow(R.string.leak_prevention, R.string.pending_policy); InfoRow(R.string.gfw_awareness, R.string.core_available); InfoRow(R.string.kernels, R.string.kernel_list) } } }
 @Composable private fun QuickActions(onImport: () -> Unit) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { FilledTonalButton(onClick = onImport, Modifier.weight(1f)) { Icon(Icons.Default.ImportExport, null); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.import_config)) }; OutlinedButton(onClick = {}, Modifier.weight(1f)) { Icon(Icons.Default.Speed, null); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.speed_test)) } } }
-@Composable private fun RuntimeCard(result: CoreRuntimeImportResult?) {
+@Composable private fun RuntimeCard(result: CoreRuntimeImportResult?, executionState: KernelExecutionState) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(stringResource(R.string.runtime_title), fontWeight = FontWeight.SemiBold)
+            Text("Execution phase: ${executionState.phase.name}")
+            executionState.kernelId?.let { Text("Execution kernel: $it") }
+            executionState.detail?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             if (result == null) {
                 Text(stringResource(R.string.runtime_description), style = MaterialTheme.typography.bodySmall)
             } else {
