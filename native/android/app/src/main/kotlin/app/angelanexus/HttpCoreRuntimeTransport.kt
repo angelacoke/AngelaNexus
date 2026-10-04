@@ -79,5 +79,5 @@ internal object CoreRuntimeImportResultParser {
     }
 
     private fun String.unescapeJsonString(): String =
-        replace("\\", "\").replace("\"", """)
+        replace("\\\\", "\\").replace("\\\"", "\"")
 }
