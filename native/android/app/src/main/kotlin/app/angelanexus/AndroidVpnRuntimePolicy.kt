@@ -18,12 +18,14 @@ data class AndroidVpnRuntimePolicy(
     ),
     val dnsHijack: String = "198.18.0.2",
     val mtu: Int = 1500,
+    val allowedApplications: List<String> = emptyList(),
 ) {
     init {
         require(stack.isNotBlank())
         require(addresses.isNotEmpty())
         require(routes.isNotEmpty())
         require(mtu >= 1280)
+        require(allowedApplications.all { it.isNotBlank() && it.all { c -> c.isLetterOrDigit() || c == '.' || c == '_' } }) { "invalid Android package name" }
     }
 
     companion object {

@@ -23,6 +23,12 @@ class AngelaNexusVpnService : VpnService() {
         const val ACTION_STOP = "app.angelanexus.action.STOP"
         const val EXTRA_KERNEL_ID = "app.angelanexus.extra.KERNEL_ID"
         const val EXTRA_CONFIGURATION = "app.angelanexus.extra.CONFIGURATION"
+        const val EXTRA_ALLOWED_APPLICATIONS = "app.angelanexus.extra.ALLOWED_APPLICATIONS"
+        const val EXTRA_APPLICATION_IDENTITY_KEY = "app.angelanexus.extra.APPLICATION_IDENTITY_KEY"
+        const val EXTRA_APPLICATION_PACKAGE = "app.angelanexus.extra.APPLICATION_PACKAGE"
+        const val EXTRA_PROCESS_NAME = "app.angelanexus.extra.PROCESS_NAME"
+        const val EXTRA_RULE_ID = "app.angelanexus.extra.RULE_ID"
+        const val EXTRA_ACTION = "app.angelanexus.extra.ROUTING_ACTION"
 
         private const val CHANNEL_ID = "angelanexus-vpn"
         private const val NOTIFICATION_ID = 18181
@@ -30,6 +36,8 @@ class AngelaNexusVpnService : VpnService() {
     }
 
     private val policy = AndroidVpnRuntimePolicy.default()
+    private val applicationExecutionBridge = AndroidApplicationExecutionBridge()
+    private var applicationExecutionContext: AndroidApplicationExecutionContext? = null
     private var driver: AndroidKernelDriver? = null
     private var tunEstablished = false
 
@@ -43,6 +51,12 @@ class AngelaNexusVpnService : VpnService() {
             ACTION_START -> startRuntime(
                 intent.getStringExtra(EXTRA_KERNEL_ID),
                 intent.getStringExtra(EXTRA_CONFIGURATION),
+                intent.getStringArrayListExtra(EXTRA_ALLOWED_APPLICATIONS) ?: arrayListOf(),
+                intent.getStringExtra(EXTRA_APPLICATION_IDENTITY_KEY),
+                intent.getStringExtra(EXTRA_APPLICATION_PACKAGE),
+                intent.getStringExtra(EXTRA_PROCESS_NAME),
+                intent.getStringExtra(EXTRA_RULE_ID),
+                intent.getStringExtra(EXTRA_ACTION),
                 startId,
             )
             ACTION_STOP -> {
@@ -56,11 +70,33 @@ class AngelaNexusVpnService : VpnService() {
         }
     }
 
-    private fun startRuntime(kernelId: String?, configuration: String?, startId: Int): Int {
+    private fun startRuntime(
+        kernelId: String?,
+        configuration: String?,
+        allowedApplications: List<String>,
+        identityKey: String?,
+        applicationPackage: String?,
+        processName: String?,
+        ruleId: String?,
+        routingAction: String?,
+        startId: Int,
+    ): Int {
         if (tunEstablished) return START_NOT_STICKY
 
         startForeground(NOTIFICATION_ID, notification("VPN runtime starting"))
         AndroidKernelExecutionStateStore.beginStart(kernelId)
+
+        val context = AndroidApplicationExecutionContext(
+            stableIdentityKey = identityKey?.takeIf { it.isNotBlank() }
+                ?: applicationPackage?.takeIf { it.isNotBlank() }?.let { "android:package:$it" }
+                ?: "android:service:angelanexus",
+            applicationId = applicationPackage,
+            processName = processName,
+            ruleId = ruleId,
+            action = routingAction,
+        )
+        applicationExecutionContext = context
+        applicationExecutionBridge.planned(context)
 
         return runCatching {
             stopRuntime(keepService = true)
@@ -80,6 +116,13 @@ class AngelaNexusVpnService : VpnService() {
                 .setMtu(policy.mtu)
                 .setBlocking(false)
 
+            // Android package scoping narrows the OS interception boundary.
+            // Domain/IP/process matching remains a Core routing concern.
+            (policy.allowedApplications + allowedApplications).distinct().forEach { packageName ->
+                require(packageName.matches(Regex("[A-Za-z0-9_\\.]+"))) { "invalid Android package name" }
+                builder.addAllowedApplication(packageName)
+            }
+
             policy.addresses.forEach { cidr ->
                 builder.addAddress(cidr.substringBefore('/'), cidr.substringAfter('/').toInt())
             }
@@ -97,14 +140,37 @@ class AngelaNexusVpnService : VpnService() {
             // Detach here so ParcelFileDescriptor cannot later close a reused fd.
             val fd = descriptor.detachFd()
 
+            applicationExecutionBridge.interceptionEstablished(
+                context,
+                driverId = selectedDriver.id,
+                kernelId = selectedDriver.id,
+            )
+
             selectedDriver.attachTun(fd, policy)
             selectedDriver.start()
 
             tunEstablished = true
             AndroidKernelExecutionStateStore.markRunning(selectedDriver.id)
-            updateNotification("VPN runtime active — $kernelId")
+            applicationExecutionBridge.active(
+                context,
+                driverId = selectedDriver.id,
+                kernelId = selectedDriver.id,
+            )
+            applicationExecutionBridge.unverified(
+                context,
+                driverId = selectedDriver.id,
+                kernelId = selectedDriver.id,
+                reason = "Android runtime has no trusted egress verifier yet",
+            )
+            updateNotification("VPN runtime active — egress verification pending")
             START_NOT_STICKY
         }.getOrElse { error ->
+            applicationExecutionBridge.failed(
+                context,
+                driverId = driver?.id,
+                kernelId = kernelId,
+                reason = error.message ?: "VPN runtime failed",
+            )
             stopRuntime()
             fail(error.message ?: "VPN runtime failed", kernelId)
             stopSelfResult(startId)
@@ -116,9 +182,19 @@ class AngelaNexusVpnService : VpnService() {
         if (driver != null || tunEstablished) {
             AndroidKernelExecutionStateStore.beginStop()
         }
-        runCatching { driver?.stop() }
+        val currentDriver = driver
+        val context = applicationExecutionContext
+        runCatching { currentDriver?.stop() }
+        if (context != null) {
+            applicationExecutionBridge.stopped(
+                context,
+                driverId = currentDriver?.id,
+                kernelId = currentDriver?.id,
+            )
+        }
         driver = null
         tunEstablished = false
+        applicationExecutionContext = null
 
         if (!keepService) {
             stopForegroundCompat()

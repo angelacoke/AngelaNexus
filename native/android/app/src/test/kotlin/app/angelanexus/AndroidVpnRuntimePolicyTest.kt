@@ -16,6 +16,7 @@ class AndroidVpnRuntimePolicyTest {
         assertContains(policy.routes, "0.0.0.0/0")
         assertContains(policy.routes, "::/0")
         assertTrue(policy.mtu >= 1280)
+        assertTrue(policy.allowedApplications.isEmpty())
     }
 
     @Test

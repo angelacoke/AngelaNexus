@@ -56,3 +56,67 @@ jobs:
           name: AngelaNexus-android-release
           path: native/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
+
+  telegram-delivery:
+    name: Sync Android package to Telegram
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: ${{ needs.release.result == 'success' }}
+    steps:
+      - name: Download signed release package
+        uses: actions/download-artifact@v4
+        with:
+          name: AngelaNexus-android-release
+          path: package
+
+      - name: Validate Telegram delivery configuration
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$TELEGRAM_BOT_TOKEN"
+          test -n "$TELEGRAM_CHAT_ID"
+
+      - name: Compute package digest
+        id: digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="package/app-release.apk"
+          test -s "$APK"
+          SHA256="$(sha256sum "$APK" | awk '{print $1}')"
+          SIZE="$(stat -c '%s' "$APK")"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+          echo "size=$SIZE" >> "$GITHUB_OUTPUT"
+
+      - name: Send package to Telegram bot target
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PACKAGE_PATH: package/app-release.apk
+          PACKAGE_SHA256: ${{ steps.digest.outputs.sha256 }}
+          PACKAGE_SIZE: ${{ steps.digest.outputs.size }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}"
+          CAPTION="AngelaNexus Android package
+commit: ${GITHUB_SHA}
+workflow: ${GITHUB_RUN_NUMBER}
+artifact: app-release.apk
+size: ${PACKAGE_SIZE} bytes
+SHA-256: ${PACKAGE_SHA256}"
+
+          curl --fail-with-body --silent --show-error             --request POST             --form "chat_id=${TELEGRAM_CHAT_ID}"             --form "caption=${CAPTION}"             --form "document=@${PACKAGE_PATH}"             "${API}/sendDocument" > telegram-response.json
+
+          python3 -c 'import json, pathlib; data=json.loads(pathlib.Path("telegram-response.json").read_text()); assert data.get("ok") is True, data.get("description", "unknown error"); print("Telegram package delivery verified: API returned ok=true")'
+
+      - name: Publish delivery evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: AngelaNexus-android-telegram-delivery-${{ github.sha }}
+          path: telegram-response.json
+          if-no-files-found: error
+          retention-days: 14
