@@ -22,7 +22,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import app.angelanexus.ui.AngelaNexusApp
 import app.angelanexus.ui.theme.AngelaNexusTheme
 import kotlinx.coroutines.launch
-import java.net.URI
 
 class MainActivity : ComponentActivity() {
     override fun attachBaseContext(newBase: android.content.Context) {
@@ -45,7 +44,7 @@ private fun AngelaNexusRoot() {
     val darkTheme = isSystemInDarkTheme()
     val scope = rememberCoroutineScope()
     val coreRuntimeTransport = remember {
-        HttpCoreRuntimeTransport(URI("http://127.0.0.1:18181/"))
+        NativeCoreRuntimeTransport(context)
     }
     val importPort = remember { SerializedConfigImportPort(coreRuntimeTransport) }
     val importCoordinator = remember { ConfigImportCoordinator(importPort) }
