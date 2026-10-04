@@ -61,3 +61,5 @@ export * from "./ui/translations.js";
 export * from "./ui/semantic-localization.js";
 export * from "./ui/locale-preference.js";
 export * from "./ui/locale-preference-state.js";
+
+export * from "./core/application-execution-controller.js";
