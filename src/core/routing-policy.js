@@ -77,8 +77,18 @@ function normalizeAction(action) {
 
   const normalized = { type };
 
-  if (type === "route" || type === "chain" || type === "bypass") {
+  if (type === "route" || type === "bypass") {
     normalized.target = nonEmptyString(action.target, "routing action target");
+  }
+
+  if (type === "chain") {
+    if (action.target !== undefined && action.target !== null && text(action.target)) {
+      normalized.target = text(action.target);
+    }
+    if (!Array.isArray(action.hops) || action.hops.length < 2) {
+      throw new Error("routing chain action requires at least two hops");
+    }
+    normalized.hops = clone(action.hops);
   }
 
   if (type === "dns") {
