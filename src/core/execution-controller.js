@@ -186,6 +186,7 @@ export function createExecutionController(options = {}) {
         runtimePlan: planned.kernelSelection.selected?.plan
           ? { ok: true, plan: planned.kernelSelection.selected.plan }
           : undefined,
+        routingDecision: input.routingDecision,
       });
       return Object.freeze({
         ...snapshot,
