@@ -11,7 +11,7 @@ function list(value) {
   const values = Array.isArray(value) ? value : value == null ? [] : [value];
   return [...new Set(values.map(text).filter(Boolean))];
 }
-function freezeObject(value) { return Object.freeze(value && typeof value === "object' ? structuredClone(value) : {}); }
+function freezeObject(value) { return Object.freeze(value && typeof value === "object" ? structuredClone(value) : {}); }
 
 /**
  * Kernel-neutral Android data-plane contract.
