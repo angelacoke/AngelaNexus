@@ -34,6 +34,7 @@ export * from "./core/pipeline.js";
 export * from "./core/driver-scheduler.js";
 export * from "./core/application-identity.js";
 export * from "./core/app-proxy-driver.js";
+export * from "./core/application-routing.js";
 
 export * from "./core/session-invalidation.js";
 export * from "./core/execution-event-ledger.js";
