@@ -155,7 +155,10 @@ class SingBoxAndroidKernelDriver(
 
         override fun openTun(options: TunOptions): Int {
             check(service != null) { "Android VpnService is unavailable" }
-            return pendingTunFd?.fd ?: error("Android TUN descriptor is unavailable")
+            val descriptor = pendingTunFd ?: error("Android TUN descriptor is unavailable")
+            // libbox transfers ownership of the descriptor returned by OpenTun.
+            // Keep the driver's original descriptor private and hand native code a duplicate.
+            return ParcelFileDescriptor.fromFd(descriptor.fd).detachFd()
         }
 
         @Volatile
