@@ -114,11 +114,18 @@ class AngelaNexusVpnService : VpnService() {
             // startTUN duplicates and takes ownership of the native descriptor.
             // Detach here so ParcelFileDescriptor cannot later close a reused fd.
             val fd = descriptor.detachFd()
+            var driverOwnsTun = false
+            try {
+                selectedDriver.attachTun(fd, policy)
+                driverOwnsTun = true
+                selectedDriver.start()
 
-            selectedDriver.attachTun(fd, policy)
-            selectedDriver.start()
-
-            tunEstablished = true
+                tunEstablished = true
+            } finally {
+                if (!driverOwnsTun) {
+                    runCatching { android.os.ParcelFileDescriptor.adoptFd(fd).close() }
+                }
+            }
             AndroidKernelExecutionStateStore.markRunning(selectedDriver.id)
             updateNotification("VPN runtime active — ${selectedDriver.id}")
             START_NOT_STICKY
