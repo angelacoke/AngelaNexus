@@ -22,6 +22,7 @@ class XrayAndroidKernelDriver(
     )
 
     private var platformService: VpnService? = null
+    private var initialized = false
     private var configuration: String? = null
     private var tunFd: Int = -1
     private var attached = false
@@ -33,14 +34,17 @@ class XrayAndroidKernelDriver(
 
     override fun initialize(homeDir: String) {
         check(platformService != null) { "Xray platform service is not prepared" }
+        initialized = true
     }
 
     override fun applyConfiguration(configuration: String) {
+        check(initialized) { "Xray driver is not initialized" }
         check(configuration.isNotBlank()) { "Xray configuration is empty" }
         this.configuration = configuration
     }
 
     override fun attachTun(tunFd: Int, policy: AndroidVpnRuntimePolicy) {
+        check(initialized) { "Xray driver is not initialized" }
         require(tunFd >= 0) { "tunFd must be non-negative" }
         check(platformService != null) { "Xray platform service is not prepared" }
         check(!attached) { "Xray TUN is already attached" }
@@ -49,6 +53,7 @@ class XrayAndroidKernelDriver(
     }
 
     override fun start() {
+        check(initialized) { "Xray driver is not initialized" }
         val service = platformService ?: error("Xray platform service is not prepared")
         val config = configuration ?: error("Xray configuration has not been applied")
         check(attached) { "Xray driver has no attached TUN" }
@@ -102,6 +107,7 @@ class XrayAndroidKernelDriver(
         running = false
         platformService = null
         configuration = null
+        initialized = false
     }
 
     override fun status(): AndroidKernelDriverStatus =
