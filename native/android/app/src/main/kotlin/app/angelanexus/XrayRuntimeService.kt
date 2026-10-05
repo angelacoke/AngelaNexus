@@ -110,13 +110,14 @@ class XrayRuntimeService : Service() {
             .onFailure { closeFailure ->
                 if (failure == null) failure = closeFailure
             }
-        tun = null
-
         if (!nativeStopped) {
-            running = true
+            // Keep the descriptor reference alive while the native runtime is
+            // still considered running. A later STOP retry must not lose the
+            // ownership needed for orderly teardown.
             return failure
         }
 
+        tun = null
         running = false
         runCatching { XrayLibXrayApi().resetDns() }
             .onFailure { dnsFailure ->
