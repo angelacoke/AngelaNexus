@@ -33,6 +33,7 @@ class AngelaNexusVpnService : VpnService() {
     private val policy = AndroidVpnRuntimePolicy.default()
     private var driver: AndroidKernelDriver? = null
     private var tunEstablished = false
+    private var stopFailure: Throwable? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -65,6 +66,10 @@ class AngelaNexusVpnService : VpnService() {
         startId: Int,
     ): Int {
         if (tunEstablished) return START_NOT_STICKY
+        stopFailure?.let {
+            fail("VPN runtime remains in failed-stop state: " + (it.message ?: it::class.java.simpleName), kernelId)
+            return START_NOT_STICKY
+        }
 
         startForeground(NOTIFICATION_ID, notification("VPN runtime starting"))
         AndroidKernelExecutionStateStore.beginStart(kernelId)
@@ -130,26 +135,51 @@ class AngelaNexusVpnService : VpnService() {
             updateNotification("VPN runtime active — ${selectedDriver.id}")
             START_NOT_STICKY
         }.getOrElse { error ->
-            stopRuntime()
-            fail(error.message ?: "VPN runtime failed", kernelId)
+            val cleanupFailure = stopRuntime()
+            val detail = if (cleanupFailure == null) {
+                error.message ?: "VPN runtime failed"
+            } else {
+                (error.message ?: "VPN runtime failed") + "; cleanup also failed: " +
+                    (cleanupFailure.message ?: cleanupFailure::class.java.simpleName)
+            }
+            fail(detail, kernelId)
             stopSelfResult(startId)
             START_NOT_STICKY
         }
     }
 
-    private fun stopRuntime(keepService: Boolean = false) {
+    private fun stopRuntime(keepService: Boolean = false): Throwable? {
         if (driver != null || tunEstablished) {
             AndroidKernelExecutionStateStore.beginStop()
         }
-        runCatching { driver?.stop() }
+
+        var failure: Throwable? = null
+        try {
+            driver?.stop()
+        } catch (error: Throwable) {
+            failure = error
+        }
         driver = null
         tunEstablished = false
+        stopFailure = failure
 
         if (!keepService) {
-            stopForegroundCompat()
-            AndroidKernelExecutionStateStore.markStopped()
-            stopSelf()
+            if (failure == null) {
+                stopForegroundCompat()
+                AndroidKernelExecutionStateStore.markStopped()
+                stopSelf()
+            } else {
+                // A failed kernel stop means native runtime state is not
+                // proven stopped. Keep the service alive and fail closed:
+                // do not advertise STOPPED and do not accept a new START.
+                updateNotification("VPN runtime stop failed")
+                AndroidKernelExecutionStateStore.markFailure(
+                    failure.message ?: "kernel stop failed",
+                    null,
+                )
+            }
         }
+        return failure
     }
 
     private fun fail(detail: String, kernelId: String?) {
