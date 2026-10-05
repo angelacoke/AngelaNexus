@@ -1,7 +1,9 @@
 package app.angelanexus
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 class AndroidKernelDriverRegistryTest {
@@ -21,13 +23,49 @@ class AndroidKernelDriverRegistryTest {
         assertTrue(driver.capabilities.contains(AndroidKernelDriverCapabilities.STATUS))
     }
 
-    private class FakeMihomoNativeHost : MihomoNativeHost {
+    @Test
+    fun mihomoDriverRejectsDuplicateTunAttachment() {
+        val driver = MihomoAndroidKernelDriver(FakeMihomoNativeHost())
+        driver.initialize("/tmp/angelanexus-test")
+        driver.attachTun(100, AndroidVpnRuntimePolicy.default())
+
+        try {
+            driver.attachTun(101, AndroidVpnRuntimePolicy.default())
+            fail("duplicate TUN attachment must be rejected")
+        } catch (error: IllegalStateException) {
+            assertEquals("Mihomo TUN is already attached", error.message)
+        }
+
+        assertTrue(driver.status().detail == "TUN attached")
+        driver.stop()
+        assertFalse(driver.status().running)
+        assertEquals("idle", driver.status().detail)
+    }
+
+    @Test
+    fun mihomoFailedNativeTunAttachDoesNotEnterAttachedState() {
+        val driver = MihomoAndroidKernelDriver(FakeMihomoNativeHost(startTunResult = false))
+        driver.initialize("/tmp/angelanexus-test")
+        try {
+            driver.attachTun(100, AndroidVpnRuntimePolicy.default())
+            fail("failed native TUN attach must throw")
+        } catch (error: IllegalStateException) {
+            assertEquals("Mihomo failed to bind the Android TUN descriptor", error.message)
+        }
+
+        assertFalse(driver.status().running)
+        assertEquals("idle", driver.status().detail)
+    }
+
+    private class FakeMihomoNativeHost(
+        private val startTunResult: Boolean = true,
+    ) : MihomoNativeHost {
         override fun initialize(homeDir: String) = Unit
         override fun setVpnService(service: android.net.VpnService) = Unit
         override fun clearVpnService() = Unit
         override fun hasVpnProtector(): Boolean = true
         override fun applyConfig(configJson: String): String? = null
-        override fun startTun(tunFd: Int, stack: String, address: String, dns: String): Boolean = true
+        override fun startTun(tunFd: Int, stack: String, address: String, dns: String): Boolean = startTunResult
         override fun stopTun() = Unit
         override fun updateDns(dns: String) = Unit
         override fun setSuspended(suspended: Boolean) = Unit
