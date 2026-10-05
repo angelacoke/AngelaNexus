@@ -94,24 +94,30 @@ class XrayRuntimeService : Service() {
         if (!running && tun == null) return null
 
         var failure: Throwable? = null
+        var nativeStopped = false
         runCatching {
             val result = XrayLibXrayApi().stop()
             check(result.success) {
                 result.error.ifBlank { "libXray stopXray failed" }
             }
+            nativeStopped = true
         }.onFailure { failure = it }
 
-        // Always release the platform-side descriptor even when the native
-        // runtime refuses to stop. A failed native stop is still reported to
-        // the caller so a new runtime cannot be started on top of an unknown
-        // native state.
+        // The platform descriptor is always released, but native running state
+        // is retained when stopXray fails so a later stop can retry the native
+        // operation instead of falsely reporting the runtime as stopped.
         runCatching { tun?.close() }
             .onFailure { closeFailure ->
                 if (failure == null) failure = closeFailure
             }
         tun = null
-        running = false
 
+        if (!nativeStopped) {
+            running = true
+            return failure
+        }
+
+        running = false
         runCatching { XrayLibXrayApi().resetDns() }
             .onFailure { dnsFailure ->
                 if (failure == null) failure = dnsFailure
