@@ -43,6 +43,7 @@ class XrayAndroidKernelDriver(
     override fun attachTun(tunFd: Int, policy: AndroidVpnRuntimePolicy) {
         require(tunFd >= 0) { "tunFd must be non-negative" }
         check(platformService != null) { "Xray platform service is not prepared" }
+        check(!attached) { "Xray TUN is already attached" }
         this.tunFd = tunFd
         attached = true
     }
@@ -51,6 +52,7 @@ class XrayAndroidKernelDriver(
         val service = platformService ?: error("Xray platform service is not prepared")
         val config = configuration ?: error("Xray configuration has not been applied")
         check(attached) { "Xray driver has no attached TUN" }
+        check(!running) { "Xray driver is already running" }
 
         val protector = XrayVpnProtectorBinder(object : XrayVpnProtector {
             override fun protect(fd: Int): Boolean = service.protect(fd)
@@ -70,6 +72,10 @@ class XrayAndroidKernelDriver(
             )
             check(result.first) { result.second }
             running = true
+        } catch (failure: Throwable) {
+            attached = false
+            running = false
+            throw failure
         } finally {
             // The runtime receives its own ParcelFileDescriptor through IPC.
             // This local descriptor always belongs to the driver and must be
@@ -94,6 +100,8 @@ class XrayAndroidKernelDriver(
         tunFd = -1
         attached = false
         running = false
+        platformService = null
+        configuration = null
     }
 
     override fun status(): AndroidKernelDriverStatus =
