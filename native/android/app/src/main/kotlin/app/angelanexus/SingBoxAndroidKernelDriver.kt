@@ -253,7 +253,7 @@ class SingBoxAndroidKernelDriver(
                 result.flags = networkInterfaceFlags(networkInterface)
                 val properties = linkProperties[networkInterface.name]
                 result.type = properties?.let { networkInterfaceType(connectivity, networks, it) }
-                    ?: io.nekohasekai.libbox.InterfaceTypeOther
+                    ?: io.nekohasekai.libbox.Libbox.InterfaceTypeOther
                 result.DNSServer = StringListIterator(
                     properties?.dnsServers?.mapNotNull { it.hostAddress } ?: emptyList(),
                 )
@@ -296,11 +296,11 @@ class SingBoxAndroidKernelDriver(
                 ?: return io.nekohasekai.libbox.InterfaceTypeOther
             return when {
                 capabilities.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) ->
-                    io.nekohasekai.libbox.InterfaceTypeWIFI
+                    io.nekohasekai.libbox.Libbox.InterfaceTypeWIFI
                 capabilities.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) ->
-                    io.nekohasekai.libbox.InterfaceTypeCellular
+                    io.nekohasekai.libbox.Libbox.InterfaceTypeCellular
                 capabilities.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) ->
-                    io.nekohasekai.libbox.InterfaceTypeEthernet
+                    io.nekohasekai.libbox.Libbox.InterfaceTypeEthernet
                 else -> io.nekohasekai.libbox.InterfaceTypeOther
             }
         }
