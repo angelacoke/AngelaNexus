@@ -95,8 +95,7 @@ class SingBoxAndroidKernelDriver(
         check(attached) { "sing-box driver has no attached TUN" }
         check(!running) { "sing-box driver is already running" }
         val config = configuration ?: error("sing-box configuration is required")
-        try {
-            val server = CommandServer(object : CommandServerHandler {
+        val server = CommandServer(object : CommandServerHandler {
                 override fun serviceStop() = Unit
                 override fun serviceReload() = Unit
                 override fun getSystemProxyStatus(): SystemProxyStatus? = SystemProxyStatus()
