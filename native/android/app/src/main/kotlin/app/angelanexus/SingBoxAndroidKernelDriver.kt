@@ -1,9 +1,6 @@
 package app.angelanexus
 
 import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -17,7 +14,6 @@ import io.nekohasekai.libbox.ConnectionOwner
 import io.nekohasekai.libbox.InterfaceUpdateListener
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.LocalDNSTransport
-import io.nekohasekai.libbox.NeighborEntryIterator
 import io.nekohasekai.libbox.NeighborUpdateListener
 import io.nekohasekai.libbox.NetworkInterfaceIterator
 import io.nekohasekai.libbox.PlatformInterface
@@ -30,7 +26,6 @@ import io.nekohasekai.libbox.SetupOptions
 import io.nekohasekai.libbox.SystemProxyStatus
 import java.io.File
 import java.net.InetSocketAddress
-import java.net.NetworkInterface
 
 /**
  * sing-box execution driver.
@@ -119,6 +114,10 @@ class SingBoxAndroidKernelDriver(
         } catch (error: Throwable) {
             runCatching { commandServer?.closeService() }
             runCatching { commandServer?.close() }
+            if (commandServer == null) {
+                runCatching { server.closeService() }
+                runCatching { server.close() }
+            }
             commandServer = null
             runCatching { tun?.close() }
             tun = null
