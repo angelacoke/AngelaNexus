@@ -267,6 +267,10 @@ func stopTun() {
         _ = androidTun.Close()
         androidTun = nil
     }
+    // No TUN listener remains after stop. Prevent future core sockets from
+    // entering the Android VpnService protector path while the platform
+    // service is being detached or the next runtime is being prepared.
+    vpnProtectionRequired.Store(false)
 }
 
 //export suspend
