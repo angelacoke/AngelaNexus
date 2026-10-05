@@ -32,7 +32,9 @@ class XrayRuntimeService : Service() {
     private fun handleStart(intent: Intent) {
         val receiver = intent.parcelable<ResultReceiver>(XrayRuntimeProtocol.EXTRA_RESULT)
         runCatching {
-            stopRuntime()
+            check(stopRuntime() == null) {
+                "Xray runtime could not be stopped before restart"
+            }
             val pfd = intent.parcelable<ParcelFileDescriptor>(XrayRuntimeProtocol.EXTRA_TUN)
                 ?: error("Xray TUN descriptor is missing")
             val config = intent.getStringExtra(XrayRuntimeProtocol.EXTRA_CONFIG)
@@ -74,7 +76,9 @@ class XrayRuntimeService : Service() {
     private fun handleStop(intent: Intent) {
         val receiver = intent.parcelable<ResultReceiver>(XrayRuntimeProtocol.EXTRA_RESULT)
         runCatching {
-            stopRuntime()
+            check(stopRuntime() == null) {
+                "Xray runtime stop failed"
+            }
             receiver?.send(XrayRuntimeProtocol.RESULT_OK, Bundle())
         }.onFailure { failure ->
             receiver?.send(
@@ -86,13 +90,34 @@ class XrayRuntimeService : Service() {
         }
     }
 
-    private fun stopRuntime() {
-        if (!running && tun == null) return
-        runCatching { XrayLibXrayApi().stop() }
-        runCatching { XrayLibXrayApi().resetDns() }
+    private fun stopRuntime(): Throwable? {
+        if (!running && tun == null) return null
+
+        var failure: Throwable? = null
+        runCatching {
+            val result = XrayLibXrayApi().stop()
+            check(result.success) {
+                result.error.ifBlank { "libXray stopXray failed" }
+            }
+        }.onFailure { failure = it }
+
+        // Always release the platform-side descriptor even when the native
+        // runtime refuses to stop. A failed native stop is still reported to
+        // the caller so a new runtime cannot be started on top of an unknown
+        // native state.
         runCatching { tun?.close() }
+            .onFailure { closeFailure ->
+                if (failure == null) failure = closeFailure
+            }
         tun = null
         running = false
+
+        runCatching { XrayLibXrayApi().resetDns() }
+            .onFailure { dnsFailure ->
+                if (failure == null) failure = dnsFailure
+            }
+
+        return failure
     }
 
     private fun injectTun(configText: String, tunFd: Int): String {
