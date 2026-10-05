@@ -84,6 +84,7 @@ class SingBoxAndroidKernelDriver(
 
     override fun attachTun(tunFd: Int, policy: AndroidVpnRuntimePolicy) {
         check(initialized) { "sing-box driver is not initialized" }
+        check(platform.service != null) { "sing-box platform service is not prepared" }
         require(tunFd >= 0) { "tunFd must be non-negative" }
         check(tun == null) { "sing-box TUN is already attached" }
         tun = ParcelFileDescriptor.adoptFd(tunFd)
