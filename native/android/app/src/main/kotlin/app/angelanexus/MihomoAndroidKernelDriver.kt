@@ -37,6 +37,7 @@ class MihomoAndroidKernelDriver(
 
     override fun attachTun(tunFd: Int, policy: AndroidVpnRuntimePolicy) {
         check(initialized) { "Mihomo driver is not initialized" }
+        check(!attached) { "Mihomo TUN is already attached" }
         require(tunFd >= 0) { "tunFd must be non-negative" }
         check(runtime.hasVpnProtector()) {
             "Android VpnService protector is unavailable"
@@ -54,6 +55,7 @@ class MihomoAndroidKernelDriver(
 
     override fun start() {
         check(attached) { "Mihomo driver has no attached TUN" }
+        check(!running) { "Mihomo driver is already running" }
         running = true
     }
 
