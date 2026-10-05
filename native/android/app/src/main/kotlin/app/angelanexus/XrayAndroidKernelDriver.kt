@@ -104,25 +104,26 @@ class XrayAndroidKernelDriver(
 
         // The runtime owns the handed-off descriptor after start(). The local
         // descriptor is already closed in start(), so tunFd is normally -1.
-        // Only clear the lifecycle contract after native stop is confirmed.
-        if (failure != null) {
-            failure?.let { throw it }
-        }
-
+        // Release any locally retained descriptor even when native stop fails,
+        // but preserve the lifecycle state needed for a later native-stop retry.
         try {
             if (tunFd >= 0) {
                 ParcelFileDescriptor.adoptFd(tunFd).close()
             }
         } catch (error: Throwable) {
-            failure = error
+            if (failure == null) failure = error else failure?.addSuppressed(error)
         }
         tunFd = -1
+
+        if (failure != null) {
+            failure?.let { throw it }
+        }
+
         attached = false
         running = false
         platformService = null
         configuration = null
         initialized = false
-        failure?.let { throw it }
     }
 
     override fun status(): AndroidKernelDriverStatus =
