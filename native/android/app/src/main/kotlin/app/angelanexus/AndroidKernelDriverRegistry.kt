@@ -5,7 +5,7 @@ import android.content.Context
 object AndroidKernelDriverRegistry {
     fun all(context: Context): List<AndroidKernelDriver> = listOf(
         MihomoAndroidKernelDriver(MihomoNativeRuntimeFactory.create(context)),
-        UnsupportedAndroidKernelDriver("sing-box"),
+        SingBoxAndroidKernelDriver(context),
         XrayAndroidKernelDriver(context),
     )
 
