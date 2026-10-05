@@ -129,16 +129,30 @@ class SingBoxAndroidKernelDriver(
         }
     }
     override fun stop() {
-        runCatching { commandServer?.closeService() }
-        runCatching { commandServer?.close() }
+        var failure: Throwable? = null
+        try {
+            commandServer?.closeService()
+        } catch (error: Throwable) {
+            failure = error
+        }
+        try {
+            commandServer?.close()
+        } catch (error: Throwable) {
+            if (failure == null) failure = error else failure?.addSuppressed(error)
+        }
         commandServer = null
-        runCatching { tun?.close() }
+        try {
+            tun?.close()
+        } catch (error: Throwable) {
+            if (failure == null) failure = error else failure?.addSuppressed(error)
+        }
         tun = null
         platform.pendingTunFd = null
         attached = false
         running = false
         platform.service = null
         configuration = null
+        failure?.let { throw it }
     }
 
     override fun status(): AndroidKernelDriverStatus =
