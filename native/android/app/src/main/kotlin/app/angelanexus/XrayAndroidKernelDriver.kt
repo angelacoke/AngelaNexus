@@ -91,16 +91,22 @@ class XrayAndroidKernelDriver(
     }
 
     override fun stop() {
-        runCatching {
-            send(
+        var failure: Throwable? = null
+        try {
+            val result = send(
                 Intent(context, XrayRuntimeService::class.java)
                     .setAction(XrayRuntimeProtocol.ACTION_STOP),
             )
+            check(result.first) { result.second }
+        } catch (error: Throwable) {
+            failure = error
         }
-        runCatching {
+        try {
             if (tunFd >= 0) {
                 ParcelFileDescriptor.adoptFd(tunFd).close()
             }
+        } catch (error: Throwable) {
+            if (failure == null) failure = error else failure?.addSuppressed(error)
         }
         tunFd = -1
         attached = false
@@ -108,6 +114,7 @@ class XrayAndroidKernelDriver(
         platformService = null
         configuration = null
         initialized = false
+        failure?.let { throw it }
     }
 
     override fun status(): AndroidKernelDriverStatus =
