@@ -96,16 +96,17 @@ class SingBoxAndroidKernelDriver(
         check(!running) { "sing-box driver is already running" }
         val config = configuration ?: error("sing-box configuration is required")
         val server = CommandServer(object : CommandServerHandler {
-                override fun serviceStop() = Unit
-                override fun serviceReload() = Unit
-                override fun getSystemProxyStatus(): SystemProxyStatus? = SystemProxyStatus()
-                override fun setSystemProxyEnabled(enabled: Boolean) = Unit
-                override fun triggerNativeCrash() = Unit
-                override fun writeDebugMessage(message: String?) {
-                    Log.d("AngelaNexus-sing-box", message ?: "")
-                }
-                override fun connectSSHAgent(): Int = -1
-            }, platform)
+            override fun serviceStop() = Unit
+            override fun serviceReload() = Unit
+            override fun getSystemProxyStatus(): SystemProxyStatus? = SystemProxyStatus()
+            override fun setSystemProxyEnabled(enabled: Boolean) = Unit
+            override fun triggerNativeCrash() = Unit
+            override fun writeDebugMessage(message: String?) {
+                Log.d("AngelaNexus-sing-box", message ?: "")
+            }
+            override fun connectSSHAgent(): Int = -1
+        }, platform)
+        try {
             server.start()
             commandServer = server
             server.startOrReloadService(config, null)
@@ -126,7 +127,6 @@ class SingBoxAndroidKernelDriver(
             throw error
         }
     }
-
     override fun stop() {
         runCatching { commandServer?.closeService() }
         runCatching { commandServer?.close() }
