@@ -187,11 +187,132 @@ class SingBoxAndroidKernelDriver(
             return owner
         }
 
-        override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener) = Unit
-        override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener) = Unit
+        private val interfaceMonitors =
+            java.util.concurrent.ConcurrentHashMap<InterfaceUpdateListener, ConnectivityManager.NetworkCallback>()
 
-        override fun getInterfaces(): NetworkInterfaceIterator =
-            EmptyNetworkInterfaceIterator()
+        override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+                return
+            }
+            val connectivity = context.getSystemService(ConnectivityManager::class.java)
+                ?: error("ConnectivityManager unavailable")
+            val callback = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) {
+                    updateDefaultInterface(connectivity, network, listener)
+                }
+
+                override fun onCapabilitiesChanged(
+                    network: android.net.Network,
+                    capabilities: android.net.NetworkCapabilities,
+                ) {
+                    updateDefaultInterface(connectivity, network, listener, capabilities)
+                }
+
+                override fun onLost(network: android.net.Network) {
+                    listener.updateDefaultInterface("", -1, false, false)
+                }
+            }
+            check(interfaceMonitors.putIfAbsent(listener, callback) == null) {
+                "default interface monitor is already registered"
+            }
+            connectivity.registerDefaultNetworkCallback(callback)
+        }
+
+        override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
+            val connectivity = context.getSystemService(ConnectivityManager::class.java) ?: return
+            interfaceMonitors.remove(listener)?.let { callback ->
+                runCatching { connectivity.unregisterNetworkCallback(callback) }
+            }
+        }
+
+        override fun getInterfaces(): NetworkInterfaceIterator {
+            val interfaces = mutableListOf<io.nekohasekai.libbox.NetworkInterface>()
+            val connectivity = context.getSystemService(ConnectivityManager::class.java)
+            val networks = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && connectivity != null) {
+                connectivity.allNetworks.toList()
+            } else {
+                emptyList()
+            }
+            val linkProperties = networks.mapNotNull { network ->
+                connectivity?.getLinkProperties(network)
+            }.associateBy { it.interfaceName }
+
+            val enumeration = java.net.NetworkInterface.getNetworkInterfaces()
+                ?: return NetworkInterfaceListIterator(emptyList())
+            while (enumeration.hasMoreElements()) {
+                val networkInterface = enumeration.nextElement()
+                val result = io.nekohasekai.libbox.NetworkInterface()
+                result.index = networkInterface.index
+                result.mtu = networkInterface.mtu
+                result.name = networkInterface.name
+                result.addresses = StringListIterator(
+                    networkInterface.interfaceAddresses.map { address ->
+                        address.address.hostAddress + "/" + address.networkPrefixLength
+                    },
+                )
+                result.flags = networkInterfaceFlags(networkInterface)
+                val properties = linkProperties[networkInterface.name]
+                result.type = properties?.let { networkInterfaceType(connectivity, networks, it) }
+                    ?: io.nekohasekai.libbox.NetworkInterfaceType.other
+                result.dNSServer = StringListIterator(
+                    properties?.dnsServers?.mapNotNull { it.hostAddress } ?: emptyList(),
+                )
+                result.metered = properties?.let { props ->
+                    connectivity?.getNetworkCapabilities(networks.firstOrNull { network ->
+                        connectivity.getLinkProperties(network)?.interfaceName == props.interfaceName
+                    })?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
+                } ?: false
+                interfaces += result
+            }
+            return NetworkInterfaceListIterator(interfaces)
+        }
+
+        private fun updateDefaultInterface(
+            connectivity: ConnectivityManager,
+            network: android.net.Network,
+            listener: InterfaceUpdateListener,
+            capabilities: android.net.NetworkCapabilities? = connectivity.getNetworkCapabilities(network),
+        ) {
+            val properties = connectivity.getLinkProperties(network) ?: return
+            val interfaceName = properties.interfaceName ?: return
+            val index = runCatching {
+                java.net.NetworkInterface.getByName(interfaceName).index
+            }.getOrElse { -1 }
+            val expensive = capabilities?.hasCapability(
+                android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED,
+            ) == false
+            listener.updateDefaultInterface(interfaceName, index, expensive, false)
+        }
+
+        private fun networkInterfaceType(
+            connectivity: ConnectivityManager?,
+            networks: List<android.net.Network>,
+            properties: android.net.LinkProperties,
+        ): Int {
+            val network = networks.firstOrNull { candidate ->
+                connectivity?.getLinkProperties(candidate)?.interfaceName == properties.interfaceName
+            } ?: return io.nekohasekai.libbox.NetworkInterfaceType.other
+            val capabilities = connectivity?.getNetworkCapabilities(network)
+                ?: return io.nekohasekai.libbox.NetworkInterfaceType.other
+            return when {
+                capabilities.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) ->
+                    io.nekohasekai.libbox.NetworkInterfaceType.wifi
+                capabilities.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) ->
+                    io.nekohasekai.libbox.NetworkInterfaceType.cellular
+                capabilities.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) ->
+                    io.nekohasekai.libbox.NetworkInterfaceType.ethernet
+                else -> io.nekohasekai.libbox.NetworkInterfaceType.other
+            }
+        }
+
+        private fun networkInterfaceFlags(networkInterface: java.net.NetworkInterface): Int {
+            var flags = 0
+            if (networkInterface.isUp) flags = flags or 0x1
+            if (networkInterface.isLoopback) flags = flags or 0x8
+            if (networkInterface.isPointToPoint) flags = flags or 0x10
+            if (networkInterface.isVirtual) flags = flags or 0x10000
+            return flags
+        }
 
         override fun underNetworkExtension(): Boolean = false
         override fun includeAllNetworks(): Boolean = false
@@ -232,9 +353,25 @@ class SingBoxAndroidKernelDriver(
             error("Android bridge is not enabled by the platform driver")
     }
 
-    private class EmptyNetworkInterfaceIterator : NetworkInterfaceIterator {
-        override fun hasNext(): Boolean = false
+    private class NetworkInterfaceListIterator(
+        private val values: List<io.nekohasekai.libbox.NetworkInterface>,
+    ) : NetworkInterfaceIterator {
+        private var index = 0
+
+        override fun hasNext(): Boolean = index < values.size
+
         override fun next(): io.nekohasekai.libbox.NetworkInterface =
-            error("no network interface")
+            values.getOrNull(index++) ?: error("no more network interfaces")
+    }
+
+    private class StringListIterator(
+        private val values: List<String>,
+    ) : StringIterator {
+        private var index = 0
+
+        override fun hasNext(): Boolean = index < values.size
+
+        override fun next(): String =
+            values.getOrNull(index++) ?: error("no more strings")
     }
 }
