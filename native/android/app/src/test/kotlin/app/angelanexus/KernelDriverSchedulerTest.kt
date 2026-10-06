@@ -29,9 +29,20 @@ class KernelDriverSchedulerTest {
         val scheduler = KernelDriverScheduler(
             listOf(FakeDriver("mihomo", full), FakeDriver("xray", full)),
         )
+        val selection = scheduler.select(KernelExecutionIntent(preferredKernelId = "xray"))
+        assertEquals("xray", selection.kernelId)
+        assertEquals(KernelDriverSelectionReason.PREFERRED_MATCH, selection.reason)
+        assertEquals(listOf("mihomo", "xray"), selection.candidates)
+    }
+
+    @Test
+    fun preferredKernelIdMatchingIsCaseAndWhitespaceInsensitive() {
+        val scheduler = KernelDriverScheduler(
+            listOf(FakeDriver("mihomo", full), FakeDriver("Xray", full)),
+        )
         assertEquals(
-            "xray",
-            scheduler.select(KernelExecutionIntent(preferredKernelId = "xray")).kernelId,
+            "Xray",
+            scheduler.select(KernelExecutionIntent(preferredKernelId = "  xRaY ")).kernelId,
         )
     }
 
@@ -40,6 +51,9 @@ class KernelDriverSchedulerTest {
         val scheduler = KernelDriverScheduler(
             listOf(FakeDriver("sing-box", full), FakeDriver("mihomo", full)),
         )
-        assertEquals("sing-box", scheduler.select(KernelExecutionIntent()).kernelId)
+        val selection = scheduler.select(KernelExecutionIntent())
+        assertEquals("sing-box", selection.kernelId)
+        assertEquals(KernelDriverSelectionReason.FIRST_CAPABILITY_MATCH, selection.reason)
+        assertEquals(listOf("sing-box", "mihomo"), selection.candidates)
     }
 }

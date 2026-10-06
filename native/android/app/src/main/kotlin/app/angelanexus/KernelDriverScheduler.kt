@@ -13,7 +13,14 @@ data class KernelExecutionIntent(
 data class KernelDriverSelection(
     val kernelId: String,
     val capabilities: Set<String>,
+    val candidates: List<String>,
+    val reason: KernelDriverSelectionReason,
 )
+
+enum class KernelDriverSelectionReason {
+    PREFERRED_MATCH,
+    FIRST_CAPABILITY_MATCH,
+}
 
 class KernelDriverScheduler(
     private val drivers: List<AndroidKernelDriver>,
@@ -24,12 +31,28 @@ class KernelDriverScheduler(
             driver.capabilities.containsAll(intent.requiredCapabilities)
         }
         val selected = if (preferred != null) {
-            candidates.firstOrNull { it.id == preferred }
+            candidates.firstOrNull { it.id.trim().lowercase() == preferred }
         } else {
-            candidates.firstOrNull()
-        } ?: throw IllegalStateException(
-            "No kernel driver satisfies required capabilities: " + intent.requiredCapabilities.joinToString(",")
+            null
+        }
+
+        val chosen = selected ?: candidates.firstOrNull()
+        val reason = if (selected != null) {
+            KernelDriverSelectionReason.PREFERRED_MATCH
+        } else {
+            KernelDriverSelectionReason.FIRST_CAPABILITY_MATCH
+        }
+
+        chosen ?: throw IllegalStateException(
+            "No kernel driver satisfies required capabilities: " +
+                intent.requiredCapabilities.joinToString(","),
         )
-        return KernelDriverSelection(selected.id, selected.capabilities)
+
+        return KernelDriverSelection(
+            kernelId = chosen.id,
+            capabilities = chosen.capabilities,
+            candidates = candidates.map { it.id },
+            reason = reason,
+        )
     }
 }
