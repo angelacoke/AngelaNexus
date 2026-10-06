@@ -20,6 +20,9 @@ import java.lang.reflect.Proxy
 class XrayRuntimeService : Service() {
     private var tun: ParcelFileDescriptor? = null
     private var running = false
+    // Native Xray is stopped before DNS reset. Keep this pending bit so a
+    // failed DNS reset is retried by the next STOP without calling stopXray again.
+    private var dnsResetPending = false
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -108,8 +111,12 @@ class XrayRuntimeService : Service() {
                 return nativeFailure
             }
             running = false
+            dnsResetPending = true
+        }
 
+        if (dnsResetPending) {
             runCatching { XrayLibXrayApi().resetDns() }
+                .onSuccess { dnsResetPending = false }
                 .onFailure { dnsFailure ->
                     failure = dnsFailure
                 }
