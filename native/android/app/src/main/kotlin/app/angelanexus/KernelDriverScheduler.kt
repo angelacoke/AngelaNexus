@@ -20,6 +20,7 @@ data class KernelDriverSelection(
 enum class KernelDriverSelectionReason {
     PREFERRED_MATCH,
     FIRST_CAPABILITY_MATCH,
+    PREFERRED_UNAVAILABLE_FALLBACK,
 }
 
 class KernelDriverScheduler(
@@ -37,10 +38,10 @@ class KernelDriverScheduler(
         }
 
         val chosen = selected ?: candidates.firstOrNull()
-        val reason = if (selected != null) {
-            KernelDriverSelectionReason.PREFERRED_MATCH
-        } else {
-            KernelDriverSelectionReason.FIRST_CAPABILITY_MATCH
+        val reason = when {
+            selected != null -> KernelDriverSelectionReason.PREFERRED_MATCH
+            preferred != null -> KernelDriverSelectionReason.PREFERRED_UNAVAILABLE_FALLBACK
+            else -> KernelDriverSelectionReason.FIRST_CAPABILITY_MATCH
         }
 
         chosen ?: throw IllegalStateException(
