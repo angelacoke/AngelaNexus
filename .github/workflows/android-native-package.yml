@@ -36,15 +36,22 @@ jobs:
           from pathlib import Path
           data = json.loads(Path("docs/upstream/MIHOMO_ANDROID_RUNTIME_COMPLIANCE.json").read_text(encoding="utf-8"))
           upstream_conclusion = "${{ github.event.workflow_run.conclusion }}"
+          required = data["policy"]["runtimeContract"]
+          gates = {
+              "distributionStatus": data["distributionStatus"] == "approved" if data["policy"]["failClosed"] else True,
+              "licenseReview": data["licenseReview"]["status"] == "approved",
+              "provenanceReview": data["provenanceReview"]["status"] == "approved",
+              "namingCompliance": data["namingCompliance"]["status"] == "approved",
+          }
           approved = (
               upstream_conclusion == "success"
-              and data["distributionStatus"] == "approved"
-              and data["licenseReview"]["status"] == "approved"
+              and all(gates.values())
+              and all(required.values())
           )
           print(f"approved={'true' if approved else 'false'}")
           print(f"upstream_conclusion={upstream_conclusion}")
-          print(f"distributionStatus={data['distributionStatus']}")
-          print(f"licenseReview={data['licenseReview']['status']}")
+          for name, ok in gates.items():
+              print(f"{name}={'approved' if ok else 'blocked'}")
           PY
 
   package:
