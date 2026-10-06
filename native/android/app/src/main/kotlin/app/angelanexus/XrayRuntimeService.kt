@@ -94,28 +94,37 @@ class XrayRuntimeService : Service() {
         if (!running && tun == null) return null
 
         var failure: Throwable? = null
-        runCatching {
-            val result = XrayLibXrayApi().stop()
-            check(result.success) {
-                result.error.ifBlank { "libXray stopXray failed" }
-            }
-        }.onFailure { failure = it }
 
-        // Always release the platform-side descriptor even when the native
-        // runtime refuses to stop. A failed native stop is still reported to
-        // the caller so a new runtime cannot be started on top of an unknown
-        // native state.
-        runCatching { tun?.close() }
-            .onFailure { closeFailure ->
-                if (failure == null) failure = closeFailure
+        // If the native runtime is still running, stop it before releasing the
+        // descriptor it may still be using. A failed native stop must retain
+        // both the runtime state and descriptor ownership for a later retry.
+        if (running) {
+            runCatching {
+                val result = XrayLibXrayApi().stop()
+                check(result.success) {
+                    result.error.ifBlank { "libXray stopXray failed" }
+                }
+            }.onFailure { nativeFailure ->
+                return nativeFailure
             }
-        tun = null
-        running = false
+            running = false
 
-        runCatching { XrayLibXrayApi().resetDns() }
-            .onFailure { dnsFailure ->
-                if (failure == null) failure = dnsFailure
-            }
+            runCatching { XrayLibXrayApi().resetDns() }
+                .onFailure { dnsFailure ->
+                    failure = dnsFailure
+                }
+        }
+
+        // Native teardown has completed. The descriptor can now be released.
+        // If close fails, retain the reference and let the next STOP retry only
+        // the descriptor release rather than invoking native stop again.
+        tun?.let { descriptor ->
+            runCatching { descriptor.close() }
+                .onSuccess { tun = null }
+                .onFailure { closeFailure ->
+                    if (failure == null) failure = closeFailure
+                }
+        }
 
         return failure
     }

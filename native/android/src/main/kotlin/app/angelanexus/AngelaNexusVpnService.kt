@@ -159,8 +159,17 @@ class AngelaNexusVpnService : VpnService() {
         } catch (error: Throwable) {
             failure = error
         }
-        driver = null
-        tunEstablished = false
+
+        if (failure == null) {
+            driver = null
+            tunEstablished = false
+        } else {
+            // Keep the driver instance available for a subsequent STOP retry.
+            // Native stop has not been proven successful, so the service must
+            // remain in a blocked/unknown state rather than discarding the
+            // only handle capable of completing recovery.
+            tunEstablished = true
+        }
         stopFailure = failure
 
         if (!keepService) {
