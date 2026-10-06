@@ -79,7 +79,7 @@ class ConfigImportCoordinator(
             uri.scheme.equals("http", ignoreCase = true)) {
             "subscription URL must use HTTP or HTTPS"
         }
-        require(!uri.userInfo.isNullOrEmpty().not()) {
+        require(uri.userInfo.isNullOrEmpty()) {
             "subscription URL must not contain embedded credentials"
         }
         require(!uri.host.isNullOrBlank()) {
