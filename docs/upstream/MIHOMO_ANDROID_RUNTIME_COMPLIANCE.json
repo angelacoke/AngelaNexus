@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "runtime": {
     "kernel": "mihomo",
     "version": "1.19.32",
@@ -14,12 +14,40 @@
     "status": "required",
     "reason": "The native artifact is built from Mihomo and embedded into the Android application. The current application license is Apache-2.0. A release distribution model and license compatibility review must be completed before this artifact is distributed."
   },
+  "provenanceReview": {
+    "status": "required",
+    "reason": "The pinned source commit and artifact hashes are recorded, but release provenance has not yet been approved as a distributable runtime contract."
+  },
+  "namingCompliance": {
+    "status": "required",
+    "reason": "Upstream naming and trademark requirements must be reviewed before distribution."
+  },
   "source": {
     "repository": "https://github.com/MetaCubeX/mihomo",
     "pinnedCommit": "88dcbf7f1614a67c3b36b848ee3592dfa92ada36"
   },
+  "artifacts": {
+    "arm64-v8a": {
+      "file": "libclash.so",
+      "sha256": "667c94964d0a60f86cdcc130b2cdf3b385b02d9f2c5d3b324b3ed7a6b7326007"
+    },
+    "armeabi-v7a": {
+      "file": "libclash.so",
+      "sha256": "3ae94d7defb1778cd611eceffcff6884407893d28c42a4350af2b49108ac9a09"
+    },
+    "x86_64": {
+      "file": "libclash.so",
+      "sha256": "da7bcdbf165cc1e3457d3560b51e703cb3a478dd83f0c1cfe42ccf676d6c1f42"
+    }
+  },
   "policy": {
     "failClosed": true,
-    "noSilentFallback": true
+    "noSilentFallback": true,
+    "runtimeContract": {
+      "requiresDistributionApproval": true,
+      "requiresLicenseReviewApproval": true,
+      "requiresProvenanceApproval": true,
+      "requiresNamingComplianceApproval": true
+    }
   }
 }
