@@ -61,6 +61,8 @@ class KernelExecutionStateBridgeTest {
     @Test
     fun failurePreservesSelectedKernelAndReason() {
         val bridge = KernelExecutionStateBridge()
+        bridge.markImportReceived()
+        bridge.beginResolution()
         bridge.markReady("mihomo")
 
         bridge.markFailure("native runtime unavailable")
