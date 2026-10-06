@@ -53,8 +53,7 @@ class KernelExecutionStateBridge(
 
     fun markFailure(detail: String, kernelId: String? = currentState.kernelId) {
         require(detail.isNotBlank()) { "detail must not be blank" }
-        currentState = KernelExecutionState.failed(kernelId, detail)
-        notifyState()
+        transition(KernelExecutionPhase.FAILED, kernelId = kernelId, detail = detail)
     }
 
     fun reset() {
