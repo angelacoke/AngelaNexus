@@ -32,7 +32,7 @@ jobs:
           p = Path("docs/upstream/MIHOMO_ANDROID_RUNTIME_COMPLIANCE.json")
           d = json.loads(p.read_text(encoding="utf-8"))
 
-          assert d["version"] == 1
+          assert d["version"] == 2
           runtime = d["runtime"]
           assert runtime["kernel"] == "mihomo"
           assert runtime["version"] == "1.19.32"
@@ -47,6 +47,14 @@ jobs:
 
           assert d["policy"]["failClosed"] is True
           assert d["policy"]["noSilentFallback"] is True
+          contract = d["policy"]["runtimeContract"]
+          assert contract["requiresDistributionApproval"] is True
+          assert contract["requiresLicenseReviewApproval"] is True
+          assert contract["requiresProvenanceApproval"] is True
+          assert contract["requiresNamingComplianceApproval"] is True
+          assert d["licenseReview"]["status"] in {"required", "approved"}
+          assert d["provenanceReview"]["status"] in {"required", "approved"}
+          assert d["namingCompliance"]["status"] in {"required", "approved"}
           print("Mihomo Android compliance manifest: structurally valid")
           print("distributionStatus:", d["distributionStatus"])
           PY
