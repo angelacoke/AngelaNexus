@@ -32,28 +32,15 @@ class KernelExecutionStateBridge(
 
     fun markReady(kernelId: String) {
         require(kernelId.isNotBlank()) { "kernelId must not be blank" }
-        currentState = KernelExecutionState(
-            phase = KernelExecutionPhase.READY,
-            kernelId = kernelId,
-        )
-        notifyState()
+        transition(KernelExecutionPhase.READY, kernelId = kernelId, detail = null)
     }
 
     fun beginStart(kernelId: String? = currentState.kernelId) {
-        currentState = currentState.copy(
-            phase = KernelExecutionPhase.STARTING,
-            kernelId = kernelId,
-        )
-        notifyState()
+        transition(KernelExecutionPhase.STARTING, kernelId = kernelId)
     }
 
     fun markRunning(kernelId: String? = currentState.kernelId) {
-        currentState = currentState.copy(
-            phase = KernelExecutionPhase.RUNNING,
-            kernelId = kernelId,
-            detail = null,
-        )
-        notifyState()
+        transition(KernelExecutionPhase.RUNNING, kernelId = kernelId, detail = null)
     }
 
     fun beginStop() {
@@ -75,12 +62,20 @@ class KernelExecutionStateBridge(
         notifyState()
     }
 
-    private fun transition(phase: KernelExecutionPhase) {
+    private fun transition(
+        phase: KernelExecutionPhase,
+        kernelId: String? = currentState.kernelId,
+        detail: String? = currentState.detail,
+    ) {
         check(isTransitionAllowed(currentState.phase, phase)) {
             "invalid kernel execution state transition: " +
                 currentState.phase + " -> " + phase
         }
-        currentState = currentState.copy(phase = phase)
+        currentState = currentState.copy(
+            phase = phase,
+            kernelId = kernelId,
+            detail = detail,
+        )
         notifyState()
     }
 
