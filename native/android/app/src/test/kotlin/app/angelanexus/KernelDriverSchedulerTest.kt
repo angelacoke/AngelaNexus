@@ -47,6 +47,17 @@ class KernelDriverSchedulerTest {
     }
 
     @Test
+    fun schedulerExplainsPreferredFallbackWhenPreferenceIsUnavailable() {
+        val scheduler = KernelDriverScheduler(
+            listOf(FakeDriver("sing-box", full), FakeDriver("mihomo", full)),
+        )
+        val selection = scheduler.select(KernelExecutionIntent(preferredKernelId = "xray"))
+        assertEquals("sing-box", selection.kernelId)
+        assertEquals(KernelDriverSelectionReason.PREFERRED_UNAVAILABLE_FALLBACK, selection.reason)
+        assertEquals(listOf("sing-box", "mihomo"), selection.candidates)
+    }
+
+    @Test
     fun schedulerFallsBackToFirstCapabilityMatchWhenNoPreferenceExists() {
         val scheduler = KernelDriverScheduler(
             listOf(FakeDriver("sing-box", full), FakeDriver("mihomo", full)),
