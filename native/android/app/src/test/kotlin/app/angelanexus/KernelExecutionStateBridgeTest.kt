@@ -41,6 +41,21 @@ class KernelExecutionStateBridgeTest {
     }
 
     @Test
+    fun failureCannotBypassLifecycleGuardFromStopped() {
+        val bridge = KernelExecutionStateBridge()
+        bridge.markImportReceived()
+        bridge.beginResolution()
+        bridge.markReady("mihomo")
+        bridge.beginStop()
+        bridge.markStopped()
+
+        assertFailsWith<IllegalStateException> {
+            bridge.markFailure("unexpected failure")
+        }
+        assertEquals(KernelExecutionPhase.STOPPED, bridge.state().phase)
+    }
+
+    @Test
     fun failedAndStoppedStatesCanStartAnewImport() {
         val bridge = KernelExecutionStateBridge()
 
