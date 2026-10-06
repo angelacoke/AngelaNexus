@@ -222,7 +222,7 @@ private class XrayLibXrayApi {
     }
 
     fun resetDns() {
-        runCatching { clazz.getMethod("resetDNS").invoke(null) }
+        clazz.getMethod("resetDNS").invoke(null)
     }
 
     fun registerControllers(protector: XrayVpnProtector) {
