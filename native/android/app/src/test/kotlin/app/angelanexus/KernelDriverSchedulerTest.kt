@@ -47,6 +47,17 @@ class KernelDriverSchedulerTest {
     }
 
     @Test
+    fun blankPreferredKernelIdBehavesLikeNoPreference() {
+        val scheduler = KernelDriverScheduler(
+            listOf(FakeDriver("sing-box", full), FakeDriver("mihomo", full)),
+        )
+        val selection = scheduler.select(KernelExecutionIntent(preferredKernelId = "   "))
+        assertEquals("sing-box", selection.kernelId)
+        assertEquals(KernelDriverSelectionReason.FIRST_CAPABILITY_MATCH, selection.reason)
+        assertEquals(listOf("sing-box", "mihomo"), selection.candidates)
+    }
+
+    @Test
     fun schedulerExplainsPreferredFallbackWhenPreferenceIsUnavailable() {
         val scheduler = KernelDriverScheduler(
             listOf(FakeDriver("sing-box", full), FakeDriver("mihomo", full)),

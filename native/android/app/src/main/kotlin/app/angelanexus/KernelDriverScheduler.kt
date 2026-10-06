@@ -27,7 +27,10 @@ class KernelDriverScheduler(
     private val drivers: List<AndroidKernelDriver>,
 ) {
     fun select(intent: KernelExecutionIntent): KernelDriverSelection {
-        val preferred = intent.preferredKernelId?.trim()?.lowercase()
+        val preferred = intent.preferredKernelId
+            ?.trim()
+            ?.lowercase()
+            ?.takeIf { it.isNotEmpty() }
         val candidates = drivers.filter { driver ->
             driver.capabilities.containsAll(intent.requiredCapabilities)
         }
