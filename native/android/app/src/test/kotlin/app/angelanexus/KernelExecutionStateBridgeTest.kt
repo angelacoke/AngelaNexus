@@ -27,8 +27,42 @@ class KernelExecutionStateBridgeTest {
     }
 
     @Test
+    fun invalidLifecycleTransitionsAreRejected() {
+        val bridge = KernelExecutionStateBridge()
+
+        assertFailsWith<IllegalStateException> {
+            bridge.markStopped()
+        }
+
+        bridge.markImportReceived()
+        assertFailsWith<IllegalStateException> {
+            bridge.markRunning()
+        }
+    }
+
+    @Test
+    fun failedAndStoppedStatesCanStartAnewImport() {
+        val bridge = KernelExecutionStateBridge()
+
+        bridge.markImportReceived()
+        bridge.beginResolution()
+        bridge.markFailure("resolution failed")
+        bridge.markImportReceived()
+        assertEquals(KernelExecutionPhase.IMPORT_RECEIVED, bridge.state().phase)
+
+        bridge.beginResolution()
+        bridge.markReady("mihomo")
+        bridge.beginStop()
+        bridge.markStopped()
+        bridge.markImportReceived()
+        assertEquals(KernelExecutionPhase.IMPORT_RECEIVED, bridge.state().phase)
+    }
+
+    @Test
     fun failurePreservesSelectedKernelAndReason() {
         val bridge = KernelExecutionStateBridge()
+        bridge.markImportReceived()
+        bridge.beginResolution()
         bridge.markReady("mihomo")
 
         bridge.markFailure("native runtime unavailable")
