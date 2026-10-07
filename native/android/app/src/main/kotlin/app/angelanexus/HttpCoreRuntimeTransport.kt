@@ -72,14 +72,17 @@ internal object CoreRuntimeImportResultParser {
         require(nodeCount >= 0) { "Core runtime returned a negative nodeCount" }
 
         return CoreRuntimeImportResult(
-            source = result.optString("source", null),
+            source = result.optionalString("source"),
             nodeCount = nodeCount,
-            kernel = result.optString("kernel", null),
-            detectionConfidence = result.optString("detectionConfidence", null),
+            kernel = result.optionalString("kernel"),
+            detectionConfidence = result.optionalString("detectionConfidence"),
             executionIntentJson = optionalJson(result, "executionIntent")
                 ?: optionalJson(result, "executionIntentJson"),
         )
     }
+
+    private fun JSONObject.optionalString(key: String): String? =
+        if (!has(key) || isNull(key)) null else getString(key)
 
     private fun optionalJson(result: JSONObject, key: String): String? {
         if (!result.has(key) || result.isNull(key)) return null
