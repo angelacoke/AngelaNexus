@@ -5,18 +5,21 @@ interface CoreRuntimeTransport {
 }
 
 /**
- * Android-local Core transport placeholder.
+ * Android transport boundary for the canonical Core runtime.
  *
- * The Android platform must not bypass the canonical Core by applying imported
- * configuration directly to a kernel. Until an embedded Core runtime bridge is
- * actually available, this transport fails closed.
+ * The transport delegates to a CoreRuntimeBridge. It does not parse imported
+ * configuration, select a kernel, apply configuration to a kernel, or
+ * synthesize execution intent.
  */
 class NativeCoreRuntimeTransport(
-    private val unavailableReason: String = DEFAULT_UNAVAILABLE_REASON,
+    private val bridge: CoreRuntimeBridge = UnavailableCoreRuntimeBridge(),
 ) : CoreRuntimeTransport {
     override suspend fun sendConfigurationImport(payload: String): CoreRuntimeImportResult {
         require(payload.isNotEmpty()) { "configuration import payload must not be empty" }
-        throw CoreRuntimeUnavailableException(unavailableReason)
+        if (bridge.availability() != CoreRuntimeAvailability.AVAILABLE) {
+            throw CoreRuntimeUnavailableException(DEFAULT_UNAVAILABLE_REASON)
+        }
+        return bridge.importConfiguration(payload)
     }
 
     companion object {
