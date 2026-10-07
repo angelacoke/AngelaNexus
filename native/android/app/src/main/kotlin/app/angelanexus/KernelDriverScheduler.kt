@@ -31,11 +31,13 @@ class KernelDriverScheduler(
             ?.trim()
             ?.lowercase()
             ?.takeIf { it.isNotEmpty() }
-        val candidates = drivers.filter { driver ->
-            driver.capabilities.containsAll(intent.requiredCapabilities)
-        }
+        val candidates = KernelCapabilityRegistry.profiles(drivers)
+            .filter { profile ->
+                profile.available &&
+                    profile.capabilities.containsAll(intent.requiredCapabilities)
+            }
         val selected = if (preferred != null) {
-            candidates.firstOrNull { it.id.trim().lowercase() == preferred }
+            candidates.firstOrNull { it.kernelId.trim().lowercase() == preferred }
         } else {
             null
         }
@@ -48,14 +50,14 @@ class KernelDriverScheduler(
         }
 
         chosen ?: throw IllegalStateException(
-            "No kernel driver satisfies required capabilities: " +
+            "No available kernel driver satisfies required capabilities: " +
                 intent.requiredCapabilities.joinToString(","),
         )
 
         return KernelDriverSelection(
-            kernelId = chosen.id,
+            kernelId = chosen.kernelId,
             capabilities = chosen.capabilities,
-            candidates = candidates.map { it.id },
+            candidates = candidates.map { it.kernelId },
             reason = reason,
         )
     }

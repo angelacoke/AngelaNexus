@@ -1,12 +1,15 @@
 package app.angelanexus
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class KernelDriverSchedulerTest {
     private class FakeDriver(
         override val id: String,
         override val capabilities: Set<String>,
+        private val statusResult: AndroidKernelDriverStatus = AndroidKernelDriverStatus(id, false),
+        private val statusFailure: Boolean = false,
     ) : AndroidKernelDriver {
         override fun preparePlatform(service: android.net.VpnService) = Unit
         override fun initialize(homeDir: String) = Unit
@@ -14,7 +17,13 @@ class KernelDriverSchedulerTest {
         override fun attachTun(tunFd: Int, policy: AndroidVpnRuntimePolicy) = Unit
         override fun start() = Unit
         override fun stop() = Unit
-        override fun status() = AndroidKernelDriverStatus(id, false)
+
+        override fun status(): AndroidKernelDriverStatus {
+            if (statusFailure) {
+                error("status unavailable")
+            }
+            return statusResult
+        }
     }
 
     private val full = setOf(
@@ -77,5 +86,29 @@ class KernelDriverSchedulerTest {
         assertEquals("sing-box", selection.kernelId)
         assertEquals(KernelDriverSelectionReason.FIRST_CAPABILITY_MATCH, selection.reason)
         assertEquals(listOf("sing-box", "mihomo"), selection.candidates)
+    }
+
+    @Test
+    fun schedulerSkipsDriverWhoseRuntimeStatusCannotBeRead() {
+        val scheduler = KernelDriverScheduler(
+            listOf(
+                FakeDriver("mihomo", full, statusFailure = true),
+                FakeDriver("xray", full),
+            ),
+        )
+        val selection = scheduler.select(KernelExecutionIntent(preferredKernelId = "mihomo"))
+        assertEquals("xray", selection.kernelId)
+        assertEquals(KernelDriverSelectionReason.PREFERRED_UNAVAILABLE_FALLBACK, selection.reason)
+        assertEquals(listOf("xray"), selection.candidates)
+    }
+
+    @Test
+    fun schedulerFailsWhenNoAvailableDriverSatisfiesCapabilities() {
+        val scheduler = KernelDriverScheduler(
+            listOf(FakeDriver("mihomo", full, statusFailure = true)),
+        )
+        assertThrows(IllegalStateException::class.java) {
+            scheduler.select(KernelExecutionIntent())
+        }
     }
 }
