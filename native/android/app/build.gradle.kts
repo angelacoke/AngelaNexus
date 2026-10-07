@@ -89,6 +89,7 @@ dependencies {
     implementation(files("libs/libXray.aar"))
     implementation(files("libs/libbox.aar"))
     implementation("androidx.activity:activity-compose:1.10.0")
+    implementation("androidx.javascriptengine:javascriptengine:1.1.1")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
