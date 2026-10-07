@@ -46,7 +46,7 @@ private fun AngelaNexusRoot() {
     val darkTheme = isSystemInDarkTheme()
     val scope = rememberCoroutineScope()
     val coreRuntimeTransport = remember {
-        NativeCoreRuntimeTransport()
+        NativeCoreRuntimeTransport(AndroidJavaScriptCoreRuntimeBridge(context))
     }
     val importPort = remember { SerializedConfigImportPort(coreRuntimeTransport) }
     val importCoordinator = remember { ConfigImportCoordinator(importPort) }

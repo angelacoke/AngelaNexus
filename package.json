@@ -13,13 +13,17 @@
     "upstream:check": "node scripts/check-upstream.mjs",
     "kernel:conformance": "node scripts/kernel-conformance.mjs",
     "kernel:runtime:test": "node --test test/kernel-runtime.test.js",
-    "core:server": "node scripts/core-runtime-server.mjs"
+    "core:server": "node scripts/core-runtime-server.mjs",
+    "core:android:bundle": "node scripts/build-android-core-bundle.mjs"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
     "js-yaml": "^4.1.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
   },
   "license": "Apache-2.0"
 }

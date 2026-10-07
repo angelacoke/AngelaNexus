@@ -92,6 +92,15 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build canonical Android Core bundle
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run core:android:bundle
+          test -s native/android/app/src/main/assets/angelanexus-core.bundle.js
       - uses: actions/download-artifact@v4
         with:
           name: angelanexus-android-native-kernel-aars
@@ -132,6 +141,15 @@ jobs:
       ANGELANEXUS_RELEASE_KEY_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build canonical Android Core bundle
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run core:android:bundle
+          test -s native/android/app/src/main/assets/angelanexus-core.bundle.js
       - uses: actions/download-artifact@v4
         with:
           name: angelanexus-android-native-kernel-aars

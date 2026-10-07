@@ -1,4 +1,4 @@
-import { configIntegrityDigest, scanSecrets } from "./config-integrity.js";
+import { configIntegrityDigest, scanSecrets } from "./config-integrity-portable.js";
 
 export const SENSITIVE_SOURCE_VERSION = 1;
 
