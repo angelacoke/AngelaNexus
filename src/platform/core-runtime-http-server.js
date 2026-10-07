@@ -40,6 +40,7 @@ function summarize(result) {
     nodeCount: result?.model?.nodeCount ?? 0,
     kernel: result?.binding?.kernel ?? null,
     detectionConfidence: result?.binding?.prompt?.reason ?? null,
+    executionIntent: result?.executionIntent ?? null,
   };
 }
 
