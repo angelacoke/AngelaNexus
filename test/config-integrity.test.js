@@ -12,7 +12,11 @@ import {
 } from "../src/core/config-integrity.js";
 import { sha256Utf8 } from "../src/core/config-integrity-portable.js";
 
-test("portable SHA-256 matches the standard vector", () => {\n  assert.equal(sha256Utf8("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");\n});\n\ntest("object integrity digest is deterministic across key order", () => {
+test("portable SHA-256 matches the standard vector", () => {
+  assert.equal(sha256Utf8("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+});
+
+test("object integrity digest is deterministic across key order", () => {
   assert.equal(
     configIntegrityDigest({ b: 2, a: 1 }),
     configIntegrityDigest({ a: 1, b: 2 })
