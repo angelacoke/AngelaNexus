@@ -60,7 +60,7 @@ function buildUnifiedInput(input, sourceDocument, nodes) {
   return { ...safe, nodes };
 }
 
-export function importConfig(input, { kernel = null, maxNodes = null } = {}) {
+export function importConfig(input, { kernel = null, maxNodes = null, prepareRuntimeHandoff = false } = {}) {
   const inspection = inspectImport(input, { kernel });
   const sourceVault = createSensitiveSourceCarrier(input);
   let nodes;
@@ -88,7 +88,7 @@ export function importConfig(input, { kernel = null, maxNodes = null } = {}) {
 
   const selectedKernel = inspection.binding.kernel;
   let runtimeHandoff = null;
-  if (selectedKernel && nodes.length > 0) {
+  if (prepareRuntimeHandoff && selectedKernel && nodes.length > 0) {
     const compiled = compileUnifiedConfig(unifiedConfig, selectedKernel);
     const compiledConfiguration = selectedKernel === Kernels.MIHOMO
       ? yaml.dump(compiled.config, { noRefs: true })
