@@ -3,6 +3,8 @@ package app.angelanexus
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URI
+import org.json.JSONArray
+import org.json.JSONObject
 
 class HttpCoreRuntimeTransport(
     endpoint: URI,
@@ -65,19 +67,32 @@ internal object CoreRuntimeImportResultParser {
     private val confidencePattern = Regex("\"detectionConfidence\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"")
 
     fun parse(body: String): CoreRuntimeImportResult {
-        require(okPattern.containsMatchIn(body)) { "Core runtime returned an invalid success response" }
-        val nodeCount = nodeCountPattern.find(body)?.groupValues?.get(1)?.toIntOrNull()
-            ?: throw IllegalArgumentException("Core runtime response is missing nodeCount")
+        val root = runCatching { JSONObject(body) }
+            .getOrElse { throw IllegalArgumentException("Core runtime returned invalid JSON", it) }
+        require(root.optBoolean("ok", false)) {
+            "Core runtime returned an invalid success response"
+        }
+        val result = root.optJSONObject("result")
+            ?: throw IllegalArgumentException("Core runtime response is missing result")
+        val nodeCount = result.optInt("nodeCount", -1)
         require(nodeCount >= 0) { "Core runtime returned a negative nodeCount" }
 
         return CoreRuntimeImportResult(
-            source = sourcePattern.find(body)?.groupValues?.get(1)?.unescapeJsonString(),
+            source = result.optString("source", null),
             nodeCount = nodeCount,
-            kernel = kernelPattern.find(body)?.groupValues?.get(1)?.unescapeJsonString(),
-            detectionConfidence = confidencePattern.find(body)?.groupValues?.get(1)?.unescapeJsonString(),
+            kernel = result.optString("kernel", null),
+            detectionConfidence = result.optString("detectionConfidence", null),
+            executionIntentJson = optionalJson(result, "executionIntent")
+                ?: optionalJson(result, "executionIntentJson"),
         )
     }
 
-    private fun String.unescapeJsonString(): String =
-        replace("\\\\", "\\").replace("\\\"", "\"")
+    private fun optionalJson(result: JSONObject, key: String): String? {
+        if (!result.has(key) || result.isNull(key)) return null
+        return when (val value = result.get(key)) {
+            is JSONObject, is JSONArray -> value.toString()
+            is String -> value.takeIf { it.isNotBlank() }
+            else -> throw IllegalArgumentException("Core runtime response field '$key' is not valid JSON")
+        }
+    }
 }
