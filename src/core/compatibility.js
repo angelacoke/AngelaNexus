@@ -25,6 +25,7 @@ const EVIDENCE = Object.freeze(Object.fromEntries(
 function normalizeProtocol(protocol) {
   const value = String(protocol || "").trim().toLowerCase();
   if (value === "ss") return "shadowsocks";
+  if (value === "socks5") return "socks";
   if (value === "hy2") return "hysteria2";
   return value;
 }
