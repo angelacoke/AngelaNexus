@@ -15,7 +15,8 @@ globalThis.angelanexusCoreImport = async (payload) => {
       nodeCount: result?.model?.nodeCount ?? 0,
       kernel: result?.binding?.kernel ?? null,
       detectionConfidence: result?.binding?.prompt?.reason ?? null,
-      executionIntent: result?.executionIntent ?? null
+      configuration: result?.runtimeHandoff?.configuration ?? null,
+      executionIntent: result?.runtimeHandoff?.executionIntent ?? null
     }
   });
 };
