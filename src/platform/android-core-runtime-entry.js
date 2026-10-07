@@ -12,10 +12,10 @@ globalThis.angelanexusCoreImport = async (payload) => {
     ok: true,
     result: {
       source: envelope.source ?? null,
-      nodeCount: result?.result?.model?.nodeCount ?? 0,
-      kernel: result?.result?.binding?.kernel ?? null,
-      detectionConfidence: result?.result?.binding?.prompt?.reason ?? null,
-      executionIntent: result?.result?.executionIntent ?? null
+      nodeCount: result?.model?.nodeCount ?? 0,
+      kernel: result?.binding?.kernel ?? null,
+      detectionConfidence: result?.binding?.prompt?.reason ?? null,
+      executionIntent: result?.executionIntent ?? null
     }
   });
 };
