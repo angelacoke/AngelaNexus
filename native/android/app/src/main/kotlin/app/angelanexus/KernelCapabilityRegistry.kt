@@ -4,6 +4,7 @@ data class KernelCapabilityProfile(
     val kernelId: String,
     val capabilities: Set<String>,
     val available: Boolean,
+    val status: AndroidKernelDriverStatus? = null,
 )
 
 object KernelCapabilityRegistry {
