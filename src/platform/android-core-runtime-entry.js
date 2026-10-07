@@ -7,10 +7,11 @@ globalThis.angelanexusCoreImport = async (payload) => {
     throw new TypeError("Core import payload must be a non-empty string");
   }
   const result = await runtime.receive(payload);
+  const envelope = JSON.parse(payload);
   return JSON.stringify({
     ok: true,
     result: {
-      source: result?.source ?? null,
+      source: envelope.source ?? null,
       nodeCount: result?.result?.model?.nodeCount ?? 0,
       kernel: result?.result?.binding?.kernel ?? null,
       detectionConfidence: result?.result?.binding?.prompt?.reason ?? null,
