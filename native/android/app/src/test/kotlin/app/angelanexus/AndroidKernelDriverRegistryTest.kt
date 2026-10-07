@@ -43,6 +43,24 @@ class AndroidKernelDriverRegistryTest {
     }
 
     @Test
+    fun mihomoFailedStopPreservesAttachedStateForRecovery() {
+        val driver = MihomoAndroidKernelDriver(FakeMihomoNativeHost(stopTunFailure = true))
+        driver.initialize("/tmp/angelanexus-test")
+        driver.attachTun(100, AndroidVpnRuntimePolicy.default())
+        driver.start()
+
+        try {
+            driver.stop()
+            fail("failed native stop must throw")
+        } catch (error: IllegalStateException) {
+            assertEquals("native stop failed", error.message)
+        }
+
+        assertTrue(driver.status().running)
+        assertEquals("TUN attached", driver.status().detail)
+    }
+
+    @Test
     fun mihomoFailedNativeTunAttachDoesNotEnterAttachedState() {
         val driver = MihomoAndroidKernelDriver(FakeMihomoNativeHost(startTunResult = false))
         driver.initialize("/tmp/angelanexus-test")
@@ -59,6 +77,7 @@ class AndroidKernelDriverRegistryTest {
 
     private class FakeMihomoNativeHost(
         private val startTunResult: Boolean = true,
+        private val stopTunFailure: Boolean = false,
     ) : MihomoNativeHost {
         override fun initialize(homeDir: String) = Unit
         override fun setVpnService(service: android.net.VpnService) = Unit
@@ -66,7 +85,9 @@ class AndroidKernelDriverRegistryTest {
         override fun hasVpnProtector(): Boolean = true
         override fun applyConfig(configJson: String): String? = null
         override fun startTun(tunFd: Int, stack: String, address: String, dns: String): Boolean = startTunResult
-        override fun stopTun() = Unit
+        override fun stopTun() {
+            if (stopTunFailure) throw IllegalStateException("native stop failed")
+        }
         override fun updateDns(dns: String) = Unit
         override fun setSuspended(suspended: Boolean) = Unit
         override fun invokeMethod(data: String, callback: (String?) -> Unit) = callback(null)
