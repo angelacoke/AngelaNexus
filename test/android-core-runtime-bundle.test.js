@@ -39,7 +39,7 @@ test("Android bundle executes the canonical Core import pipeline", async () => {
     version: 1,
     source: "local-file",
     name: "smoke.yaml",
-    content: "proxies:\n  - name: smoke\n    type: socks5\n    server: example.com\n    port: 1080\n"
+    content: "proxies:\n  - name: smoke\n    type: socks5\n    server: us.example\n    port: 1080\n"
   });
   const result = JSON.parse(await context.angelanexusCoreImport(envelope));
 
