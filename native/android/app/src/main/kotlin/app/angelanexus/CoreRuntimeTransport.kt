@@ -17,11 +17,14 @@ class NativeCoreRuntimeTransport(
     override suspend fun sendConfigurationImport(payload: String): CoreRuntimeImportResult {
         require(payload.isNotEmpty()) { "configuration import payload must not be empty" }
         if (bridge.availability() != CoreRuntimeAvailability.AVAILABLE) {
-            throw CoreRuntimeUnavailableException(
-                "Android embedded Core runtime is unavailable; configuration was not sent directly to a kernel",
-            )
+            throw CoreRuntimeUnavailableException(DEFAULT_UNAVAILABLE_REASON)
         }
         return bridge.importConfiguration(payload)
+    }
+
+    companion object {
+        const val DEFAULT_UNAVAILABLE_REASON =
+            "Android embedded Core runtime is unavailable; configuration was not sent directly to a kernel"
     }
 }
 
