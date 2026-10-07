@@ -76,6 +76,7 @@ internal object CoreRuntimeImportResultParser {
             nodeCount = nodeCount,
             kernel = result.optionalString("kernel"),
             detectionConfidence = result.optionalString("detectionConfidence"),
+            configuration = result.optionalString("configuration"),
             executionIntentJson = optionalJson(result, "executionIntent")
                 ?: optionalJson(result, "executionIntentJson"),
         )
