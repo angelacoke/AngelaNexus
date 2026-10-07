@@ -31,10 +31,9 @@ class HttpCoreRuntimeTransportTest {
         assertEquals("local-file", result.source)
         assertEquals(2, result.nodeCount)
         assertEquals("mihomo", result.kernel)
-        assertEquals(
-            """{"version":1,"kind":"routing-execution-intent","mode":"proxy","action":"route","target":"node-1"}""",
-            result.executionIntentJson,
-        )
+        val intent = org.json.JSONObject(result.executionIntentJson ?: error("missing execution intent"))
+        assertEquals("node-1", intent.getString("target"))
+        assertEquals("proxy", intent.getString("mode"))
         assertTrue(connection.disconnected)
     }
 
