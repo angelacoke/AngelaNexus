@@ -125,6 +125,19 @@ class AngelaNexusVpnService : VpnService() {
                 driverOwnsTun = true
                 selectedDriver.start()
 
+                // A successful start call is not sufficient evidence that the
+                // native driver is actually running. Verify the driver-reported
+                // state before publishing VPN/TUN as active.
+                val runtimeStatus = selectedDriver.status()
+                check(runtimeStatus.driverId == selectedDriver.id) {
+                    "kernel driver status identity mismatch: expected '" + selectedDriver.id +
+                        "', got '" + runtimeStatus.driverId + "'"
+                }
+                check(runtimeStatus.running) {
+                    "kernel driver reported a non-running state after start: " +
+                        (runtimeStatus.detail ?: "no detail")
+                }
+
                 tunEstablished = true
             } finally {
                 if (!driverOwnsTun) {
