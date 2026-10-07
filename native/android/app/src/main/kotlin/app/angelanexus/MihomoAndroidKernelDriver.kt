@@ -60,20 +60,12 @@ class MihomoAndroidKernelDriver(
     }
 
     override fun stop() {
-        var failure: Throwable? = null
-        try {
-            runtime.stopTun()
-        } catch (error: Throwable) {
-            failure = error
-        }
+        // Preserve the native/runtime state when stopping fails so the
+        // service lifecycle can recover instead of observing a false idle state.
+        runtime.stopTun()
         attached = false
         running = false
-        try {
-            runtime.clearVpnService()
-        } catch (error: Throwable) {
-            if (failure == null) failure = error else failure?.addSuppressed(error)
-        }
-        failure?.let { throw it }
+        runtime.clearVpnService()
     }
 
     override fun status(): AndroidKernelDriverStatus =
