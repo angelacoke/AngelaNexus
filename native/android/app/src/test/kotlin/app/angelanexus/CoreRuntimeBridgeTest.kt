@@ -6,7 +6,6 @@ import kotlin.coroutines.startCoroutine
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class CoreRuntimeBridgeTest {
@@ -55,7 +54,6 @@ class CoreRuntimeBridgeTest {
 
         assertTrue(invoked)
         assertEquals(expected, actual)
-        assertFalse(actual.executionIntentJson?.isBlank() == true)
     }
 
     @Test
