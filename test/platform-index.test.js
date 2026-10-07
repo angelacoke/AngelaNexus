@@ -44,6 +44,7 @@ test("platform index exposes the runtime import receiver contract", async () => 
     },
     options: {
       platform: "android",
+      prepareRuntimeHandoff: true,
       source: "local-file",
       name: "profile.yaml",
     },
