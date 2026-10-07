@@ -68,7 +68,7 @@ function encodeBase64Url(value) {
   const bytes = new TextEncoder().encode(JSON.stringify(value));
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/g, "");
+  return encodeURIComponent(btoa(binary));
 }
 
 function canonicalEventMaterial(event) {
