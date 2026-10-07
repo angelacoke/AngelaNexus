@@ -15,6 +15,15 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build canonical Android Core bundle
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run core:android:bundle
+          test -s native/android/app/src/main/assets/angelanexus-core.bundle.js
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.8'
