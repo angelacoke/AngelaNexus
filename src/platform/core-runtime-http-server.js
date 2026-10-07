@@ -41,7 +41,7 @@ function summarize(result) {
     kernel: result?.binding?.kernel ?? null,
     detectionConfidence: result?.binding?.prompt?.reason ?? null,
     configuration: result?.runtimeHandoff?.configuration ?? null,
-    executionIntent: result?.runtimeHandoff?.executionIntent ?? null,
+    executionIntent: result?.runtimeHandoff?.executionIntent ?? result?.executionIntent ?? null,
   };
 }
 
