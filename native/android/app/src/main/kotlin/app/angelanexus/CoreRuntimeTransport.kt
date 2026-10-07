@@ -4,53 +4,27 @@ interface CoreRuntimeTransport {
     suspend fun sendConfigurationImport(payload: String): CoreRuntimeImportResult
 }
 
-
+/**
+ * Android-local Core transport placeholder.
+ *
+ * The Android platform must not bypass the canonical Core by applying imported
+ * configuration directly to a kernel. Until an embedded Core runtime bridge is
+ * actually available, this transport fails closed.
+ */
 class NativeCoreRuntimeTransport(
-    context: android.content.Context,
-    private val nativeRuntime: MihomoNativeHost = MihomoNativeRuntimeFactory.create(context),
+    private val unavailableReason: String = DEFAULT_UNAVAILABLE_REASON,
 ) : CoreRuntimeTransport {
-    private val homeDir = java.io.File(context.filesDir, "angelanexus/core").apply { mkdirs() }
-
-    init {
-        nativeRuntime.initialize(homeDir.absolutePath)
-    }
-
     override suspend fun sendConfigurationImport(payload: String): CoreRuntimeImportResult {
-        val content = extractContent(payload)
-        val error = nativeRuntime.applyConfig(content)
-        if (!error.isNullOrEmpty()) {
-            throw IllegalStateException("Mihomo rejected configuration: $error")
-        }
-        return CoreRuntimeImportResult(
-            source = "local-file",
-            nodeCount = -1,
-            kernel = "mihomo",
-            detectionConfidence = "native-runtime-verified",
-            configuration = content,
-        )
+        require(payload.isNotEmpty()) { "configuration import payload must not be empty" }
+        throw CoreRuntimeUnavailableException(unavailableReason)
     }
 
-    private fun extractContent(payload: String): String {
-        val marker = "\"content\":\""
-        val start = payload.indexOf(marker)
-        require(start >= 0) { "runtime import envelope is missing content" }
-        val valueStart = start + marker.length
-        var escaped = false
-        for (index in valueStart until payload.length) {
-            val char = payload[index]
-            if (escaped) { escaped = false; continue }
-            if (char == '\\') { escaped = true; continue }
-            if (char == '\"') {
-                return payload.substring(valueStart, index).unescapeJsonString()
-            }
-        }
-        error("runtime import envelope has an unterminated content string")
+    companion object {
+        const val DEFAULT_UNAVAILABLE_REASON =
+            "Android embedded Core runtime is unavailable; configuration was not sent directly to a kernel"
     }
-
-    private fun String.unescapeJsonString(): String =
-        replace("\\\\", "\\")
-            .replace("\\\"", "\"")
-            .replace("\\n", "\n")
-            .replace("\\r", "\r")
-            .replace("\\t", "\t")
 }
+
+class CoreRuntimeUnavailableException(
+    message: String,
+) : IllegalStateException(message)
