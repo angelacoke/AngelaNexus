@@ -4,15 +4,18 @@ data class KernelCapabilityProfile(
     val kernelId: String,
     val capabilities: Set<String>,
     val available: Boolean,
+    val status: AndroidKernelDriverStatus? = null,
 )
 
 object KernelCapabilityRegistry {
     fun profiles(drivers: List<AndroidKernelDriver>): List<KernelCapabilityProfile> =
-        drivers.map {
+        drivers.map { driver ->
+            val status = runCatching { driver.status() }.getOrNull()
             KernelCapabilityProfile(
-                kernelId = it.id,
-                capabilities = it.capabilities,
-                available = it.capabilities.isNotEmpty(),
+                kernelId = driver.id,
+                capabilities = driver.capabilities,
+                available = status != null && driver.capabilities.isNotEmpty(),
+                status = status,
             )
         }
 }
