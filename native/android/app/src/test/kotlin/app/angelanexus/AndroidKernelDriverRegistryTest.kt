@@ -47,6 +47,7 @@ class AndroidKernelDriverRegistryTest {
         val driver = MihomoAndroidKernelDriver(FakeMihomoNativeHost(stopTunFailure = true))
         driver.initialize("/tmp/angelanexus-test")
         driver.attachTun(100, AndroidVpnRuntimePolicy.default())
+        driver.start()
 
         try {
             driver.stop()
