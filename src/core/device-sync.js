@@ -133,7 +133,7 @@ export function parsePairingInvitation(qrPayload, { now = new Date() } = {}) {
   }
   const encoded = qrPayload.slice(prefix.length);
   if (!encoded) throw new TypeError("pairing payload data is empty");
-  const binary = atob(encoded.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - encoded.length % 4) % 4));
+  const binary = atob(decodeURIComponent(encoded));
   const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
   const invitation = JSON.parse(new TextDecoder().decode(bytes));
   if (invitation.protocolVersion !== DEVICE_SYNC_PROTOCOL_VERSION) {
