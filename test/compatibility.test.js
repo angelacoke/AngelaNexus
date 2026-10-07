@@ -6,6 +6,7 @@ import { CompatibilityStatus, KernelVersions, protocolCompatibility, validateUni
 
 test("recognizes documented common protocols", () => {
   assert.equal(protocolCompatibility(Kernels.MIHOMO, "ss").status, CompatibilityStatus.SUPPORTED);
+  assert.equal(protocolCompatibility(Kernels.MIHOMO, "socks5").status, CompatibilityStatus.SUPPORTED);
   assert.equal(protocolCompatibility(Kernels.SING_BOX, "vless").status, CompatibilityStatus.SUPPORTED);
   assert.equal(protocolCompatibility(Kernels.XRAY, "vmess").status, CompatibilityStatus.SUPPORTED);
 });
