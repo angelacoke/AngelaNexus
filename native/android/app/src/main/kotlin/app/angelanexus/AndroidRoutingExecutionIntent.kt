@@ -18,6 +18,7 @@ data class AndroidRoutingExecutionIntent(
     val ruleIds: List<String>,
     val applicationJson: String?,
     val metadataJson: String?,
+    val trafficAcceptance: AndroidTrafficAcceptancePolicy?,
     val serialized: String,
 ) {
     companion object {
@@ -101,7 +102,11 @@ data class AndroidRoutingExecutionIntent(
             } ?: emptyList()
 
             val applicationJson = root.optJSONObject("application")?.toString()
-            val metadataJson = root.optJSONObject("metadata")?.toString()
+            val metadata = root.optJSONObject("metadata")
+            val metadataJson = metadata?.toString()
+            val trafficAcceptance = metadata?.optJSONObject("trafficAcceptance")?.let {
+                AndroidTrafficAcceptancePolicy.parse(it)
+            }
 
             return AndroidRoutingExecutionIntent(
                 version = version,
@@ -112,7 +117,45 @@ data class AndroidRoutingExecutionIntent(
                 ruleIds = ruleIds,
                 applicationJson = applicationJson,
                 metadataJson = metadataJson,
+                trafficAcceptance = trafficAcceptance,
                 serialized = root.toString(),
+            )
+        }
+    }
+}
+
+data class AndroidTrafficAcceptancePolicy(
+    val required: Boolean,
+    val targetUrl: String,
+    val timeoutMs: Int,
+) {
+    companion object {
+        private const val DEFAULT_TIMEOUT_MS = 5000
+        private const val MAX_TIMEOUT_MS = 30000
+
+        fun parse(value: JSONObject): AndroidTrafficAcceptancePolicy {
+            val targetUrl = value.optString("targetUrl", "").trim()
+            require(targetUrl.isNotEmpty()) {
+                "traffic acceptance targetUrl is required"
+            }
+            require(targetUrl.startsWith("https://", ignoreCase = true)) {
+                "traffic acceptance targetUrl must use HTTPS"
+            }
+
+            val required = if (value.has("required")) value.getBoolean("required") else true
+            val timeoutMs = if (value.has("timeoutMs")) {
+                value.getInt("timeoutMs")
+            } else {
+                DEFAULT_TIMEOUT_MS
+            }
+            require(timeoutMs in 1..MAX_TIMEOUT_MS) {
+                "traffic acceptance timeoutMs must be an integer between 1 and $MAX_TIMEOUT_MS"
+            }
+
+            return AndroidTrafficAcceptancePolicy(
+                required = required,
+                targetUrl = targetUrl,
+                timeoutMs = timeoutMs,
             )
         }
     }
