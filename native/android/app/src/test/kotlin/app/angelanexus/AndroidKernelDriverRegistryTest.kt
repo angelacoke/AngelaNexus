@@ -2,6 +2,7 @@ package app.angelanexus
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -43,6 +44,17 @@ class AndroidKernelDriverRegistryTest {
     }
 
     @Test
+    fun mihomoStatusRequiresNativeRuntimeHealthAfterStart() {
+        val driver = MihomoAndroidKernelDriver(FakeMihomoNativeHost(trafficSnapshot = "not-json"))
+        driver.initialize("/tmp/angelanexus-test")
+        driver.attachTun(100, AndroidVpnRuntimePolicy.default())
+        driver.start()
+
+        val error = assertThrows(IllegalStateException::class.java) { driver.status() }
+        assertEquals("Mihomo native runtime health check returned invalid traffic state", error.message)
+    }
+
+    @Test
     fun mihomoFailedStopPreservesAttachedStateForRecovery() {
         val driver = MihomoAndroidKernelDriver(FakeMihomoNativeHost(stopTunFailure = true))
         driver.initialize("/tmp/angelanexus-test")
@@ -78,6 +90,7 @@ class AndroidKernelDriverRegistryTest {
     private class FakeMihomoNativeHost(
         private val startTunResult: Boolean = true,
         private val stopTunFailure: Boolean = false,
+        private val trafficSnapshot: String = "{}",
     ) : MihomoNativeHost {
         override fun initialize(homeDir: String) = Unit
         override fun setVpnService(service: android.net.VpnService) = Unit
@@ -93,7 +106,7 @@ class AndroidKernelDriverRegistryTest {
         override fun invokeMethod(data: String, callback: (String?) -> Unit) = callback(null)
         override fun setEventListener(callback: ((String?) -> Unit)?) = Unit
         override fun forceGc() = Unit
-        override fun getTraffic(onlyStatisticsProxy: Boolean): String = "{}"
+        override fun getTraffic(onlyStatisticsProxy: Boolean): String = trafficSnapshot
         override fun getTotalTraffic(onlyStatisticsProxy: Boolean): String = "{}"
     }
 }
