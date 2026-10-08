@@ -21,6 +21,19 @@ function promptFor(detected, selected, explicit) {
   return { required: false, title: "Native runtime resolution", message: detected.candidates.length ? "AngelaNexus recognized the input and will resolve a compatible native runtime automatically." : "AngelaNexus could not establish a native runtime yet; the original input will be preserved for later resolution.", reason: detected.confidence, options: detected.candidates.slice() };
 }
 
+function normalizeTrafficAcceptance(value) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError("traffic acceptance policy must be an object");
+  const targetUrl = typeof value.targetUrl === "string" ? value.targetUrl.trim() : "";
+  if (!targetUrl) throw new TypeError("traffic acceptance targetUrl is required");
+  if (!/^https:\/\//i.test(targetUrl)) throw new TypeError("traffic acceptance targetUrl must use HTTPS");
+  const required = value.required === undefined ? true : value.required;
+  if (typeof required !== "boolean") throw new TypeError("traffic acceptance required must be boolean");
+  const timeoutMs = value.timeoutMs === undefined ? 5000 : value.timeoutMs;
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 30000) throw new TypeError("traffic acceptance timeoutMs must be an integer between 1 and 30000");
+  return Object.freeze({ required, targetUrl, timeoutMs });
+}
+
 export function inspectImport(input, { kernel = null } = {}) {
   const detected = sniff(input);
   const explicit = kernel !== null && kernel !== undefined;
@@ -31,11 +44,12 @@ export function inspectImport(input, { kernel = null } = {}) {
   return { detection: detected, binding: { kernel: selected, mode: explicit ? "explicit" : "automatic", candidates: detected.candidates.slice(), requiresConfirmation: prompt.required, prompt, decision: { ...decision, requiresUserChoice: prompt.required } } };
 }
 
-export async function importSource(input, { kernel = null, maxNodes = null, fetcher = globalThis.fetch } = {}) {
+export async function importSource(input, { kernel = null, maxNodes = null, fetcher = globalThis.fetch, trafficAcceptance = null } = {}) {
   const source = classifyImportSource(input);
-  if (source.type === "url") return importConfig(await fetchSubscription(source.url, { fetcher }), { kernel, maxNodes });
-  if (source.type === "file" || source.type === "text") return importConfig(source.content, { kernel, maxNodes });
-  return importConfig(source.value, { kernel, maxNodes });
+  const options = { kernel, maxNodes, trafficAcceptance };
+  if (source.type === "url") return importConfig(await fetchSubscription(source.url, { fetcher }), options);
+  if (source.type === "file" || source.type === "text") return importConfig(source.content, options);
+  return importConfig(source.value, options);
 }
 
 function buildUnifiedInput(input, sourceDocument, nodes) {
@@ -60,7 +74,7 @@ function buildUnifiedInput(input, sourceDocument, nodes) {
   return { ...safe, nodes };
 }
 
-export function importConfig(input, { kernel = null, maxNodes = null, prepareRuntimeHandoff = false } = {}) {
+export function importConfig(input, { kernel = null, maxNodes = null, prepareRuntimeHandoff = false, trafficAcceptance = null } = {}) {
   const inspection = inspectImport(input, { kernel });
   const sourceVault = createSensitiveSourceCarrier(input);
   let nodes;
@@ -87,6 +101,7 @@ export function importConfig(input, { kernel = null, maxNodes = null, prepareRun
   });
 
   const selectedKernel = inspection.binding.kernel;
+  const normalizedTrafficAcceptance = normalizeTrafficAcceptance(trafficAcceptance);
   let runtimeHandoff = null;
   if (prepareRuntimeHandoff && selectedKernel && nodes.length > 0) {
     const compiled = compileUnifiedConfig(unifiedConfig, selectedKernel);
@@ -112,6 +127,7 @@ export function importConfig(input, { kernel = null, maxNodes = null, prepareRun
           source: "core-import-pipeline",
           kernel: selectedKernel,
           nodeCount: nodes.length,
+          ...(normalizedTrafficAcceptance ? { trafficAcceptance: normalizedTrafficAcceptance } : {}),
         },
       },
     );
