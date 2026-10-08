@@ -128,6 +128,237 @@ jobs:
       - name: Assemble Android debug APK
         working-directory: native/android
         run: gradle --no-daemon --console=plain --stacktrace --info assembleDebug
+      - name: Run Android emulator runtime smoke test
+        shell: bash
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort | tail -n 1)"
+          AVDMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name avdmanager | sort | tail -n 1)"
+          EMULATOR="$(find "$ANDROID_HOME/emulator" -type f -name emulator | sort | tail -n 1)"
+          ADB="$ANDROID_HOME/platform-tools/adb"
+          test -x "$SDKMANAGER"
+          test -x "$AVDMANAGER"
+          test -x "$EMULATOR"
+          test -x "$ADB"
+
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+          echo "no" | "$AVDMANAGER" create avd --force --name angelanexus-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2"
+
+          nohup "$EMULATOR" -avd angelanexus-api35 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect >"$RUNNER_TEMP/angelanexus-emulator.log" 2>&1 &
+          EMULATOR_PID=$!
+          trap 'kill "$EMULATOR_PID" 2>/dev/null || true' EXIT
+
+          "$ADB" start-server
+          for attempt in $(seq 1 90); do
+            if "$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' | grep -q '^1
+  android-release:
+    needs: prepare-xray
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ANGELANEXUS_RELEASE_KEYSTORE_B64: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_B64 }}
+      ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD }}
+      ANGELANEXUS_RELEASE_KEY_ALIAS: ${{ secrets.ANGELANEXUS_RELEASE_KEY_ALIAS }}
+      ANGELANEXUS_RELEASE_KEY_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build canonical Android Core bundle
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run core:android:bundle
+          test -s native/android/app/src/main/assets/angelanexus-core.bundle.js
+      - uses: actions/download-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: native/android/app/libs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Verify signing configuration is present
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_B64"
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD"
+          test -n "$ANGELANEXUS_RELEASE_KEY_ALIAS"
+          test -n "$ANGELANEXUS_RELEASE_KEY_PASSWORD"
+      - name: Verify libXray AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s native/android/app/libs/libXray.aar
+          test -s native/android/app/libs/libbox.aar
+          test -s native/android/app/libs/libbox-legacy.aar
+          unzip -t native/android/app/libs/libXray.aar >/dev/null
+          unzip -t native/android/app/libs/libbox.aar >/dev/null
+          unzip -t native/android/app/libs/libbox-legacy.aar >/dev/null
+      - name: Assemble signed release APK and AAB
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace assembleRelease bundleRelease
+      - name: Verify release artifacts and signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="native/android/app/build/outputs/apk/release/app-release.apk"
+          AAB="native/android/app/build/outputs/bundle/release/app-release.aab"
+          test -s "$APK"
+          test -s "$AAB"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          printf '%s' "$ANGELANEXUS_RELEASE_KEYSTORE_B64" | base64 --decode > /tmp/angelanexus-release.keystore
+          chmod 600 /tmp/angelanexus-release.keystore
+          KEYTOOL_OUTPUT="$(keytool -list -v -keystore /tmp/angelanexus-release.keystore -storepass "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD" -alias "$ANGELANEXUS_RELEASE_KEY_ALIAS")"
+          EXPECTED_CERT_SHA256="$(printf '%s' "$KEYTOOL_OUTPUT" | awk '/^[[:space:]]*SHA256:/ {sub(/^[^:]*:[[:space:]]*/, ""); print; exit}')"
+          test -n "$EXPECTED_CERT_SHA256"
+          CERT_OUTPUT="$("$APKSIGNER" verify --print-certs "$APK")"
+          printf '%s' "$CERT_OUTPUT"
+          ACTUAL_CERT_SHA256="$(printf '%s' "$CERT_OUTPUT" | awk '/certificate SHA-256 digest:/ {print $NF; exit}')"
+          test -n "$ACTUAL_CERT_SHA256"
+          EXPECTED="$(printf '%s' "$EXPECTED_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
+          ACTUAL="$(printf '%s' "$ACTUAL_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "ERROR: release APK certificate does not match the configured production keystore."
+            echo "Expected: $EXPECTED"
+            echo "Actual:   $ACTUAL"
+            exit 1
+          fi
+          echo "Production signing certificate verified: $ACTUAL"
+          rm -f /tmp/angelanexus-release.keystore
+      - name: Upload signed release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AngelaNexus-android-release-${{ github.sha }}
+          path: |
+            native/android/app/build/outputs/apk/release/app-release.apk
+            native/android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
+; then
+              break
+            fi
+            sleep 2
+          done
+          "$ADB" shell getprop sys.boot_completed | tr -d '\r' | grep -q '^1
+  android-release:
+    needs: prepare-xray
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ANGELANEXUS_RELEASE_KEYSTORE_B64: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_B64 }}
+      ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD }}
+      ANGELANEXUS_RELEASE_KEY_ALIAS: ${{ secrets.ANGELANEXUS_RELEASE_KEY_ALIAS }}
+      ANGELANEXUS_RELEASE_KEY_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build canonical Android Core bundle
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run core:android:bundle
+          test -s native/android/app/src/main/assets/angelanexus-core.bundle.js
+      - uses: actions/download-artifact@v4
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: native/android/app/libs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Verify signing configuration is present
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_B64"
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD"
+          test -n "$ANGELANEXUS_RELEASE_KEY_ALIAS"
+          test -n "$ANGELANEXUS_RELEASE_KEY_PASSWORD"
+      - name: Verify libXray AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s native/android/app/libs/libXray.aar
+          test -s native/android/app/libs/libbox.aar
+          test -s native/android/app/libs/libbox-legacy.aar
+          unzip -t native/android/app/libs/libXray.aar >/dev/null
+          unzip -t native/android/app/libs/libbox.aar >/dev/null
+          unzip -t native/android/app/libs/libbox-legacy.aar >/dev/null
+      - name: Assemble signed release APK and AAB
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace assembleRelease bundleRelease
+      - name: Verify release artifacts and signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="native/android/app/build/outputs/apk/release/app-release.apk"
+          AAB="native/android/app/build/outputs/bundle/release/app-release.aab"
+          test -s "$APK"
+          test -s "$AAB"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          printf '%s' "$ANGELANEXUS_RELEASE_KEYSTORE_B64" | base64 --decode > /tmp/angelanexus-release.keystore
+          chmod 600 /tmp/angelanexus-release.keystore
+          KEYTOOL_OUTPUT="$(keytool -list -v -keystore /tmp/angelanexus-release.keystore -storepass "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD" -alias "$ANGELANEXUS_RELEASE_KEY_ALIAS")"
+          EXPECTED_CERT_SHA256="$(printf '%s' "$KEYTOOL_OUTPUT" | awk '/^[[:space:]]*SHA256:/ {sub(/^[^:]*:[[:space:]]*/, ""); print; exit}')"
+          test -n "$EXPECTED_CERT_SHA256"
+          CERT_OUTPUT="$("$APKSIGNER" verify --print-certs "$APK")"
+          printf '%s' "$CERT_OUTPUT"
+          ACTUAL_CERT_SHA256="$(printf '%s' "$CERT_OUTPUT" | awk '/certificate SHA-256 digest:/ {print $NF; exit}')"
+          test -n "$ACTUAL_CERT_SHA256"
+          EXPECTED="$(printf '%s' "$EXPECTED_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
+          ACTUAL="$(printf '%s' "$ACTUAL_CERT_SHA256" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]')"
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "ERROR: release APK certificate does not match the configured production keystore."
+            echo "Expected: $EXPECTED"
+            echo "Actual:   $ACTUAL"
+            exit 1
+          fi
+          echo "Production signing certificate verified: $ACTUAL"
+          rm -f /tmp/angelanexus-release.keystore
+      - name: Upload signed release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AngelaNexus-android-release-${{ github.sha }}
+          path: |
+            native/android/app/build/outputs/apk/release/app-release.apk
+            native/android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
+
+          "$ADB" shell settings put global window_animation_scale 0
+          "$ADB" shell settings put global transition_animation_scale 0
+          "$ADB" shell settings put global animator_duration_scale 0
+
+          APK="native/android/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          "$ADB" install -r "$APK"
+          "$ADB" shell am force-stop app.angelanexus
+          "$ADB" shell monkey -p app.angelanexus -c android.intent.category.LAUNCHER 1
+          sleep 5
+
+          "$ADB" shell pidof app.angelanexus
+          "$ADB" shell dumpsys activity activities | grep -q "app.angelanexus/.MainActivity"
+          "$ADB" shell pm path app.angelanexus | grep -q '^package:'
+          echo "Android runtime smoke test passed: APK installed, launcher activity started, process alive."
+
 
   android-release:
     needs: prepare-xray
