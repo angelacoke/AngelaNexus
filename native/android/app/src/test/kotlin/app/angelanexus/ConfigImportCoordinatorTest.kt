@@ -24,7 +24,11 @@ class ConfigImportCoordinatorTest {
         kotlinx.coroutines.runBlocking {
             val result = coordinator.importLocalFile(
                 ByteArrayInputStream(content.toByteArray(StandardCharsets.UTF_8)),
-                "config.yaml"
+                "config.yaml",
+                ConfigImportRequest.TrafficAcceptancePolicy(
+                    targetUrl = "https://example.test/health",
+                    timeoutMs = 7000,
+                ),
             )
             assertEquals(expected, result)
         }
@@ -34,5 +38,12 @@ class ConfigImportCoordinatorTest {
         assertEquals(ConfigImportRequest.Source.LOCAL_FILE, request.source)
         assertEquals("config.yaml", request.name)
         assertEquals(content, request.content)
+        assertEquals(
+            ConfigImportRequest.TrafficAcceptancePolicy(
+                targetUrl = "https://example.test/health",
+                timeoutMs = 7000,
+            ),
+            request.trafficAcceptance,
+        )
     }
 }
