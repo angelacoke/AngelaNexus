@@ -27,6 +27,14 @@ object ConfigImportEnvelope {
             if (request.name == null) append("null") else append("\"").append(escape(request.name)).append("\"")
             append(',')
             append("\"content\":\"").append(escape(request.content)).append("\"")
+            request.trafficAcceptance?.let { policy ->
+                append(',')
+                append("\"trafficAcceptance\":{")
+                append("\"required\":").append(policy.required).append(',')
+                append("\"targetUrl\":\"").append(escape(policy.targetUrl.trim())).append("\",")
+                append("\"timeoutMs\":").append(policy.timeoutMs)
+                append('}')
+            }
             append('}')
         }
 

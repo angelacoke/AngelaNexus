@@ -18,6 +18,44 @@ class ConfigImportRequestTest {
         assertEquals(ConfigImportRequest.Source.LOCAL_FILE, request.source)
         assertEquals("node.txt", request.name)
         assertEquals("vless://example", request.content)
+        assertEquals(null, request.trafficAcceptance)
+    }
+
+    @Test
+    fun acceptsExplicitTrafficAcceptancePolicy() {
+        val request = ConfigImportRequest(
+            version = ConfigImportRequest.VERSION,
+            source = ConfigImportRequest.Source.LOCAL_FILE,
+            name = "node.txt",
+            content = "vless://example",
+            trafficAcceptance = ConfigImportRequest.TrafficAcceptancePolicy(
+                targetUrl = "https://example.test/health",
+                timeoutMs = 7000,
+            ),
+        )
+
+        assertEquals(true, request.trafficAcceptance?.required)
+        assertEquals("https://example.test/health", request.trafficAcceptance?.targetUrl)
+        assertEquals(7000, request.trafficAcceptance?.timeoutMs)
+    }
+
+    @Test
+    fun rejectsPlaintextTrafficAcceptanceTarget() {
+        assertFailsWith<IllegalArgumentException> {
+            ConfigImportRequest.TrafficAcceptancePolicy(
+                targetUrl = "http://example.test/health",
+            )
+        }
+    }
+
+    @Test
+    fun rejectsExcessiveTrafficAcceptanceTimeout() {
+        assertFailsWith<IllegalArgumentException> {
+            ConfigImportRequest.TrafficAcceptancePolicy(
+                targetUrl = "https://example.test/health",
+                timeoutMs = ConfigImportRequest.MAX_TRAFFIC_ACCEPTANCE_TIMEOUT_MS + 1,
+            )
+        }
     }
 
     @Test

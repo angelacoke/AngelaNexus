@@ -24,6 +24,7 @@ test("platform index exposes the runtime import receiver contract", async () => 
     source: "local-file",
     name: "profile.yaml",
     content: "mixed-port: 7890",
+    trafficAcceptance: null,
   });
 
   const received = [];
@@ -47,6 +48,7 @@ test("platform index exposes the runtime import receiver contract", async () => 
       prepareRuntimeHandoff: true,
       source: "local-file",
       name: "profile.yaml",
+      trafficAcceptance: null,
     },
   }]);
 });

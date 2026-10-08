@@ -11,12 +11,28 @@ data class ConfigImportRequest(
     val source: Source,
     val name: String?,
     val content: String,
+    val trafficAcceptance: TrafficAcceptancePolicy? = null,
 ) {
     enum class Source {
         LOCAL_FILE,
         SUBSCRIPTION_URL,
         TEXT,
         STRUCTURED,
+    }
+
+    data class TrafficAcceptancePolicy(
+        val required: Boolean = true,
+        val targetUrl: String,
+        val timeoutMs: Int = 5000,
+    ) {
+        init {
+            require(targetUrl.trim().startsWith("https://", ignoreCase = true)) {
+                "traffic acceptance target must use HTTPS"
+            }
+            require(timeoutMs in 1..MAX_TRAFFIC_ACCEPTANCE_TIMEOUT_MS) {
+                "traffic acceptance timeoutMs must be an integer between 1 and $MAX_TRAFFIC_ACCEPTANCE_TIMEOUT_MS"
+            }
+        }
     }
 
     init {
@@ -30,5 +46,6 @@ data class ConfigImportRequest(
     companion object {
         const val VERSION = 1
         const val MAX_NAME_LENGTH = 255
+        const val MAX_TRAFFIC_ACCEPTANCE_TIMEOUT_MS = 30000
     }
 }

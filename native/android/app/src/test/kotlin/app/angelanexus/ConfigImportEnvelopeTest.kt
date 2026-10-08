@@ -24,6 +24,39 @@ class ConfigImportEnvelopeTest {
     }
 
     @Test
+    fun serializesExplicitTrafficAcceptancePolicy() {
+        val request = ConfigImportRequest(
+            version = ConfigImportRequest.VERSION,
+            source = ConfigImportRequest.Source.LOCAL_FILE,
+            name = "profile.yaml",
+            content = "mixed-port: 7890",
+            trafficAcceptance = ConfigImportRequest.TrafficAcceptancePolicy(
+                required = true,
+                targetUrl = "https://example.test/health",
+                timeoutMs = 7000,
+            ),
+        )
+
+        val payload = ConfigImportEnvelope.serialize(request)
+
+        assertTrue(payload.contains("\"trafficAcceptance\":{\"required\":true,\"targetUrl\":\"https://example.test/health\",\"timeoutMs\":7000}"))
+    }
+
+    @Test
+    fun omitsTrafficAcceptanceWhenPolicyIsAbsent() {
+        val request = ConfigImportRequest(
+            version = ConfigImportRequest.VERSION,
+            source = ConfigImportRequest.Source.TEXT,
+            name = null,
+            content = "vless://example",
+        )
+
+        val payload = ConfigImportEnvelope.serialize(request)
+
+        assertTrue(!payload.contains("\"trafficAcceptance\""))
+    }
+
+    @Test
     fun preservesNullName() {
         val request = ConfigImportRequest(
             version = ConfigImportRequest.VERSION,

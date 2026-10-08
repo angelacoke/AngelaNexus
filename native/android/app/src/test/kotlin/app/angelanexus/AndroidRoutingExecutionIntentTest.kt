@@ -29,6 +29,50 @@ class AndroidRoutingExecutionIntentTest {
     }
 
     @Test
+    fun parsesExplicitTrafficAcceptancePolicy() {
+        val intent = AndroidRoutingExecutionIntent.parse(
+            """{
+                "version":1,
+                "kind":"routing-execution-intent",
+                "mode":"proxy",
+                "action":"route",
+                "target":"node-1",
+                "metadata":{
+                    "trafficAcceptance":{
+                        "required":true,
+                        "targetUrl":"https://example.test/health",
+                        "timeoutMs":7000
+                    }
+                }
+            }""".trimIndent(),
+        )
+
+        assertNotNull(intent.trafficAcceptance)
+        assertEquals(true, intent.trafficAcceptance?.required)
+        assertEquals("https://example.test/health", intent.trafficAcceptance?.targetUrl)
+        assertEquals(7000, intent.trafficAcceptance?.timeoutMs)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsPlaintextTrafficAcceptanceTarget() {
+        AndroidRoutingExecutionIntent.parse(
+            """{
+                "version":1,
+                "kind":"routing-execution-intent",
+                "mode":"proxy",
+                "action":"route",
+                "target":"node-1",
+                "metadata":{
+                    "trafficAcceptance":{
+                        "required":true,
+                        "targetUrl":"http://example.test/health"
+                    }
+                }
+            }""".trimIndent(),
+        )
+    }
+
+    @Test
     fun preservesOrderedChainHops() {
         val intent = AndroidRoutingExecutionIntent.parse(
             """{
