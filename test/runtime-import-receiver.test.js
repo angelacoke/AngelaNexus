@@ -25,6 +25,7 @@ test("parses the Android-compatible import envelope without interpreting configu
     source: "local-file",
     name: "profile.yaml",
     content: "mixed-port: 7890",
+    trafficAcceptance: null,
   });
 });
 
