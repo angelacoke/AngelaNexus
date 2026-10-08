@@ -49,7 +49,7 @@ object ConfigImportEnvelope {
         for (char in value) {
             when (char) {
                 '\\' -> append("\\\\")
-                '"' -> append("\\"")
+                '"' -> append("\\\"")
                 '\b' -> append("\\b")
                 '\u000C' -> append("\\f")
                 '\n' -> append("\\n")
