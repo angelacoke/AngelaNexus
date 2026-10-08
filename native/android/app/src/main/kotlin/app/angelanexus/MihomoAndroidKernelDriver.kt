@@ -1,6 +1,7 @@
 package app.angelanexus
 
 import java.io.File
+import org.json.JSONObject
 
 class MihomoAndroidKernelDriver(
     private val runtime: MihomoNativeHost,
@@ -68,6 +69,18 @@ class MihomoAndroidKernelDriver(
         runtime.clearVpnService()
     }
 
-    override fun status(): AndroidKernelDriverStatus =
-        AndroidKernelDriverStatus(id, running, if (attached) "TUN attached" else "idle")
+    override fun status(): AndroidKernelDriverStatus {
+        if (running) {
+            val trafficSnapshot = runtime.getTraffic(false)
+            try {
+                JSONObject(trafficSnapshot)
+            } catch (error: Exception) {
+                throw IllegalStateException(
+                    "Mihomo native runtime health check returned invalid traffic state",
+                    error,
+                )
+            }
+        }
+        return AndroidKernelDriverStatus(id, running, if (attached) "TUN attached" else "idle")
+    }
 }
