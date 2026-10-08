@@ -16,11 +16,11 @@ class ConfigImportEnvelopeTest {
 
         val payload = ConfigImportEnvelope.serialize(request)
 
-        assertTrue(payload.contains(""type":"angelanexus.config-import""))
-        assertTrue(payload.contains(""version":1"))
-        assertTrue(payload.contains(""source":"local-file""))
-        assertTrue(payload.contains(""name":"profile.yaml""))
-        assertTrue(payload.contains(""content":"mixed-port: 7890""))
+        assertTrue(payload.contains("\"type\":\"angelanexus.config-import\""))
+        assertTrue(payload.contains("\"version\":1"))
+        assertTrue(payload.contains("\"source\":\"local-file\""))
+        assertTrue(payload.contains("\"name\":\"profile.yaml\""))
+        assertTrue(payload.contains("\"content\":\"mixed-port: 7890\""))
     }
 
     @Test
@@ -39,7 +39,7 @@ class ConfigImportEnvelopeTest {
 
         val payload = ConfigImportEnvelope.serialize(request)
 
-        assertTrue(payload.contains(""trafficAcceptance":{"required":true,"targetUrl":"https://example.test/health","timeoutMs":7000}"))
+        assertTrue(payload.contains("\"trafficAcceptance\":{\"required\":true,\"targetUrl\":\"https://example.test/health\",\"timeoutMs\":7000}"))
     }
 
     @Test
@@ -53,7 +53,7 @@ class ConfigImportEnvelopeTest {
 
         val payload = ConfigImportEnvelope.serialize(request)
 
-        assertTrue(!payload.contains(""trafficAcceptance""))
+        assertTrue(!payload.contains("\"trafficAcceptance\""))
     }
 
     @Test
@@ -67,7 +67,7 @@ class ConfigImportEnvelopeTest {
 
         val payload = ConfigImportEnvelope.serialize(request)
 
-        assertTrue(payload.contains(""name":null"))
+        assertTrue(payload.contains("\"name\":null"))
     }
 
     @Test
@@ -101,7 +101,7 @@ class ConfigImportEnvelopeTest {
                 content = "x",
             )
             assertTrue(
-                ConfigImportEnvelope.serialize(request).contains(""source":"$wireValue""),
+                ConfigImportEnvelope.serialize(request).contains("\"source\":\"$wireValue\""),
             )
         }
     }
