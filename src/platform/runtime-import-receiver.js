@@ -10,6 +10,31 @@ function byteLength(value) {
   return new TextEncoder().encode(value).byteLength;
 }
 
+function normalizeTrafficAcceptance(value) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError("traffic acceptance policy must be an object");
+  }
+
+  const targetUrl = typeof value.targetUrl === "string" ? value.targetUrl.trim() : "";
+  if (!targetUrl) throw new TypeError("traffic acceptance targetUrl is required");
+  if (!/^https:\/\//i.test(targetUrl)) {
+    throw new TypeError("traffic acceptance targetUrl must use HTTPS");
+  }
+
+  const required = value.required === undefined ? true : value.required;
+  if (typeof required !== "boolean") {
+    throw new TypeError("traffic acceptance required must be boolean");
+  }
+
+  const timeoutMs = value.timeoutMs === undefined ? 5000 : value.timeoutMs;
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 30000) {
+    throw new TypeError("traffic acceptance timeoutMs must be an integer between 1 and 30000");
+  }
+
+  return Object.freeze({ required, targetUrl, timeoutMs });
+}
+
 function validateEnvelope(envelope, { maxBytes }) {
   if (!envelope || typeof envelope !== "object" || Array.isArray(envelope)) {
     throw new TypeError("configuration import envelope must be an object");
@@ -29,6 +54,7 @@ function validateEnvelope(envelope, { maxBytes }) {
   if (envelope.name !== null && (typeof envelope.name !== "string" || envelope.name.length > 255)) {
     throw new TypeError("configuration import name is invalid");
   }
+  normalizeTrafficAcceptance(envelope.trafficAcceptance);
   if (!Number.isInteger(maxBytes) || maxBytes <= 0) {
     throw new TypeError("configuration import maxBytes must be a positive integer");
   }
@@ -55,6 +81,7 @@ export function parseConfigImportEnvelope(payload, { maxBytes = CONFIG_IMPORT_EN
     source: envelope.source,
     name: envelope.name ?? null,
     content: envelope.content,
+    trafficAcceptance: normalizeTrafficAcceptance(envelope.trafficAcceptance),
   });
 }
 
@@ -68,6 +95,7 @@ export function createCoreImportReceiver({ importer, maxBytes = CONFIG_IMPORT_EN
         prepareRuntimeHandoff: true,
         source: request.source,
         name: request.name,
+        trafficAcceptance: request.trafficAcceptance,
       });
     },
   });
