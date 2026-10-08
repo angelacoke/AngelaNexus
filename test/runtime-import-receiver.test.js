@@ -61,6 +61,39 @@ test("enforces the serialized envelope byte limit", () => {
   );
 });
 
+test("preserves an explicit traffic acceptance policy through the receiver", async () => {
+  const calls = [];
+  const receiver = createCoreImportReceiver({
+    importer: async (input, options) => {
+      calls.push({ input, options });
+      return { ok: true };
+    },
+  });
+
+  await receiver.receive(envelope({
+    trafficAcceptance: {
+      required: true,
+      targetUrl: "https://example.test/health",
+      timeoutMs: 7000,
+    },
+  }));
+
+  assert.deepEqual(calls[0].options.trafficAcceptance, {
+    required: true,
+    targetUrl: "https://example.test/health",
+    timeoutMs: 7000,
+  });
+});
+
+test("rejects plaintext traffic acceptance targets", () => {
+  assert.throws(
+    () => parseConfigImportEnvelope(envelope({
+      trafficAcceptance: { required: true, targetUrl: "http://example.test/health" },
+    })),
+    /must use HTTPS/
+  );
+});
+
 test("receiver delegates the bounded request to the core import pipeline", async () => {
   const calls = [];
   const receiver = createCoreImportReceiver({
@@ -75,6 +108,6 @@ test("receiver delegates the bounded request to the core import pipeline", async
   assert.deepEqual(result, { ok: true });
   assert.deepEqual(calls, [{
     input: { type: "file", name: "profile.yaml", content: "mixed-port: 7890" },
-    options: { source: "local-file", name: "profile.yaml", prepareRuntimeHandoff: true },
+    options: { source: "local-file", name: "profile.yaml", prepareRuntimeHandoff: true, trafficAcceptance: null },
   }]);
 });

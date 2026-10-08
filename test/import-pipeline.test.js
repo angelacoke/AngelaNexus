@@ -21,3 +21,21 @@ test("imports multiple mixed-protocol single nodes line-by-line without kernel s
 test("imports local configuration file content without requiring kernel selection", () => { const result = importSource({ type: "file", name: "config.yaml", content: CLASH }); return result.then((value) => { assert.equal(value.model.nodeCount, 2); assert.equal(value.detection.kind, "clash-yaml"); }); });
 test("imports a subscription URL through an injected fetcher", async () => { const result = await importSource("https://example.com/sub", { fetcher: async () => ({ ok: true, text: async () => "vless://u@example.com:443#US" }) }); assert.equal(result.model.nodeCount, 1); assert.equal(result.model.nodes[0].protocol, "vless"); });
 test("rejects subscription URLs with embedded credentials or unsupported schemes", () => { assert.throws(() => validateSubscriptionUrl("ftp://example.com/sub"), /http or https/); assert.throws(() => validateSubscriptionUrl("https://user:pass@example.com/sub"), /embedded credentials/); });
+
+
+test("runtime handoff carries an explicit traffic acceptance policy", () => {
+  const result = importConfig(CLASH, {
+    prepareRuntimeHandoff: true,
+    trafficAcceptance: {
+      required: true,
+      targetUrl: "https://example.test/health",
+      timeoutMs: 7000,
+    },
+  });
+
+  assert.deepEqual(result.runtimeHandoff.executionIntent.metadata.trafficAcceptance, {
+    required: true,
+    targetUrl: "https://example.test/health",
+    timeoutMs: 7000,
+  });
+});
