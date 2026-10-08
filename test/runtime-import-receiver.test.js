@@ -75,6 +75,6 @@ test("receiver delegates the bounded request to the core import pipeline", async
   assert.deepEqual(result, { ok: true });
   assert.deepEqual(calls, [{
     input: { type: "file", name: "profile.yaml", content: "mixed-port: 7890" },
-    options: { source: "local-file", name: "profile.yaml" },
+    options: { source: "local-file", name: "profile.yaml", prepareRuntimeHandoff: true },
   }]);
 });

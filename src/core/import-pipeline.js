@@ -5,6 +5,9 @@ import { normalizeNodeConfig } from "./config.js";
 import { Kernels } from "./model.js";
 import { createDecisionPrompt } from "./decision-registry.js";
 import { createSensitiveSourceCarrier } from "./sensitive-source.js";
+import { compileUnifiedConfig } from "./config-compiler.js";
+import { createRoutingExecutionIntent } from "./routing-execution-intent.js";
+import yaml from "js-yaml";
 
 function validateKernel(kernel) {
   if (kernel === null || kernel === undefined) return null;
@@ -57,7 +60,7 @@ function buildUnifiedInput(input, sourceDocument, nodes) {
   return { ...safe, nodes };
 }
 
-export function importConfig(input, { kernel = null, maxNodes = null } = {}) {
+export function importConfig(input, { kernel = null, maxNodes = null, prepareRuntimeHandoff = false } = {}) {
   const inspection = inspectImport(input, { kernel });
   const sourceVault = createSensitiveSourceCarrier(input);
   let nodes;
@@ -83,7 +86,49 @@ export function importConfig(input, { kernel = null, maxNodes = null } = {}) {
     native: { format: inspection.detection.kind, protocol: inspection.detection.protocol || null, runtimeCandidates: inspection.binding.candidates, source: { version: sourceVault.version, digest: sourceVault.digest, credentialBearing: sourceVault.credentialBearing } }
   });
 
-  const result = { ...inspection, model: { nodes, nodeCount: nodes.length, nodeLimit: maxNodes, unifiedConfig } };
+  const selectedKernel = inspection.binding.kernel;
+  let runtimeHandoff = null;
+  if (prepareRuntimeHandoff && selectedKernel && nodes.length > 0) {
+    const compiled = compileUnifiedConfig(unifiedConfig, selectedKernel);
+    const compiledConfiguration = selectedKernel === Kernels.MIHOMO
+      ? yaml.dump(compiled.config, { noRefs: true })
+      : JSON.stringify(compiled.config, null, 2) + "\n";
+
+    const configuredDefaultAction = unifiedConfig.routing?.defaultAction;
+    const defaultAction = configuredDefaultAction && typeof configuredDefaultAction === "object"
+      ? configuredDefaultAction
+      : { type: "route", target: nodes[0].name };
+
+    const executionIntent = createRoutingExecutionIntent(
+      {
+        action: defaultAction,
+        ruleIds: [],
+        reason: configuredDefaultAction
+          ? "imported-default-routing"
+          : "imported-first-node-default",
+      },
+      {
+        metadata: {
+          source: "core-import-pipeline",
+          kernel: selectedKernel,
+          nodeCount: nodes.length,
+        },
+      },
+    );
+
+    runtimeHandoff = {
+      configuration: compiledConfiguration,
+      executionIntent,
+      kernel: selectedKernel,
+      compilerValidation: compiled.validation,
+    };
+  }
+
+  const result = {
+    ...inspection,
+    model: { nodes, nodeCount: nodes.length, nodeLimit: maxNodes, unifiedConfig },
+    runtimeHandoff,
+  };
   Object.defineProperty(result, "sourceVault", { value: sourceVault, enumerable: false, configurable: false, writable: false });
   return Object.freeze(result);
 }

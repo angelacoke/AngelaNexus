@@ -11,7 +11,8 @@ function requireProxy(config, id) {
 }
 function compileNode(node) {
   const source = clone(node) || {};
-  const type = String(source.protocol || source.type || "").toLowerCase();
+  let type = String(source.protocol || source.type || "").toLowerCase();
+  if (type === "socks5") type = "socks";
   const output = { name: source.name || source.id, type, server: source.endpoint?.server || source.server || source.address, port: Number(source.endpoint?.port || source.port || source.server_port) };
   const auth = source.auth || source;
   if (auth.uuid && ["vless","vmess","tuic"].includes(type)) output.uuid = auth.uuid;

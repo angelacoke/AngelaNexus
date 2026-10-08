@@ -9,13 +9,14 @@ class CoreRuntimeImportResultParserTest {
     @Test
     fun parsesVerifiedCoreImportSummary() {
         val result = CoreRuntimeImportResultParser.parse(
-            """{"ok":true,"result":{"version":1,"source":"local-file","nodeCount":4,"kernel":"mihomo","detectionConfidence":"detected","executionIntent":{"version":1,"kind":"routing-execution-intent","mode":"proxy","action":"route","target":"node-1"}}}""",
+            """{"ok":true,"result":{"version":1,"source":"local-file","nodeCount":4,"kernel":"mihomo","detectionConfidence":"detected","configuration":"proxies: []\\n","executionIntent":{"version":1,"kind":"routing-execution-intent","mode":"proxy","action":"route","target":"node-1"}}}""",
         )
 
         assertEquals("local-file", result.source)
         assertEquals(4, result.nodeCount)
         assertEquals("mihomo", result.kernel)
         assertEquals("detected", result.detectionConfidence)
+        assertEquals("proxies: []\\n", result.configuration)
         val intent = JSONObject(result.executionIntentJson ?: error("missing execution intent"))
         assertEquals(1, intent.getInt("version"))
         assertEquals("routing-execution-intent", intent.getString("kind"))

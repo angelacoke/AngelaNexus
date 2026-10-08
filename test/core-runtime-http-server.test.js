@@ -29,6 +29,7 @@ test("Core runtime HTTP server executes serialized import through the Core pipel
         nodeCount: 0,
         kernel: "mihomo",
         detectionConfidence: "schema",
+        configuration: null,
         executionIntent: null,
       },
     });

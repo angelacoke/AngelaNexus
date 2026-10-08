@@ -65,6 +65,7 @@ export function createCoreImportReceiver({ importer, maxBytes = CONFIG_IMPORT_EN
       const request = parseConfigImportEnvelope(payload, { maxBytes });
       return runtime.importConfiguration(request.content, {
         ...options,
+        prepareRuntimeHandoff: true,
         source: request.source,
         name: request.name,
       });
