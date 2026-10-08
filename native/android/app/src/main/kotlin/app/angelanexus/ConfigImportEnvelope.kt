@@ -20,13 +20,21 @@ object ConfigImportEnvelope {
 
         val payload = buildString {
             append('{')
-            append("\"type\":\"").append(escape(TYPE)).append("\",")
-            append("\"version\":").append(request.version).append(',')
-            append("\"source\":\"").append(escape(request.source.wireValue)).append("\",")
-            append("\"name\":")
-            if (request.name == null) append("null") else append("\"").append(escape(request.name)).append("\"")
+            append(""type":"").append(escape(TYPE)).append("",")
+            append(""version":").append(request.version).append(',')
+            append(""source":"").append(escape(request.source.wireValue)).append("",")
+            append(""name":")
+            if (request.name == null) append("null") else append(""").append(escape(request.name)).append(""")
             append(',')
-            append("\"content\":\"").append(escape(request.content)).append("\"")
+            append(""content":"").append(escape(request.content)).append(""")
+            request.trafficAcceptance?.let { policy ->
+                append(',')
+                append(""trafficAcceptance":{")
+                append(""required":").append(policy.required).append(',')
+                append(""targetUrl":"").append(escape(policy.targetUrl.trim())).append("",")
+                append(""timeoutMs":").append(policy.timeoutMs)
+                append('}')
+            }
             append('}')
         }
 
@@ -41,7 +49,7 @@ object ConfigImportEnvelope {
         for (char in value) {
             when (char) {
                 '\\' -> append("\\\\")
-                '"' -> append("\\\"")
+                '"' -> append("\\"")
                 '\b' -> append("\\b")
                 '\u000C' -> append("\\f")
                 '\n' -> append("\\n")
