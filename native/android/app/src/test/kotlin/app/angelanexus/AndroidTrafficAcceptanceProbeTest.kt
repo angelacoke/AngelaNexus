@@ -69,7 +69,6 @@ class AndroidTrafficAcceptanceProbeTest {
 
         override fun usingProxy(): Boolean = false
 
-        override val responseCode: Int
-            get() = response
+        override fun getResponseCode(): Int = response
     }
 }
