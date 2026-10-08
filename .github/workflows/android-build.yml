@@ -147,8 +147,25 @@ jobs:
           echo "no" | "$AVDMANAGER" create avd --force --name angelanexus-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2"
           nohup "$EMULATOR" -avd angelanexus-api35 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect >"$RUNNER_TEMP/angelanexus-emulator.log" 2>&1 &
           EMULATOR_PID=$!
-          trap 'kill "$EMULATOR_PID" 2>/dev/null || true' EXIT
+          cleanup() {
+            rc=$?
+            if [ "$rc" -ne 0 ]; then
+              echo "=== emulator diagnostics ==="
+              "$ADB" devices -l || true
+              "$ADB" shell getprop ro.build.version.release || true
+              "$ADB" shell getprop sys.boot_completed || true
+              "$ADB" shell pidof app.angelanexus || true
+              "$ADB" shell dumpsys activity activities | tail -n 160 || true
+              "$ADB" logcat -d -t 300 || true
+              echo "=== emulator process log ==="
+              cat "$RUNNER_TEMP/angelanexus-emulator.log" || true
+            fi
+            kill "$EMULATOR_PID" 2>/dev/null || true
+            exit "$rc"
+          }
+          trap cleanup EXIT
           "$ADB" start-server
+          "$ADB" wait-for-device
           for attempt in $(seq 1 90); do
             if "$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' | grep -q '^1'; then
               break
@@ -163,9 +180,14 @@ jobs:
           test -s "$APK"
           "$ADB" install -r "$APK"
           "$ADB" shell am force-stop app.angelanexus
-          "$ADB" shell monkey -p app.angelanexus -c android.intent.category.LAUNCHER 1
-          sleep 5
-          "$ADB" shell pidof app.angelanexus
+          "$ADB" shell am start -W -n app.angelanexus/.MainActivity
+          for attempt in $(seq 1 20); do
+            if "$ADB" shell pidof app.angelanexus 2>/dev/null | tr -d '\r' | grep -q '[0-9]'; then
+              break
+            fi
+            sleep 1
+          done
+          "$ADB" shell pidof app.angelanexus | tr -d '\r' | grep -q '[0-9]'
           "$ADB" shell dumpsys activity activities | grep -q "app.angelanexus/.MainActivity"
           "$ADB" shell pm path app.angelanexus | grep -q '^package:'
           echo "Android runtime smoke test passed: APK installed, launcher activity started, process alive."
