@@ -135,15 +135,15 @@ jobs:
         run: |
           set -euo pipefail
           SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort | tail -n 1)"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
           AVDMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name avdmanager | sort | tail -n 1)"
           EMULATOR="$(find "$ANDROID_HOME/emulator" -type f -name emulator | sort | tail -n 1)"
           ADB="$ANDROID_HOME/platform-tools/adb"
-          test -x "$SDKMANAGER"
           test -x "$AVDMANAGER"
           test -x "$EMULATOR"
           test -x "$ADB"
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
           echo "no" | "$AVDMANAGER" create avd --force --name angelanexus-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2"
           nohup "$EMULATOR" -avd angelanexus-api35 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect >"$RUNNER_TEMP/angelanexus-emulator.log" 2>&1 &
           EMULATOR_PID=$!
