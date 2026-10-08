@@ -18,7 +18,6 @@ data class AndroidRoutingExecutionIntent(
     val ruleIds: List<String>,
     val applicationJson: String?,
     val metadataJson: String?,
-    val trafficAcceptance: AndroidTrafficAcceptanceSpec?,
     val serialized: String,
 ) {
     companion object {
@@ -102,11 +101,7 @@ data class AndroidRoutingExecutionIntent(
             } ?: emptyList()
 
             val applicationJson = root.optJSONObject("application")?.toString()
-            val metadataObject = root.optJSONObject("metadata")
-            val metadataJson = metadataObject?.toString()
-            val trafficAcceptance = metadataObject
-                ?.optJSONObject("trafficAcceptance")
-                ?.let(AndroidTrafficAcceptanceSpec::parse)
+            val metadataJson = root.optJSONObject("metadata")?.toString()
 
             return AndroidRoutingExecutionIntent(
                 version = version,
@@ -117,34 +112,8 @@ data class AndroidRoutingExecutionIntent(
                 ruleIds = ruleIds,
                 applicationJson = applicationJson,
                 metadataJson = metadataJson,
-                trafficAcceptance = trafficAcceptance,
                 serialized = root.toString(),
             )
-        }
-    }
-}
-
-data class AndroidTrafficAcceptanceSpec(
-    val required: Boolean,
-    val targetUrl: String,
-    val timeoutMs: Int,
-) {
-    companion object {
-        fun parse(value: JSONObject): AndroidTrafficAcceptanceSpec {
-            val targetUrl = value.optString("targetUrl").trim()
-            require(targetUrl.isNotEmpty()) { "traffic acceptance targetUrl is required" }
-            require(targetUrl.startsWith("https://", ignoreCase = true)) {
-                "traffic acceptance targetUrl must use HTTPS"
-            }
-            val required = if (value.has("required")) value.optBoolean("required") else true
-            require(value.opt("required") == null || value.opt("required") is Boolean) {
-                "traffic acceptance required must be boolean"
-            }
-            val timeoutMs = if (value.has("timeoutMs")) value.optInt("timeoutMs", -1) else 5000
-            require(timeoutMs in 1..30000) {
-                "traffic acceptance timeoutMs must be between 1 and 30000"
-            }
-            return AndroidTrafficAcceptanceSpec(required, targetUrl, timeoutMs)
         }
     }
 }

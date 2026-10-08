@@ -138,6 +138,22 @@ class AngelaNexusVpnService : VpnService() {
                         (runtimeStatus.detail ?: "no detail")
                 }
 
+                // Native health is only a runtime liveness signal. When Core
+                // explicitly requires network acceptance, prove a real HTTPS
+                // request through this VPN process before publishing Running.
+                val acceptance = executionIntent.trafficAcceptance
+                if (acceptance?.required == true) {
+                    updateNotification("VPN runtime verifying network traffic")
+                    val acceptanceResult = AndroidTrafficAcceptanceProbe().probe(
+                        targetUrl = acceptance.targetUrl,
+                        timeoutMs = acceptance.timeoutMs,
+                    )
+                    check(acceptanceResult.result == AndroidTrafficAcceptanceProbe.RESULT_SUCCESS) {
+                        "traffic acceptance failed for " + acceptanceResult.targetUrl + ": " +
+                            (acceptanceResult.reason ?: "unexpected-http-status")
+                    }
+                }
+
                 tunEstablished = true
             } finally {
                 if (!driverOwnsTun) {
