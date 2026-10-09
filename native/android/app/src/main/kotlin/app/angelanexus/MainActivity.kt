@@ -152,6 +152,7 @@ private fun AngelaNexusRoot() {
         rootAvailable = rootCapabilities.rootAvailable && rootCapabilities.rootAuthorized,
         importResult = importResult,
         executionState = executionState,
+        uiStatus = status,
         onTransparentModeChange = { selectedMode = it },
         onImportConfig = {
             status = AndroidUiStatus.SELECTING_CONFIG
@@ -184,6 +185,7 @@ private fun AngelaNexusPreview() {
             rootAvailable = false,
             importResult = null,
             executionState = KernelExecutionState(),
+            uiStatus = AndroidUiStatus.READY,
             onTransparentModeChange = {},
             onImportConfig = {},
             onStartVpn = {},

@@ -1,8 +1,14 @@
 <resources>
     <string name="app_name">AngelaNexus</string>
     <string name="app_subtitle">Интеллектуальная сетевая прокси-платформа</string>
-    <string name="status_ready">Состояние: уровень приложения запущен; интеграция среды выполнения ядра ожидается</string>
-    <string name="status_select_config">Состояние: ожидается выбор конфигурации</string>
+    <string name="status_ready">Готово. Импортируйте конфигурацию, чтобы продолжить.</string>
+    <string name="status_select_config">Выберите файл конфигурации.</string>
+    <string name="status_importing_config">Импорт конфигурации и проверка в AngelaNexus Core…</string>
+    <string name="status_config_delivered">Core импортировал конфигурацию. Запуск среды выполнения — отдельный шаг.</string>
+    <string name="status_core_unavailable">Не удалось импортировать конфигурацию: Core недоступен или файл не прошёл проверку.</string>
+    <string name="status_vpn_not_ready">Разрешение VPN не предоставлено. Разрешите VPN-доступ и повторите попытку.</string>
+    <string name="status_transparent_unavailable">Системный прозрачный режим недоступен на этом устройстве.</string>
+    <string name="status_root_pending">Режим Root ещё не подключён. Выберите системный прозрачный режим.</string>
     <string name="status_vpn_boundary_started">Состояние: граница Android VPN запущена</string>
     <string name="import_config">Импорт конфигурации</string>
     <string name="test_vpn_boundary">Запустить границу VPN</string>

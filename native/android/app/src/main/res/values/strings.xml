@@ -1,8 +1,14 @@
 <resources>
     <string name="app_name">AngelaNexus</string>
     <string name="app_subtitle">Smart Network Proxy Platform</string>
-    <string name="status_ready">Status: application layer started; core runtime pending integration</string>
-    <string name="status_select_config">Status: waiting for configuration selection</string>
+    <string name="status_ready">Ready. Import a configuration to continue.</string>
+    <string name="status_select_config">Choose a configuration file.</string>
+    <string name="status_importing_config">Importing configuration and validating it in AngelaNexus Core…</string>
+    <string name="status_config_delivered">Configuration imported by Core. Runtime start is a separate step.</string>
+    <string name="status_core_unavailable">Configuration import failed: Core runtime is unavailable or rejected the file.</string>
+    <string name="status_vpn_not_ready">VPN permission was not granted. Allow VPN access and try again.</string>
+    <string name="status_transparent_unavailable">System transparent mode is unavailable on this device.</string>
+    <string name="status_root_pending">Root mode is not connected yet. Choose System transparent mode instead.</string>
     <string name="status_vpn_boundary_started">Status: Android VPN boundary started</string>
     <string name="import_config">Import configuration</string>
     <string name="test_vpn_boundary">Start VPN boundary</string>
