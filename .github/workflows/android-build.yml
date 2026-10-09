@@ -182,7 +182,7 @@ jobs:
             exit 1
           fi
           booted=false
-          for attempt in $(seq 1 90); do
+          for attempt in $(seq 1 180); do
             if "$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' | grep -q '^1'; then
               booted=true
               break
@@ -190,7 +190,7 @@ jobs:
             sleep 2
           done
           if [ "$booted" != true ]; then
-            echo "ERROR: emulator did not finish booting within 180 seconds"
+            echo "ERROR: emulator did not finish booting within 360 seconds"
             "$ADB" devices -l || true
             "$ADB" shell getprop sys.boot_completed || true
             cat "$RUNNER_TEMP/angelanexus-emulator.log" || true
