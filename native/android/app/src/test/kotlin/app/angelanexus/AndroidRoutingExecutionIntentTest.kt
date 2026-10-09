@@ -41,7 +41,9 @@ class AndroidRoutingExecutionIntentTest {
                     "trafficAcceptance":{
                         "required":true,
                         "targetUrl":"https://example.test/health",
-                        "timeoutMs":7000
+                        "timeoutMs":7000,
+                        "expectedResponseHeader":"X-Proxy-Egress",
+                        "expectedResponseValue":"verified-egress"
                     }
                 }
             }""".trimIndent(),
@@ -51,6 +53,27 @@ class AndroidRoutingExecutionIntentTest {
         assertEquals(true, intent.trafficAcceptance?.required)
         assertEquals("https://example.test/health", intent.trafficAcceptance?.targetUrl)
         assertEquals(7000, intent.trafficAcceptance?.timeoutMs)
+        assertEquals("X-Proxy-Egress", intent.trafficAcceptance?.expectedResponseHeader)
+        assertEquals("verified-egress", intent.trafficAcceptance?.expectedResponseValue)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsRequiredTrafficAcceptanceWithoutProxyEvidenceMarker() {
+        AndroidRoutingExecutionIntent.parse(
+            """{
+                "version":1,
+                "kind":"routing-execution-intent",
+                "mode":"proxy",
+                "action":"route",
+                "target":"node-1",
+                "metadata":{
+                    "trafficAcceptance":{
+                        "required":true,
+                        "targetUrl":"https://example.test/health"
+                    }
+                }
+            }""".trimIndent(),
+        )
     }
 
     @Test(expected = IllegalArgumentException::class)

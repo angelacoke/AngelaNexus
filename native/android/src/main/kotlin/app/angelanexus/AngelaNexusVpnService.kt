@@ -144,9 +144,15 @@ class AngelaNexusVpnService : VpnService() {
                 val acceptance = executionIntent.trafficAcceptance
                 if (acceptance?.required == true) {
                     updateNotification("VPN runtime verifying network traffic")
+                    check(!acceptance.expectedResponseHeader.isNullOrBlank() &&
+                        !acceptance.expectedResponseValue.isNullOrBlank()) {
+                        "required traffic acceptance has no trusted proxy-evidence response marker"
+                    }
                     val acceptanceResult = AndroidTrafficAcceptanceProbe().probe(
                         targetUrl = acceptance.targetUrl,
                         timeoutMs = acceptance.timeoutMs,
+                        expectedResponseHeader = acceptance.expectedResponseHeader,
+                        expectedResponseValue = acceptance.expectedResponseValue,
                     )
                     check(acceptanceResult.result == AndroidTrafficAcceptanceProbe.RESULT_SUCCESS) {
                         "traffic acceptance failed for " + acceptanceResult.targetUrl + ": " +

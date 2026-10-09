@@ -4,10 +4,10 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Performs a real HTTPS request for Android data-plane acceptance.
- *
- * This is deliberately an explicit probe target. The probe never invents a
- * destination and never treats native lifecycle state as traffic evidence.
+ * Performs an HTTPS acceptance request. A 2xx response alone proves only
+ * endpoint reachability; proxy acceptance requires an expected response marker
+ * configured on a trusted endpoint that confirms the intended egress path.
+ * The probe never invents a destination or treats lifecycle state as evidence.
  */
 class AndroidTrafficAcceptanceProbe(
     private val openConnection: (URL) -> HttpURLConnection = {
@@ -17,9 +17,20 @@ class AndroidTrafficAcceptanceProbe(
     fun probe(
         targetUrl: String,
         timeoutMs: Int = DEFAULT_TIMEOUT_MS,
+        expectedResponseHeader: String? = null,
+        expectedResponseValue: String? = null,
     ): AndroidTrafficAcceptanceResult {
         val url = validateTarget(targetUrl)
         require(timeoutMs > 0) { "traffic acceptance timeout must be positive" }
+        require((expectedResponseHeader == null) == (expectedResponseValue == null)) {
+            "expected response header and value must be supplied together"
+        }
+        require(expectedResponseHeader?.isNotBlank() != false) {
+            "expected response header must not be blank"
+        }
+        require(expectedResponseValue?.isNotBlank() != false) {
+            "expected response value must not be blank"
+        }
 
         val startedAt = System.nanoTime()
         var connection: HttpURLConnection? = null
@@ -37,8 +48,18 @@ class AndroidTrafficAcceptanceProbe(
             connection.connect()
             val statusCode = connection.responseCode
             val durationMs = elapsedMs(startedAt)
+            val evidenceFailure = if (expectedResponseHeader == null) {
+                null
+            } else {
+                val actual = connection.getHeaderField(expectedResponseHeader)
+                when {
+                    actual == null -> "proxy-evidence-header-missing"
+                    actual != expectedResponseValue -> "proxy-evidence-header-mismatch"
+                    else -> null
+                }
+            }
 
-            if (statusCode in 200..299) {
+            if (statusCode in 200..299 && evidenceFailure == null) {
                 AndroidTrafficAcceptanceResult(
                     result = RESULT_SUCCESS,
                     targetUrl = url.toExternalForm(),
@@ -52,7 +73,7 @@ class AndroidTrafficAcceptanceProbe(
                     targetUrl = url.toExternalForm(),
                     statusCode = statusCode,
                     durationMs = durationMs,
-                    reason = "unexpected-http-status",
+                    reason = evidenceFailure ?: "unexpected-http-status",
                 )
             }
         } catch (error: Exception) {
