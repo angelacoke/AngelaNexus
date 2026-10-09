@@ -148,7 +148,13 @@ jobs:
           test -x "$ADB"
           echo "Using emulator binary: $EMULATOR"
           "$EMULATOR" -version
+          export ANDROID_USER_HOME="$HOME/.android"
+          export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo "Creating AVD under $ANDROID_AVD_HOME"
           echo "no" | "$AVDMANAGER" create avd --force --name angelanexus-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2"
+          test -s "$ANDROID_AVD_HOME/angelanexus-api35.ini"
+          "$EMULATOR" -list-avds | grep -Fx "angelanexus-api35"
           nohup "$EMULATOR" -avd angelanexus-api35 -no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -gpu swiftshader_indirect -accel off >"$RUNNER_TEMP/angelanexus-emulator.log" 2>&1 &
           EMULATOR_PID=$!
           cleanup() {
