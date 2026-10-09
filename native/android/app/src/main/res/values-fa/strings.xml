@@ -1,8 +1,14 @@
 <resources>
     <string name="app_name">AngelaNexus</string>
     <string name="app_subtitle">سکوی هوشمند پروکسی شبکه</string>
-    <string name="status_ready">وضعیت: لایه برنامه اجرا شده است؛ اتصال محیط اجرای هسته در انتظار است</string>
-    <string name="status_select_config">وضعیت: در انتظار انتخاب پیکربندی</string>
+    <string name="status_ready">آماده است. برای ادامه، پیکربندی را وارد کنید.</string>
+    <string name="status_select_config">فایل پیکربندی را انتخاب کنید.</string>
+    <string name="status_importing_config">در حال وارد کردن پیکربندی و اعتبارسنجی آن در AngelaNexus Core…</string>
+    <string name="status_config_delivered">پیکربندی توسط Core وارد شد؛ راه‌اندازی محیط اجرا مرحله‌ای جداگانه است.</string>
+    <string name="status_core_unavailable">وارد کردن پیکربندی ناموفق بود: Core در دسترس نیست یا فایل تأیید نشد.</string>
+    <string name="status_vpn_not_ready">مجوز VPN داده نشد. دسترسی VPN را تأیید کرده و دوباره تلاش کنید.</string>
+    <string name="status_transparent_unavailable">حالت شفاف سیستم در این دستگاه در دسترس نیست.</string>
+    <string name="status_root_pending">حالت Root هنوز متصل نشده است. حالت شفاف سیستم را انتخاب کنید.</string>
     <string name="status_vpn_boundary_started">وضعیت: مرز VPN اندروید اجرا شده است</string>
     <string name="import_config">وارد کردن پیکربندی</string>
     <string name="test_vpn_boundary">راه‌اندازی مرز VPN</string>
