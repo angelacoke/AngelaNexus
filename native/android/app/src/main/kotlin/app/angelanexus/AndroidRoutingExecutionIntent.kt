@@ -128,6 +128,8 @@ data class AndroidTrafficAcceptancePolicy(
     val required: Boolean,
     val targetUrl: String,
     val timeoutMs: Int,
+    val expectedResponseHeader: String?,
+    val expectedResponseValue: String?,
 ) {
     companion object {
         private const val DEFAULT_TIMEOUT_MS = 5000
@@ -148,6 +150,18 @@ data class AndroidTrafficAcceptancePolicy(
             } else {
                 DEFAULT_TIMEOUT_MS
             }
+            val expectedResponseHeader =
+                value.optString("expectedResponseHeader", "").trim().ifEmpty { null }
+            val expectedResponseValue =
+                value.optString("expectedResponseValue", "").trim().ifEmpty { null }
+            require((expectedResponseHeader == null) == (expectedResponseValue == null)) {
+                "traffic acceptance expected response header and value must be supplied together"
+            }
+            if (required) {
+                require(!expectedResponseHeader.isNullOrBlank() && !expectedResponseValue.isNullOrBlank()) {
+                    "required traffic acceptance must verify an expected response header and value"
+                }
+            }
             require(timeoutMs in 1..MAX_TIMEOUT_MS) {
                 "traffic acceptance timeoutMs must be an integer between 1 and $MAX_TIMEOUT_MS"
             }
@@ -156,6 +170,8 @@ data class AndroidTrafficAcceptancePolicy(
                 required = required,
                 targetUrl = targetUrl,
                 timeoutMs = timeoutMs,
+                expectedResponseHeader = expectedResponseHeader,
+                expectedResponseValue = expectedResponseValue,
             )
         }
     }
