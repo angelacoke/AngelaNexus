@@ -15,6 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.angelanexus.AndroidTransparentMode
+import app.angelanexus.AndroidUiStatus
 import app.angelanexus.CoreRuntimeImportResult
 import app.angelanexus.KernelExecutionState
 import app.angelanexus.R
@@ -33,6 +34,7 @@ fun AngelaNexusApp(
     rootAvailable: Boolean,
     importResult: CoreRuntimeImportResult?,
     executionState: KernelExecutionState,
+    uiStatus: AndroidUiStatus,
     onTransparentModeChange: (AndroidTransparentMode) -> Unit,
     onImportConfig: () -> Unit,
     onStartVpn: () -> Unit,
@@ -49,13 +51,43 @@ fun AngelaNexusApp(
             NavigationBarItem(selected == index, { selected = index }, { Icon(destination.icon, stringResource(destination.label)) }, label = { Text(stringResource(destination.label)) })
         } } }
     ) { padding ->
-        when (selected) {
-            0 -> HomeScreen(padding, transparentMode, rootAvailable, importResult, executionState, onTransparentModeChange, onImportConfig, onStartVpn)
-            1 -> ProfilesScreen(padding, onImportConfig, importResult)
-            2 -> ProxiesScreen(padding)
-            3 -> RulesScreen(padding)
-            else -> SettingsScreen(padding, darkTheme, currentLocaleTag, onLocaleSelected)
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            RuntimeStatusBanner(uiStatus)
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                when (selected) {
+                    0 -> HomeScreen(PaddingValues(0.dp), transparentMode, rootAvailable, importResult, executionState, onTransparentModeChange, onImportConfig, onStartVpn)
+                    1 -> ProfilesScreen(PaddingValues(0.dp), onImportConfig, importResult)
+                    2 -> ProxiesScreen(PaddingValues(0.dp))
+                    3 -> RulesScreen(PaddingValues(0.dp))
+                    else -> SettingsScreen(PaddingValues(0.dp), darkTheme, currentLocaleTag, onLocaleSelected)
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun RuntimeStatusBanner(status: AndroidUiStatus) {
+    val (message, isError) = when (status) {
+        AndroidUiStatus.READY -> R.string.status_ready to false
+        AndroidUiStatus.SELECTING_CONFIG -> R.string.status_select_config to false
+        AndroidUiStatus.IMPORTING_CONFIG -> R.string.status_importing_config to false
+        AndroidUiStatus.CONFIG_DELIVERED_TO_CORE -> R.string.status_config_delivered to false
+        AndroidUiStatus.CORE_RUNTIME_UNAVAILABLE -> R.string.status_core_unavailable to true
+        AndroidUiStatus.VPN_RUNTIME_NOT_READY -> R.string.status_vpn_not_ready to true
+        AndroidUiStatus.TRANSPARENT_MODE_UNAVAILABLE -> R.string.status_transparent_unavailable to true
+        AndroidUiStatus.ROOT_MODE_BACKEND_PENDING -> R.string.status_root_pending to true
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = if (isError) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = if (isError) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+    ) {
+        Text(
+            text = stringResource(message),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            style = MaterialTheme.typography.bodyMedium,
+        )
     }
 }
 
