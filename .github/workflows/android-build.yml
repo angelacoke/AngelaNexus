@@ -139,13 +139,15 @@ jobs:
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
           AVDMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name avdmanager | sort | tail -n 1)"
-          EMULATOR="$(find "$ANDROID_HOME/emulator" -type f -name emulator | sort | tail -n 1)"
+          EMULATOR="$ANDROID_HOME/emulator/emulator"
           ADB="$ANDROID_HOME/platform-tools/adb"
           test -x "$AVDMANAGER"
           test -x "$EMULATOR"
           test -x "$ADB"
+          echo "Using emulator binary: $EMULATOR"
+          "$EMULATOR" -version
           echo "no" | "$AVDMANAGER" create avd --force --name angelanexus-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2"
-          nohup "$EMULATOR" -avd angelanexus-api35 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect >"$RUNNER_TEMP/angelanexus-emulator.log" 2>&1 &
+          nohup "$EMULATOR" -avd angelanexus-api35 -no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -gpu swiftshader_indirect -accel off >"$RUNNER_TEMP/angelanexus-emulator.log" 2>&1 &
           EMULATOR_PID=$!
           cleanup() {
             rc=$?
@@ -165,13 +167,27 @@ jobs:
           }
           trap cleanup EXIT
           "$ADB" start-server
-          "$ADB" wait-for-device
+          echo "Waiting up to 180 seconds for emulator device connection"
+          if ! timeout 180 "$ADB" wait-for-device; then
+            echo "ERROR: adb did not detect the emulator within 180 seconds"
+            cat "$RUNNER_TEMP/angelanexus-emulator.log" || true
+            exit 1
+          fi
+          booted=false
           for attempt in $(seq 1 90); do
             if "$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' | grep -q '^1'; then
+              booted=true
               break
             fi
             sleep 2
           done
+          if [ "$booted" != true ]; then
+            echo "ERROR: emulator did not finish booting within 180 seconds"
+            "$ADB" devices -l || true
+            "$ADB" shell getprop sys.boot_completed || true
+            cat "$RUNNER_TEMP/angelanexus-emulator.log" || true
+            exit 1
+          fi
           "$ADB" shell getprop sys.boot_completed | tr -d '\r' | grep -q '^1'
           "$ADB" shell settings put global window_animation_scale 0
           "$ADB" shell settings put global transition_animation_scale 0
