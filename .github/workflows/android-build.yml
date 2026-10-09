@@ -148,6 +148,13 @@ jobs:
           test -x "$ADB"
           echo "Using emulator binary: $EMULATOR"
           "$EMULATOR" -version
+          if [ ! -e /dev/kvm ]; then
+            echo "ERROR: this runner does not expose /dev/kvm; hardware-accelerated Android emulation is unavailable."
+            exit 1
+          fi
+          sudo chmod 666 /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+          ls -l /dev/kvm
           export ANDROID_USER_HOME="$HOME/.android"
           export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
           mkdir -p "$ANDROID_AVD_HOME"
@@ -155,7 +162,7 @@ jobs:
           echo "no" | "$AVDMANAGER" create avd --force --name angelanexus-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2"
           test -s "$ANDROID_AVD_HOME/angelanexus-api35.ini"
           "$EMULATOR" -list-avds | grep -Fx "angelanexus-api35"
-          nohup "$EMULATOR" -avd angelanexus-api35 -no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -gpu swiftshader_indirect -accel off >"$RUNNER_TEMP/angelanexus-emulator.log" 2>&1 &
+          nohup "$EMULATOR" -avd angelanexus-api35 -no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -gpu swiftshader_indirect -accel on >"$RUNNER_TEMP/angelanexus-emulator.log" 2>&1 &
           EMULATOR_PID=$!
           cleanup() {
             rc=$?
