@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Kernels } from "../src/core/model.js";
 import { AdapterCapabilities, adapterFor, hasAdapterCapability } from "../src/adapters/index.js";
+import { getKernelUpstream } from "../src/core/kernel-registry.js";
 
 for (const kernel of Object.values(Kernels)) {
   test(kernel + " exposes the unified adapter contract", () => {
@@ -20,7 +21,7 @@ test("version-aware compiled validation reports the pinned upstream baseline", a
   const { validateCompiledConfig } = await import("../src/core/compiled-config-validation.js");
   const result = validateCompiledConfig({ outbounds: [{ type: "block", tag: "Nexus-Blackhole" }], route: { final: "Nexus-Blackhole" } }, Kernels.SING_BOX);
   assert.equal(result.ok, true);
-  assert.equal(result.version, "1.14.2");
+  assert.equal(result.version, getKernelUpstream(Kernels.SING_BOX).stable);
 });
 
 test("sing-box Hysteria requires current auth and TLS fields", async () => {

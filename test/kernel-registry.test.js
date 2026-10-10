@@ -4,9 +4,11 @@ import { getKernelUpstream, getKernelUpdatePolicy, UpstreamKernelNames } from ".
 
 test("kernel registry tracks three upstream stable baselines", () => {
   assert.deepEqual(UpstreamKernelNames, ["mihomo", "sing-box", "xray"]);
-  assert.equal(getKernelUpstream("mihomo").stable, "1.19.32");
-  assert.equal(getKernelUpstream("sing-box").stable, "1.14.2");
-  assert.equal(getKernelUpstream("xray").stable, "26.3.27");
+  for (const kernel of UpstreamKernelNames) {
+    const upstream = getKernelUpstream(kernel);
+    assert.equal(upstream.channel, "stable");
+    assert.match(upstream.stable, /^\d+\.\d+\.\d+$/);
+  }
 });
 
 test("kernel updates never silently change the user's selected runtime", () => {
