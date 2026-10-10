@@ -61,8 +61,16 @@
     <string name="speed_test">Speed test</string>
     <string name="runtime_title">Unified runtime</string>
     <string name="runtime_description">The platform UI does not directly own kernel policies</string>
-    <string name="profiles_description">Import local files or fetch HTTPS subscriptions on demand. Save multiple profiles encrypted on this device; single-node links are not available yet.</string>
+    <string name="profiles_description">Import local files, paste a single-node link or configuration text, or fetch an HTTPS subscription on demand. Saved profiles are encrypted on this device.</string>
     <string name="add_config">Add configuration</string>
+    <string name="text_import_title">Paste a node link or configuration text</string>
+    <string name="text_import_label">Single-node link or configuration text</string>
+    <string name="text_import_placeholder">For example, vless://… or a configuration file's text</string>
+    <string name="text_import_privacy">Paste manually; the app never reads the clipboard automatically. Core validates before use; input is temporary (up to 5 MiB).</string>
+    <string name="text_import_too_large">Text exceeds the 5 MiB import limit. Reduce the pasted content.</string>
+    <string name="import_pasted_text">Validate and import text</string>
+    <string name="text_import_failed">Could not import or validate this text. The previous configuration was kept; check the text and paste it again to retry.</string>
+    <string name="default_text_import_name">Pasted configuration</string>
     <string name="subscription_url_label">HTTPS subscription URL</string>
     <string name="subscription_url_privacy">Fetched only when you tap Import. The URL is not saved; HTTP is not supported.</string>
     <string name="subscription_url_invalid">Enter a valid HTTPS URL without embedded username or password.</string>

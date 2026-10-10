@@ -25,6 +25,7 @@ import app.angelanexus.AndroidRoutingExecutionIntent
 import app.angelanexus.AndroidEncryptedProfileStore
 import app.angelanexus.AndroidLocalProfileSummary
 import app.angelanexus.AndroidProfileStoreFailure
+import app.angelanexus.ConfigImportReader
 import app.angelanexus.isValidAndroidSubscriptionUrl
 import app.angelanexus.CoreNodeSummary
 import app.angelanexus.CoreRuntimeImportResult
@@ -53,6 +54,8 @@ internal fun AngelaNexusApp(
     onImportConfig: () -> Unit,
     onImportSubscription: (String) -> Unit = {},
     subscriptionImportFailed: Boolean = false,
+    onImportText: (String) -> Unit = {},
+    textImportFailed: Boolean = false,
     onStartVpn: () -> Unit,
     onStopVpn: () -> Unit,
     currentLocaleTag: String,
@@ -110,6 +113,8 @@ internal fun AngelaNexusApp(
                                 onImport = onImportConfig,
                                 onImportSubscription = onImportSubscription,
                                 subscriptionImportFailed = subscriptionImportFailed,
+                                onImportText = onImportText,
+                                textImportFailed = textImportFailed,
                                 result = importResult,
                                 profiles = profiles,
                                 activeProfileId = activeProfileId,
@@ -313,6 +318,8 @@ private fun ProfilesScreen(
     onImport: () -> Unit,
     onImportSubscription: (String) -> Unit,
     subscriptionImportFailed: Boolean,
+    onImportText: (String) -> Unit,
+    textImportFailed: Boolean,
     result: CoreRuntimeImportResult?,
     profiles: List<AndroidLocalProfileSummary>,
     activeProfileId: String?,
@@ -335,6 +342,8 @@ private fun ProfilesScreen(
     var invalidName by remember { mutableStateOf(false) }
     var subscriptionUrl by remember { mutableStateOf("") }
     var invalidSubscriptionUrl by remember { mutableStateOf(false) }
+    var pastedText by remember { mutableStateOf("") }
+    var pastedTextTooLarge by remember { mutableStateOf(false) }
     val saveableConfiguration = !result?.configuration.isNullOrBlank()
 
     LazyColumn(
@@ -351,6 +360,51 @@ private fun ProfilesScreen(
                     enabled = profileActionsEnabled,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(stringResource(R.string.add_config)) }
+                Text(
+                    stringResource(R.string.text_import_title),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                OutlinedTextField(
+                    value = pastedText,
+                    onValueChange = { candidate ->
+                        if (candidate.toByteArray().size <= ConfigImportReader.DEFAULT_MAX_BYTES) {
+                            pastedText = candidate
+                            pastedTextTooLarge = false
+                        } else {
+                            pastedTextTooLarge = true
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.text_import_label)) },
+                    placeholder = { Text(stringResource(R.string.text_import_placeholder)) },
+                    minLines = 3,
+                    maxLines = 6,
+                    enabled = profileActionsEnabled,
+                    isError = pastedTextTooLarge,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                    supportingText = {
+                        Text(stringResource(if (pastedTextTooLarge) R.string.text_import_too_large else R.string.text_import_privacy))
+                    },
+                )
+                OutlinedButton(
+                    onClick = {
+                        val candidate = pastedText.trim()
+                        if (candidate.isNotEmpty() && candidate.toByteArray().size <= ConfigImportReader.DEFAULT_MAX_BYTES) {
+                            onImportText(candidate)
+                            pastedText = ""
+                            pastedTextTooLarge = false
+                        }
+                    },
+                    enabled = profileActionsEnabled && pastedText.isNotBlank() && !pastedTextTooLarge,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(stringResource(R.string.import_pasted_text)) }
+                if (textImportFailed) {
+                    Text(
+                        stringResource(R.string.text_import_failed),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 OutlinedTextField(
                     value = subscriptionUrl,
                     onValueChange = { subscriptionUrl = it; invalidSubscriptionUrl = false },

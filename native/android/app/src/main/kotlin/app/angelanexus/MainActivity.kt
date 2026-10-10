@@ -74,6 +74,7 @@ private fun AngelaNexusRoot() {
     var profilesLoading by remember { mutableStateOf(true) }
     var profileOperationPending by remember { mutableStateOf(false) }
     var subscriptionImportFailed by remember { mutableStateOf(false) }
+    var textImportFailed by remember { mutableStateOf(false) }
     var vpnAuthorizationPending by remember { mutableStateOf(false) }
     val executionState by AndroidKernelExecutionStateStore.state.collectAsStateWithLifecycle()
     val runtimeBusy = vpnAuthorizationPending || executionState.phase in setOf(
@@ -185,6 +186,7 @@ private fun AngelaNexusRoot() {
         status = AndroidUiStatus.IMPORTING_CONFIG
         profileFailure = null
         subscriptionImportFailed = false
+        textImportFailed = false
         val sourceName = resolveDisplayName(context, uri) ?: context.getString(R.string.default_profile_name)
         profileOperationPending = true
         scope.launch {
@@ -216,6 +218,7 @@ private fun AngelaNexusRoot() {
         status = AndroidUiStatus.IMPORTING_CONFIG
         profileFailure = null
         subscriptionImportFailed = false
+        textImportFailed = false
         profileOperationPending = true
         val sourceName = context.getString(R.string.default_subscription_name)
         scope.launch {
@@ -242,6 +245,39 @@ private fun AngelaNexusRoot() {
                 status = previousStatus
             } finally {
                 downloaded?.fill(0)
+                profileOperationPending = false
+            }
+        }
+    }
+
+    fun importPastedText(content: String) {
+        if (!profileActionsEnabled) {
+            reportProfileActionBlocked()
+            return
+        }
+        val previousStatus = status
+        status = AndroidUiStatus.IMPORTING_CONFIG
+        profileFailure = null
+        subscriptionImportFailed = false
+        textImportFailed = false
+        profileOperationPending = true
+        val sourceName = context.getString(R.string.default_text_import_name)
+        scope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    importCoordinator.importText(content, sourceName)
+                }
+                importResult = result
+                loadedProfileId = null
+                importedProfileName = sourceName
+                statusFor(result)
+            } catch (cancelled: CancellationException) {
+                status = previousStatus
+                throw cancelled
+            } catch (_: Exception) {
+                textImportFailed = true
+                status = previousStatus
+            } finally {
                 profileOperationPending = false
             }
         }
@@ -499,6 +535,8 @@ private fun AngelaNexusRoot() {
         },
         onImportSubscription = ::importSubscription,
         subscriptionImportFailed = subscriptionImportFailed,
+        onImportText = ::importPastedText,
+        textImportFailed = textImportFailed,
         onStartVpn = ::startSelectedMode,
         onStopVpn = ::stopVpnService,
         currentLocaleTag = currentLocaleTag,

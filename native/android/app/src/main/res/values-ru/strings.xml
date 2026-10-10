@@ -61,8 +61,16 @@
     <string name="speed_test">Тест скорости</string>
     <string name="runtime_title">Единая среда выполнения</string>
     <string name="runtime_description">Интерфейс платформы напрямую не управляет политиками ядер</string>
-    <string name="profiles_description">Импортируйте локальные файлы или загружайте подписки HTTPS по запросу. Профили шифруются на устройстве; ссылки на отдельные узлы пока недоступны.</string>
+    <string name="profiles_description">Импортируйте локальные файлы, вставляйте ссылку на один узел или текст конфигурации либо загружайте подписку HTTPS по запросу. Сохранённые профили шифруются на устройстве.</string>
     <string name="add_config">Добавить конфигурацию</string>
+    <string name="text_import_title">Вставить ссылку узла или текст конфигурации</string>
+    <string name="text_import_label">Ссылка на один узел или текст конфигурации</string>
+    <string name="text_import_placeholder">Например, vless://… или текст файла конфигурации</string>
+    <string name="text_import_privacy">Вставляйте вручную; буфер обмена не считывается автоматически. Core проверяет данные; текст хранится только временно (до 5 МиБ).</string>
+    <string name="text_import_too_large">Текст превышает лимит импорта 5 МиБ. Сократите его.</string>
+    <string name="import_pasted_text">Проверить и импортировать текст</string>
+    <string name="text_import_failed">Не удалось импортировать или проверить этот текст. Предыдущая конфигурация сохранена; проверьте текст и вставьте его ещё раз.</string>
+    <string name="default_text_import_name">Вставленная конфигурация</string>
     <string name="subscription_url_label">URL подписки HTTPS</string>
     <string name="subscription_url_privacy">Загрузка выполняется только по нажатию кнопки. URL не сохраняется; HTTP не поддерживается.</string>
     <string name="subscription_url_invalid">Введите корректный URL HTTPS без встроенного имени пользователя или пароля.</string>

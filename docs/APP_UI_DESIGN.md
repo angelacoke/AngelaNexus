@@ -93,7 +93,13 @@ The UI hands input to the Core import/sniffing pipeline and does not require man
 - A subscription URL is fetched only after an explicit user action. Only HTTPS is accepted; the app does not enable cleartext HTTP traffic.
 - The URL is held in memory for the request only and is not sent to Core, persisted, or logged. The downloaded content is passed to Core with the `subscription-url` source classification for canonical parsing and validation.
 - Download redirects, connection/read timeouts and the 5 MiB response limit are enforced. A failed download or Core validation leaves the previous in-memory import unchanged.
-- This is a manual import, not a subscription manager: no URL is saved, no automatic refresh is scheduled, and single-node links remain unsupported in the Android UI.
+- This is a manual import, not a subscription manager: no URL is saved and no automatic refresh is scheduled. Single-node/share links are supported through the separate manual text-import field below.
+
+### Android manual text and single-node import
+
+- Pasted content is sent to Core with the `text` source classification; Core owns format sniffing, parsing, validation and kernel binding. Android does not parse node credentials or select a backend.
+- Paste must be initiated by the user in the text field. The app does not access the clipboard programmatically or read it automatically. The field is session-only and clears on submit; the resulting import stays temporary until explicitly saved as a local Profile.
+- UTF-8 text is limited to 5 MiB. Blank or oversized input is rejected, and a failed import leaves the previous in-memory result unchanged.
 
 ### Android local Profile persistence
 
