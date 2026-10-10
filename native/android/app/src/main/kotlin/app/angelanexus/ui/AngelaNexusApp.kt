@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -64,43 +65,65 @@ internal fun AngelaNexusApp(
     onRenameProfile: (String, String) -> Unit = { _, _ -> },
     onDeleteProfile: (String) -> Unit = {},
 ) {
-    var selected by remember { mutableIntStateOf(0) }
-    Scaffold(
-        topBar = { TopAppBar(title = { Row(verticalAlignment = Alignment.CenterVertically) {
-            Image(painterResource(R.drawable.angelanexus_logo), null, Modifier.size(34.dp))
-            Spacer(Modifier.width(10.dp)); Column { Text(stringResource(R.string.app_name), fontWeight = FontWeight.SemiBold); Text(stringResource(R.string.app_subtitle), style = MaterialTheme.typography.labelSmall) }
-        }}) },
-        bottomBar = { NavigationBar { destinations.forEachIndexed { index, destination ->
-            NavigationBarItem(selected == index, { selected = index }, { Icon(destination.icon, stringResource(destination.label)) }, label = { Text(stringResource(destination.label)) })
-        } } }
-    ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            RuntimeStatusBanner(uiStatus, executionState)
-            Box(Modifier.weight(1f).fillMaxWidth()) {
-                when (selected) {
-                    0 -> HomeScreen(PaddingValues(0.dp), transparentMode, rootAvailable, importResult, executionState, availableProxyKernelIds, uiStatus, onTransparentModeChange, onImportConfig, onStartVpn, onStopVpn, profileOperationPending)
-                    1 -> ProfilesScreen(
-                        padding = PaddingValues(0.dp),
-                        onImport = onImportConfig,
-                        result = importResult,
-                        profiles = profiles,
-                        activeProfileId = activeProfileId,
-                        loadedProfileId = loadedProfileId,
-                        importedProfileName = importedProfileName,
-                        profileFailure = profileFailure,
-                        profilesLoading = profilesLoading,
-                        profileActionsEnabled = profileActionsEnabled,
-                        onSaveProfile = onSaveProfile,
-                        onSelectProfile = onSelectProfile,
-                        onRenameProfile = onRenameProfile,
-                        onDeleteProfile = onDeleteProfile,
-                    )
-                    2 -> ProxiesScreen(PaddingValues(0.dp), importResult, onImportConfig)
-                    3 -> RulesScreen(PaddingValues(0.dp), importResult)
-                    else -> SettingsScreen(PaddingValues(0.dp), darkTheme, currentLocaleTag, onLocaleSelected)
+    var selected by rememberSaveable { mutableIntStateOf(0) }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val useNavigationRail = shouldUseNavigationRail(maxWidth.value.toInt())
+        Scaffold(
+            topBar = { TopAppBar(title = { Row(verticalAlignment = Alignment.CenterVertically) {
+                Image(painterResource(R.drawable.angelanexus_logo), null, Modifier.size(34.dp))
+                Spacer(Modifier.width(10.dp)); Column { Text(stringResource(R.string.app_name), fontWeight = FontWeight.SemiBold); Text(stringResource(R.string.app_subtitle), style = MaterialTheme.typography.labelSmall) }
+            }}) },
+            bottomBar = {
+                if (!useNavigationRail) {
+                    NavigationBar { destinations.forEachIndexed { index, destination ->
+                        NavigationBarItem(selected == index, { selected = index }, { Icon(destination.icon, stringResource(destination.label)) }, label = { Text(stringResource(destination.label)) })
+                    } }
+                }
+            },
+        ) { padding ->
+            Row(Modifier.fillMaxSize().padding(padding)) {
+                if (useNavigationRail) {
+                    NavigationRail {
+                        destinations.forEachIndexed { index, destination ->
+                            NavigationRailItem(
+                                selected = selected == index,
+                                onClick = { selected = index },
+                                icon = { Icon(destination.icon, stringResource(destination.label)) },
+                                label = { Text(stringResource(destination.label)) },
+                                alwaysShowLabel = true,
+                            )
+                        }
+                    }
+                }
+                Column(Modifier.weight(1f).fillMaxHeight()) {
+                    RuntimeStatusBanner(uiStatus, executionState)
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        when (selected) {
+                            0 -> HomeScreen(PaddingValues(0.dp), transparentMode, rootAvailable, importResult, executionState, availableProxyKernelIds, uiStatus, onTransparentModeChange, onImportConfig, onStartVpn, onStopVpn, profileOperationPending)
+                            1 -> ProfilesScreen(
+                                padding = PaddingValues(0.dp),
+                                onImport = onImportConfig,
+                                result = importResult,
+                                profiles = profiles,
+                                activeProfileId = activeProfileId,
+                                loadedProfileId = loadedProfileId,
+                                importedProfileName = importedProfileName,
+                                profileFailure = profileFailure,
+                                profilesLoading = profilesLoading,
+                                profileActionsEnabled = profileActionsEnabled,
+                                onSaveProfile = onSaveProfile,
+                                onSelectProfile = onSelectProfile,
+                                onRenameProfile = onRenameProfile,
+                                onDeleteProfile = onDeleteProfile,
+                            )
+                            2 -> ProxiesScreen(PaddingValues(0.dp), importResult, onImportConfig)
+                            3 -> RulesScreen(PaddingValues(0.dp), importResult)
+                            else -> SettingsScreen(PaddingValues(0.dp), darkTheme, currentLocaleTag, onLocaleSelected)
+                        }
+                    }
                 }
             }
-        }
+        )
     }
 }
 

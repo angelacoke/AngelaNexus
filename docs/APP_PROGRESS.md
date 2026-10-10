@@ -114,7 +114,8 @@ Implemented on Android as the first platform surface:
 - The upstream sync check now handles GitHub's bounded compare-file response and passes; no production kernel pin was changed (`sing-box` remains `1.14.2`).
 - Rules shows a parsed Core routing-intent preview for inspection only; it does not claim the intent is active or that effective runtime rules have been reported.
 - Traffic, effective routing, anti-leak and GFW status are explicitly labeled unreported or unverified unless the active runtime supplies evidence.
-- Responsive semantic component structure intended for phone/tablet/desktop adaptation.
+- The Android shell keeps bottom navigation in compact windows and switches to a labeled Material 3 navigation rail at 600 dp or wider; the selected destination survives Activity recreation. The breakpoint has JVM regression coverage.
+- Tablet/desktop content adaptation beyond the navigation shell remains pending.
 - UI design specification in `docs/APP_UI_DESIGN.md`.
 
 The long-term UI implementation will move common semantics and reusable UI into the shared multiplatform layer. Android-only APIs remain in the Android shell.
