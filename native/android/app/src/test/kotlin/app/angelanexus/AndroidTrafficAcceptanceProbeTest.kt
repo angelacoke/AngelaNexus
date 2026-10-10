@@ -1,7 +1,11 @@
 package app.angelanexus
 
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -91,6 +95,50 @@ class AndroidTrafficAcceptanceProbeTest {
         assertFalse(opened)
     }
 
+    @Test
+    fun cancellationBeforeProbeDoesNotOpenAConnection() {
+        var opened = false
+        val probe = AndroidTrafficAcceptanceProbe {
+            opened = true
+            FakeHttpConnection(URL("https://unused.test/"), 204)
+        }
+        probe.cancel()
+
+        val result = probe.probe("https://acceptance.test/")
+
+        assertFalse(opened)
+        assertEquals(AndroidTrafficAcceptanceProbe.RESULT_CANCELLED, result.result)
+        assertEquals("cancelled", result.reason)
+    }
+
+    @Test
+    fun cancellationDisconnectsAnInFlightConnection() {
+        val connecting = CountDownLatch(1)
+        val disconnected = CountDownLatch(1)
+        val connection = BlockingHttpConnection(
+            URL("https://acceptance.test/"),
+            connecting,
+            disconnected,
+        )
+        val probe = AndroidTrafficAcceptanceProbe { connection }
+        val executor = Executors.newSingleThreadExecutor()
+
+        try {
+            val result = executor.submit<AndroidTrafficAcceptanceResult> {
+                probe.probe("https://acceptance.test/")
+            }
+            assertTrue("probe should reach connect", connecting.await(5, TimeUnit.SECONDS))
+            probe.cancel()
+
+            val completed = result.get(5, TimeUnit.SECONDS)
+            assertEquals(AndroidTrafficAcceptanceProbe.RESULT_CANCELLED, completed.result)
+            assertEquals("cancelled", completed.reason)
+            assertTrue("cancel should disconnect the active connection", connection.disconnectObserved)
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
     private class FakeHttpConnection(
         url: URL,
         private val response: Int,
@@ -113,5 +161,31 @@ class AndroidTrafficAcceptanceProbeTest {
 
         override fun getHeaderField(name: String?): String? =
             responseHeaders.entries.firstOrNull { it.key.equals(name, ignoreCase = true) }?.value
+    }
+
+    private class BlockingHttpConnection(
+        url: URL,
+        private val connecting: CountDownLatch,
+        private val disconnected: CountDownLatch,
+    ) : HttpURLConnection(url) {
+        @Volatile
+        var disconnectObserved = false
+            private set
+
+        override fun connect() {
+            connecting.countDown()
+            if (!disconnected.await(5, TimeUnit.SECONDS)) throw IOException("connect timed out")
+            connected = true
+        }
+
+        override fun disconnect() {
+            disconnectObserved = true
+            connected = false
+            disconnected.countDown()
+        }
+
+        override fun usingProxy(): Boolean = false
+
+        override fun getResponseCode(): Int = 204
     }
 }
