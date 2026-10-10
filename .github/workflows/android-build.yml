@@ -51,7 +51,8 @@ jobs:
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.0.13004108
-          SINGBOX_REF: "v1.14.0-beta.4"
+          SINGBOX_REF: "v1.14.2"
+          SINGBOX_COMMIT: "af6e64c3b69e6132ebaee0e1a3d24e93903f6709"
         run: |
           set -euo pipefail
           go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
@@ -59,6 +60,7 @@ jobs:
           export PATH="$(go env GOPATH)/bin:$PATH"
           gomobile init
           git clone --depth 1 --branch "$SINGBOX_REF" https://github.com/SagerNet/sing-box.git "$RUNNER_TEMP/sing-box"
+          test "$(git -C "$RUNNER_TEMP/sing-box" rev-parse HEAD)" = "$SINGBOX_COMMIT"
           test "$(git -C "$RUNNER_TEMP/sing-box" describe --tags --exact-match)" = "$SINGBOX_REF"
           cd "$RUNNER_TEMP/sing-box"
           go run ./cmd/internal/build_libbox -target android
