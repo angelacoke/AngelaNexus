@@ -88,6 +88,14 @@ The user can provide:
 
 The UI hands input to the Core import/sniffing pipeline and does not require manual kernel selection when Core detection is available.
 
+### Android local Profile persistence
+
+- An imported configuration is temporary until the user explicitly saves it as a local Profile.
+- Saved names, selection metadata and Core configuration are authenticated-encrypted with an Android Keystore key and stored outside device backup. This MVP does not upload or synchronize profile contents.
+- Startup restoration and every Profile selection must re-enter Core import/validation; a saved file is not proof that its configuration remains valid or executable.
+- Profile editing, deletion and switching are disabled while VPN execution or cleanup is active. Deletion requires explicit confirmation.
+- This Android storage boundary does not redefine the cross-platform shared Profile model; future synchronization must use an explicit schema and field-level data classification.
+
 ## Backup/restore UX
 
 Backup and restore are explicit user actions. Restore shows a preview before destructive changes and supports selective restoration where the data model permits it.

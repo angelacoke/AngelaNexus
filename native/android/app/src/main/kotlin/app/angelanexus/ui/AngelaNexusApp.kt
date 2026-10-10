@@ -3,6 +3,7 @@ package app.angelanexus.ui
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -17,6 +18,9 @@ import androidx.compose.ui.unit.dp
 import app.angelanexus.AndroidTransparentMode
 import app.angelanexus.AndroidUiStatus
 import app.angelanexus.AndroidRoutingExecutionIntent
+import app.angelanexus.AndroidEncryptedProfileStore
+import app.angelanexus.AndroidLocalProfileSummary
+import app.angelanexus.AndroidProfileStoreFailure
 import app.angelanexus.CoreRuntimeImportResult
 import app.angelanexus.KernelExecutionPhase
 import app.angelanexus.KernelExecutionState
@@ -31,7 +35,7 @@ private val destinations = listOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AngelaNexusApp(
+internal fun AngelaNexusApp(
     darkTheme: Boolean,
     transparentMode: AndroidTransparentMode,
     rootAvailable: Boolean,
@@ -43,7 +47,19 @@ fun AngelaNexusApp(
     onStartVpn: () -> Unit,
     onStopVpn: () -> Unit,
     currentLocaleTag: String,
-    onLocaleSelected: (String?) -> Unit
+    onLocaleSelected: (String?) -> Unit,
+    profiles: List<AndroidLocalProfileSummary> = emptyList(),
+    activeProfileId: String? = null,
+    loadedProfileId: String? = null,
+    importedProfileName: String? = null,
+    profileFailure: AndroidProfileStoreFailure? = null,
+    profilesLoading: Boolean = false,
+    profileActionsEnabled: Boolean = true,
+    profileOperationPending: Boolean = false,
+    onSaveProfile: (String) -> Unit = {},
+    onSelectProfile: (String) -> Unit = {},
+    onRenameProfile: (String, String) -> Unit = { _, _ -> },
+    onDeleteProfile: (String) -> Unit = {},
 ) {
     var selected by remember { mutableIntStateOf(0) }
     Scaffold(
@@ -59,8 +75,23 @@ fun AngelaNexusApp(
             RuntimeStatusBanner(uiStatus, executionState)
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (selected) {
-                    0 -> HomeScreen(PaddingValues(0.dp), transparentMode, rootAvailable, importResult, executionState, onTransparentModeChange, onImportConfig, onStartVpn, onStopVpn)
-                    1 -> ProfilesScreen(PaddingValues(0.dp), onImportConfig, importResult)
+                    0 -> HomeScreen(PaddingValues(0.dp), transparentMode, rootAvailable, importResult, executionState, onTransparentModeChange, onImportConfig, onStartVpn, onStopVpn, profileOperationPending)
+                    1 -> ProfilesScreen(
+                        padding = PaddingValues(0.dp),
+                        onImport = onImportConfig,
+                        result = importResult,
+                        profiles = profiles,
+                        activeProfileId = activeProfileId,
+                        loadedProfileId = loadedProfileId,
+                        importedProfileName = importedProfileName,
+                        profileFailure = profileFailure,
+                        profilesLoading = profilesLoading,
+                        profileActionsEnabled = profileActionsEnabled,
+                        onSaveProfile = onSaveProfile,
+                        onSelectProfile = onSelectProfile,
+                        onRenameProfile = onRenameProfile,
+                        onDeleteProfile = onDeleteProfile,
+                    )
                     2 -> ProxiesScreen(PaddingValues(0.dp), importResult, onImportConfig)
                     3 -> RulesScreen(PaddingValues(0.dp), importResult)
                     else -> SettingsScreen(PaddingValues(0.dp), darkTheme, currentLocaleTag, onLocaleSelected)
@@ -76,6 +107,9 @@ private fun RuntimeStatusBanner(status: AndroidUiStatus, executionState: KernelE
         AndroidUiStatus.CORE_RUNTIME_UNAVAILABLE -> R.string.status_core_unavailable to true
         AndroidUiStatus.CONFIG_NOT_STARTABLE -> R.string.status_config_not_startable to true
         AndroidUiStatus.VPN_RUNTIME_NOT_READY -> R.string.status_vpn_not_ready to true
+        AndroidUiStatus.PROFILE_STORAGE_UNAVAILABLE -> R.string.status_profile_storage_unavailable to true
+        AndroidUiStatus.PROFILE_CHANGE_REQUIRES_STOP -> R.string.status_profile_change_requires_stop to true
+        AndroidUiStatus.PROFILE_OPERATION_IN_PROGRESS -> R.string.status_profile_operation_in_progress to false
         AndroidUiStatus.TRANSPARENT_MODE_UNAVAILABLE -> R.string.status_transparent_unavailable to true
         AndroidUiStatus.ROOT_MODE_BACKEND_PENDING -> R.string.status_root_pending to true
         else -> null
@@ -97,6 +131,9 @@ private fun RuntimeStatusBanner(status: AndroidUiStatus, executionState: KernelE
             AndroidUiStatus.CONFIG_DELIVERED_TO_CORE -> R.string.status_config_delivered to false
             AndroidUiStatus.CONFIG_NOT_STARTABLE -> R.string.status_config_not_startable to true
             AndroidUiStatus.CORE_RUNTIME_UNAVAILABLE -> R.string.status_core_unavailable to true
+            AndroidUiStatus.PROFILE_STORAGE_UNAVAILABLE -> R.string.status_profile_storage_unavailable to true
+            AndroidUiStatus.PROFILE_CHANGE_REQUIRES_STOP -> R.string.status_profile_change_requires_stop to true
+            AndroidUiStatus.PROFILE_OPERATION_IN_PROGRESS -> R.string.status_profile_operation_in_progress to false
             AndroidUiStatus.VPN_RUNTIME_NOT_READY -> R.string.status_vpn_not_ready to true
             AndroidUiStatus.TRANSPARENT_MODE_UNAVAILABLE -> R.string.status_transparent_unavailable to true
             AndroidUiStatus.ROOT_MODE_BACKEND_PENDING -> R.string.status_root_pending to true
@@ -126,9 +163,10 @@ private fun HomeScreen(
     onImport: () -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit,
+    profileOperationPending: Boolean,
 ) {
     LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item { ConnectionCard(mode, rootAvailable, importResult, executionState, onMode, onStart, onStop) }
+        item { ConnectionCard(mode, rootAvailable, importResult, executionState, onMode, onStart, onStop, profileOperationPending) }
         item { TrafficCard() }
         item { SectionTitle(R.string.section_environment); EnvironmentCard(importResult, executionState) }
         item { SectionTitle(R.string.section_quick_actions); QuickActions(onImport) }
@@ -145,13 +183,14 @@ private fun ConnectionCard(
     onMode: (AndroidTransparentMode) -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit,
+    profileOperationPending: Boolean,
 ) {
     val phase = executionState.phase
     val activeOrCleaning = phase == KernelExecutionPhase.STARTING ||
         phase == KernelExecutionPhase.RUNNING ||
         phase == KernelExecutionPhase.STOPPING ||
         (phase == KernelExecutionPhase.FAILED && executionState.cleanupRequired)
-    val canStart = canStartAndroidRuntime(executionState, importResult)
+    val canStart = canStartAndroidRuntime(executionState, importResult) && !profileOperationPending
     ElevatedCard(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.transparent_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -159,7 +198,7 @@ private fun ConnectionCard(
             Text(stringResource(connectionPhaseLabel(phase, executionState.cleanupRequired)), style = MaterialTheme.typography.titleMedium)
             listOf(AndroidTransparentMode.AUTO, AndroidTransparentMode.SYSTEM, AndroidTransparentMode.ROOT).forEach { option ->
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    RadioButton(selected = mode == option, onClick = { if (!activeOrCleaning && (option != AndroidTransparentMode.ROOT || rootAvailable)) onMode(option) }, enabled = !activeOrCleaning && (option != AndroidTransparentMode.ROOT || rootAvailable))
+                    RadioButton(selected = mode == option, onClick = { if (!activeOrCleaning && !profileOperationPending && (option != AndroidTransparentMode.ROOT || rootAvailable)) onMode(option) }, enabled = !activeOrCleaning && !profileOperationPending && (option != AndroidTransparentMode.ROOT || rootAvailable))
                     Column { Text(when(option) { AndroidTransparentMode.AUTO -> stringResource(R.string.mode_auto); AndroidTransparentMode.SYSTEM -> stringResource(R.string.mode_system); AndroidTransparentMode.ROOT -> stringResource(R.string.mode_root) }); if (option == AndroidTransparentMode.ROOT && !rootAvailable) Text(stringResource(R.string.root_unavailable), style = MaterialTheme.typography.labelSmall) }
                 }
             }
@@ -178,7 +217,9 @@ private fun ConnectionCard(
                     Text(stringResource(if (phase == KernelExecutionPhase.FAILED) R.string.retry_start else R.string.start_transparent))
                 }
             }
-            if (!canStart && !activeOrCleaning) {
+            if (profileOperationPending && !activeOrCleaning) {
+                Text(stringResource(R.string.status_profile_operation_in_progress), style = MaterialTheme.typography.bodySmall)
+            } else if (!canStart && !activeOrCleaning) {
                 Text(stringResource(R.string.start_requires_config), style = MaterialTheme.typography.bodySmall)
             }
         }
@@ -218,26 +259,235 @@ private fun ConnectionCard(
     }
 }
 @Composable
-private fun ProfilesScreen(padding: PaddingValues, onImport: () -> Unit, result: CoreRuntimeImportResult?) {
-    LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+private fun ProfilesScreen(
+    padding: PaddingValues,
+    onImport: () -> Unit,
+    result: CoreRuntimeImportResult?,
+    profiles: List<AndroidLocalProfileSummary>,
+    activeProfileId: String?,
+    loadedProfileId: String?,
+    importedProfileName: String?,
+    profileFailure: AndroidProfileStoreFailure?,
+    profilesLoading: Boolean,
+    profileActionsEnabled: Boolean,
+    onSaveProfile: (String) -> Unit,
+    onSelectProfile: (String) -> Unit,
+    onRenameProfile: (String, String) -> Unit,
+    onDeleteProfile: (String) -> Unit,
+) {
+    var saveDialogOpen by remember { mutableStateOf(false) }
+    var saveName by remember { mutableStateOf("") }
+    var renameTarget by remember { mutableStateOf<AndroidLocalProfileSummary?>(null) }
+    var renameName by remember { mutableStateOf("") }
+    var deleteTarget by remember { mutableStateOf<AndroidLocalProfileSummary?>(null) }
+    var invalidName by remember { mutableStateOf(false) }
+    val saveableConfiguration = !result?.configuration.isNullOrBlank()
+
+    LazyColumn(
+        Modifier.fillMaxSize().padding(padding),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         item { PageHeader(R.string.nav_profiles, R.string.profiles_description) }
-        item { FilledTonalButton(onClick = onImport, Modifier.fillMaxWidth()) { Text(stringResource(R.string.add_config)) } }
+        item { ProfileCard(R.string.profile_storage_notice_title, R.string.profile_storage_notice) }
         item {
-            if (result == null) {
-                ProfileCard(R.string.no_profiles, R.string.profile_support)
-            } else {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(
+                    onClick = onImport,
+                    enabled = profileActionsEnabled,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(stringResource(R.string.add_config)) }
+                if (result != null && loadedProfileId == null && saveableConfiguration) {
+                    OutlinedButton(
+                        onClick = {
+                            saveName = importedProfileName.orEmpty()
+                            invalidName = false
+                            saveDialogOpen = true
+                        },
+                        enabled = profileActionsEnabled,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(stringResource(R.string.save_current_profile)) }
+                }
+                if (!profileActionsEnabled) {
+                    Text(stringResource(R.string.profile_action_locked), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+        if (profileFailure != null) {
+            item {
+                Text(
+                    stringResource(profileFailureLabel(profileFailure)),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
+        if (result != null) {
+            item {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(stringResource(R.string.import_result_ready), fontWeight = FontWeight.SemiBold)
+                        Text(
+                            stringResource(R.string.profile_imported_as, importedProfileName ?: stringResource(R.string.default_profile_name)),
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(stringResource(R.string.profile_loaded_label, stringResource(if (loadedProfileId == null) R.string.profile_unsaved else R.string.profile_loaded)))
                         Text(stringResource(R.string.import_result_kernel, result.kernel ?: stringResource(R.string.unknown_value)))
                         Text(stringResource(R.string.import_result_nodes, result.nodeCount))
                         result.source?.let { Text(stringResource(R.string.import_result_source, it)) }
-                        Text(stringResource(R.string.profile_support), style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
         }
+        if (profilesLoading) {
+            item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+        } else if (profiles.isEmpty()) {
+            item { ProfileCard(R.string.no_profiles, R.string.profile_support) }
+        } else {
+            items(profiles, key = { it.id }) { profile ->
+                SavedProfileCard(
+                    profile = profile,
+                    activeProfileId = activeProfileId,
+                    loadedProfileId = loadedProfileId,
+                    actionsEnabled = profileActionsEnabled,
+                    onSelect = { onSelectProfile(profile.id) },
+                    onRename = {
+                        renameName = profile.name
+                        invalidName = false
+                        renameTarget = profile
+                    },
+                    onDelete = { deleteTarget = profile },
+                )
+            }
+        }
     }
+
+    if (saveDialogOpen) {
+        AlertDialog(
+            onDismissRequest = { saveDialogOpen = false },
+            title = { Text(stringResource(R.string.profile_save_title)) },
+            text = {
+                OutlinedTextField(
+                    value = saveName,
+                    onValueChange = { saveName = it; invalidName = false },
+                    label = { Text(stringResource(R.string.profile_name_label)) },
+                    singleLine = true,
+                    isError = invalidName,
+                    supportingText = if (invalidName) {
+                        { Text(stringResource(R.string.profile_name_invalid)) }
+                    } else null,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (!isValidProfileName(saveName)) {
+                        invalidName = true
+                    } else {
+                        onSaveProfile(saveName.trim())
+                        saveDialogOpen = false
+                    }
+                }) { Text(stringResource(R.string.save)) }
+            },
+            dismissButton = { TextButton(onClick = { saveDialogOpen = false }) { Text(stringResource(android.R.string.cancel)) } },
+        )
+    }
+
+    renameTarget?.let { profile ->
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text(stringResource(R.string.profile_rename_title)) },
+            text = {
+                OutlinedTextField(
+                    value = renameName,
+                    onValueChange = { renameName = it; invalidName = false },
+                    label = { Text(stringResource(R.string.profile_name_label)) },
+                    singleLine = true,
+                    isError = invalidName,
+                    supportingText = if (invalidName) {
+                        { Text(stringResource(R.string.profile_name_invalid)) }
+                    } else null,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (!isValidProfileName(renameName)) {
+                        invalidName = true
+                    } else {
+                        onRenameProfile(profile.id, renameName.trim())
+                        renameTarget = null
+                    }
+                }) { Text(stringResource(R.string.save)) }
+            },
+            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text(stringResource(android.R.string.cancel)) } },
+        )
+    }
+
+    deleteTarget?.let { profile ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text(stringResource(R.string.profile_delete_title)) },
+            text = { Text(stringResource(R.string.profile_delete_message, profile.name)) },
+            confirmButton = {
+                TextButton(
+                    onClick = { onDeleteProfile(profile.id); deleteTarget = null },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text(stringResource(R.string.delete)) }
+            },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text(stringResource(android.R.string.cancel)) } },
+        )
+    }
+}
+
+@Composable
+private fun SavedProfileCard(
+    profile: AndroidLocalProfileSummary,
+    activeProfileId: String?,
+    loadedProfileId: String?,
+    actionsEnabled: Boolean,
+    onSelect: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(profile.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            when (profile.id) {
+                loadedProfileId -> Text(stringResource(R.string.profile_loaded), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                activeProfileId -> Text(stringResource(R.string.profile_restore_on_launch), style = MaterialTheme.typography.labelMedium)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(
+                    onClick = onSelect,
+                    enabled = actionsEnabled && profile.id != loadedProfileId,
+                    modifier = Modifier.weight(1f),
+                ) { Text(stringResource(if (profile.id == loadedProfileId) R.string.profile_loaded else R.string.profile_use), maxLines = 1) }
+                TextButton(onClick = onRename, enabled = actionsEnabled, modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.rename), maxLines = 1)
+                }
+            }
+            TextButton(
+                onClick = onDelete,
+                enabled = actionsEnabled,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) { Text(stringResource(R.string.delete)) }
+        }
+    }
+}
+
+private fun profileFailureLabel(failure: AndroidProfileStoreFailure): Int = when (failure) {
+    AndroidProfileStoreFailure.INVALID_NAME -> R.string.profile_name_invalid
+    AndroidProfileStoreFailure.INVALID_CONFIGURATION -> R.string.profile_configuration_invalid
+    AndroidProfileStoreFailure.CONFIG_TOO_LARGE -> R.string.profile_configuration_too_large
+    AndroidProfileStoreFailure.DUPLICATE_NAME -> R.string.profile_name_duplicate
+    AndroidProfileStoreFailure.PROFILE_LIMIT -> R.string.profile_limit_reached
+    AndroidProfileStoreFailure.PROFILE_NOT_FOUND -> R.string.profile_not_found
+    AndroidProfileStoreFailure.CORRUPT_OR_UNAVAILABLE -> R.string.status_profile_storage_unavailable
+}
+
+private fun isValidProfileName(name: String): Boolean {
+    val normalized = name.trim()
+    return normalized.isNotEmpty() &&
+        normalized.length <= AndroidEncryptedProfileStore.MAX_PROFILE_NAME_LENGTH &&
+        normalized.none { Character.isISOControl(it) }
 }
 
 @Composable
