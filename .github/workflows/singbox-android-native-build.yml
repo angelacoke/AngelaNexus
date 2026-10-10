@@ -1,0 +1,133 @@
+name: sing-box-android-native-build
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/singbox-android-native-build.yml"
+      - "native/android/app/src/main/kotlin/app/angelanexus/SingBox*.kt"
+      - "native/android/app/src/main/kotlin/app/angelanexus/AndroidKernelDriverRegistry.kt"
+      - "native/android/app/build.gradle.kts"
+      - "native/android/app/src/main/AndroidManifest.xml"
+  pull_request:
+    paths:
+      - ".github/workflows/singbox-android-native-build.yml"
+      - "native/android/app/src/main/kotlin/app/angelanexus/SingBox*.kt"
+      - "native/android/app/src/main/kotlin/app/angelanexus/AndroidKernelDriverRegistry.kt"
+      - "native/android/app/build.gradle.kts"
+      - "native/android/app/src/main/AndroidManifest.xml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Verify native sing-box libbox build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout pinned sing-box release
+        shell: bash
+        env:
+          SINGBOX_REF: "v1.14.0-beta.4"
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$SINGBOX_REF" https://github.com/SagerNet/sing-box.git "$RUNNER_TEMP/sing-box"
+          test "$(git -C "$RUNNER_TEMP/sing-box" describe --tags --exact-match)" = "$SINGBOX_REF"
+          git -C "$RUNNER_TEMP/sing-box" rev-parse HEAD
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.8"
+
+      - name: Install Android SDK and NDK
+        shell: bash
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort | tail -n 1)"
+          test -x "$SDKMANAGER"
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "ndk;28.0.13004108"
+
+      - name: Install upstream gomobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          GOPATH_BIN="$(go env GOPATH)/bin"
+          mkdir -p "$GOPATH_BIN"
+          go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+          go install github.com/sagernet/gomobile/cmd/gobind@v0.1.12
+          test -x "$GOPATH_BIN/gomobile"
+          test -x "$GOPATH_BIN/gobind"
+          echo "$GOPATH_BIN" >> "$GITHUB_PATH"
+          export PATH="$GOPATH_BIN:$PATH"
+          command -v gomobile
+          command -v gobind
+          gomobile init
+
+      - name: Build libbox AARs with upstream build entrypoint
+        shell: bash
+        working-directory: ${{ runner.temp }}/sing-box
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.0.13004108
+        run: |
+          set -euo pipefail
+          go run ./cmd/internal/build_libbox -target android
+          test -s libbox.aar
+          test -s libbox-legacy.aar
+          mkdir -p "$RUNNER_TEMP/singbox"
+          cp libbox.aar "$RUNNER_TEMP/singbox/libbox.aar"
+          cp libbox-legacy.aar "$RUNNER_TEMP/singbox/libbox-legacy.aar"
+
+      - name: Inspect generated Java API surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/singbox/api"
+          unzip -p "$RUNNER_TEMP/singbox/libbox.aar" classes.jar > "$RUNNER_TEMP/singbox/api/classes.jar"
+          jar tf "$RUNNER_TEMP/singbox/api/classes.jar" | grep -E '(^|/)(Libbox|BoxService|PlatformInterface|Tun|StringIterator).*class$' | sort > "$RUNNER_TEMP/singbox/api/classes.txt"
+          test -s "$RUNNER_TEMP/singbox/api/classes.txt"
+          cat "$RUNNER_TEMP/singbox/api/classes.txt"
+
+      - name: Verify artifacts and provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA256="$(sha256sum "$RUNNER_TEMP/singbox/libbox.aar" | awk '{print $1}')"
+          LEGACY_SHA256="$(sha256sum "$RUNNER_TEMP/singbox/libbox-legacy.aar" | awk '{print $1}')"
+          SOURCE_HEAD="$(git -C "$RUNNER_TEMP/sing-box" rev-parse HEAD)"
+          mkdir -p "$RUNNER_TEMP/singbox/provenance"
+          cat > "$RUNNER_TEMP/singbox/provenance/libbox-provenance.json" <<JSON
+          {
+            "version": 1,
+            "kernel": "sing-box",
+            "wrapper": {
+              "repository": "https://github.com/SagerNet/sing-box",
+              "ref": "v1.14.0-beta.4",
+              "commit": "$SOURCE_HEAD"
+            },
+            "platform": "android",
+            "toolchain": {
+              "go": "$(go version)",
+              "java": "$(printf temurin-17)",
+              "androidNdk": "28.0.13004108"
+            },
+            "artifacts": {
+              "libbox.aar": "$SHA256",
+              "libbox-legacy.aar": "$LEGACY_SHA256"
+            },
+            "isolation": "separate Android process required; sing-box must not share a process with another independent Go runtime"
+          }
+          JSON
+          cat "$RUNNER_TEMP/singbox/provenance/libbox-provenance.json"
+
+      - name: Keep native outputs runner-local
+        run: |
+          echo "AARs, provenance, and API inventory were verified on this ephemeral runner; native binaries are not published as Actions artifacts." >> "$GITHUB_STEP_SUMMARY"
