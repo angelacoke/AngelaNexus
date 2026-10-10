@@ -14,7 +14,9 @@
     "kernel:conformance": "node scripts/kernel-conformance.mjs",
     "kernel:runtime:test": "node --test test/kernel-runtime.test.js",
     "core:server": "node scripts/core-runtime-server.mjs",
-    "core:android:bundle": "node scripts/build-android-core-bundle.mjs"
+    "core:android:bundle": "node scripts/build-android-core-bundle.mjs",
+    "benchmark": "node scripts/benchmark-core.mjs",
+    "benchmark:smoke": "node scripts/benchmark-core.mjs --smoke"
   },
   "engines": {
     "node": ">=20"
