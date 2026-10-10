@@ -81,8 +81,9 @@ AngelaNexus 应用从架构基线起就是一个面向多平台的产品：
 - 一次性进程内 handoff token：大配置不会放进 Android Service Intent，也不会写入明文临时缓存；
 - 必须确认停止成功：原生清理失败时保持 fail-closed，禁止重连并向用户提供重试清理入口；
 - 覆盖生命周期转换、清理失败、支持/不支持的意图以及一次性 token 消费的回归测试。
+- VPN Service 启动、原生/TUN 接入、停止、撤权和销毁（包括所需的 HTTPS 流量验收）均在单一串行后台队列执行；前台通知仍同步提升，停止请求会取消在途探针，被取消的启动不能发布为 Running。
 
-Android CI 会运行 JVM 单元测试、构建 Debug APK，并在 Android 模拟器中安装和启动应用。模拟器冒烟测试只证明 APK 与启动 Activity 可以运行且进程仍存活；它**不能**证明真机 TUN 流量或端到端代理可用。当前实现和检查见 [PR #114](https://github.com/angelacoke/AngelaNexus/pull/114)。
+Android CI 会运行 JVM 单元测试、构建 Debug APK，并在 Android 模拟器中安装和启动应用。模拟器冒烟测试只证明 APK 与启动 Activity 可以运行且进程仍存活；它**不能**证明真机 TUN 流量或端到端代理可用。PR #114 代码提交 `7acf919` 的 21 项检查已通过、1 项按工作流策略跳过、0 项失败。push 运行中的 Android 单元测试、Debug APK、模拟器冒烟、签名 Release APK/AAB 构建及产物/签名验证均通过；PR 运行中的 Android 单元测试、Debug APK 和模拟器冒烟也通过，PR 事件的 Release job 按策略跳过。详见 [push 运行](https://github.com/angelacoke/AngelaNexus/actions/runs/38045207635)和 [PR 运行](https://github.com/angelacoke/AngelaNexus/actions/runs/38045209664)。这些 CI 证据**不**证明真机 VPN 授权、TUN 流量或端到端代理可用。
 
 ### Android Mihomo 原生运行时边界
 
@@ -107,7 +108,7 @@ Android 已实现第一版界面：
 - 跟随系统的浅色/深色主题及 Android 动态配色。
 - 五个模块：首页 / 配置 / 代理 / 规则 / 设置。
 - 首页连接控件和运行阶段由 Android Service 状态驱动，不虚构流量数值。
-- 配置页展示 Core 导入结果并支持显式保存的本机加密档案；配置输入仍仅支持本地文件，也不会云同步。
+- 配置页展示 Core 导入结果并支持显式保存的本机加密档案；配置输入支持本地文件、一次性 HTTPS 订阅 URL，以及手动粘贴单节点/分享链接/配置文本。应用不会自动读取剪贴板、自动保存导入结果或云同步档案。
 - 代理页展示 Core 检出的节点数量、内核绑定，以及最多 100 条有界、无凭据节点摘要（名称、协议、服务器、端口）；会明确标出列表截断。摘要仅供查看，不提供实时代理选择。
 - Android parser 严格校验摘要字段 allowlist、字符串长度、条目上限和截断标记一致性。Node 测试（1,015 项）和 Android Core bundle 本地构建已通过。PR #114 提交 `4571b2e` 的 GitHub Actions 已终结：18 项成功、1 项跳过、0 项失败；其中 Android JVM 测试、Debug APK 构建和模拟器冒烟均通过。
 - Compose 通过生命周期感知收集观察进程级 runtime `StateFlow`，Activity 回到前台时从其当前值恢复观察；不会自动启动或重连 VPN。真实设备的后台、Doze 和网络切换行为仍未验证。
@@ -152,7 +153,7 @@ Android 已实现第一版界面：
 3. 将可复用 UI 提取到多平台 UI 层，并确保不泄漏平台 API。
 4. 在平台无关服务契约之后实现账户认证与云端数据服务。
 5. 将 Android 本地配置、HTTPS 订阅和手动文本导入接入内核无关流程。**本地文件和 HTTPS 入口已在 `11e6a8e` 通过 Android CI；手动文本导入已在 `7b3b8b7` 通过 Android CI。**
-6. 实现 Android 生命周期控件和经过校验的 Core-to-VPN handoff。**代码与回归覆盖见 PR #114；自动 CI 验证 Android 测试、Debug APK 启动及固定版本的原生内核构建。真机 TUN/流量验证仍未完成。**
+6. 实现 Android 生命周期控件和经过校验的 Core-to-VPN handoff。**PR #114 提交 `7acf919` 的 21 项检查通过、1 项按工作流策略跳过、0 项失败；Android 测试、Debug APK 和模拟器冒烟通过，push 运行也验证了签名 Release 产物。生命周期工作现由串行后台队列执行，流量验收支持取消。真机 TUN/流量验证仍未完成。**
 7. 增加 Android 本机加密档案持久化和 Core 重校验。**已在 PR #114 实现并通过 CI；云同步和设备备份不在本 MVP 范围内。**
 8. 建立 Windows/macOS/Linux 共用的 Desktop JVM 应用壳。
 9. 建立 iOS 应用入口和 Network Extension 边界。

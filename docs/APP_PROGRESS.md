@@ -81,8 +81,9 @@ Implemented in source with regression coverage:
 - one-shot, in-memory handoff token; the configuration is not placed in the Android service Intent or written as a plaintext handoff cache;
 - verified-stop requirement: if native cleanup fails, the UI stays fail-closed and offers a cleanup retry instead of allowing reconnection;
 - regression coverage for lifecycle transitions, cleanup failure, supported/unsupported intents and one-shot token consumption.
+- VPN Service startup, native/TUN attachment, stop, revocation and destruction—including required HTTPS traffic acceptance—run on a single serial worker; foreground notification promotion remains synchronous, STOP cancels an in-flight probe, and canceled starts cannot publish Running.
 
-The Android CI workflow runs JVM unit tests, assembles a debug APK, and installs/launches the app in an Android emulator. The smoke test proves that the APK and launcher activity start and the process remains alive; it does **not** prove physical-device TUN traffic or successful end-to-end proxying. See [PR #114](https://github.com/angelacoke/AngelaNexus/pull/114) for the current implementation and checks.
+The Android CI workflow runs JVM unit tests, assembles a debug APK, and installs/launches the app in an Android emulator. The smoke test proves that the APK and launcher activity start and the process remains alive; it does **not** prove physical-device TUN traffic or successful end-to-end proxying. PR #114 code commit `7acf919` passed 21 checks, with 1 workflow-policy skip and 0 failures. In the push run, Android unit tests, Debug APK, emulator runtime smoke, signed Release APK/AAB assembly, and artifact/signature verification all passed; the PR run's Android unit tests, Debug APK and emulator smoke also passed, while its Release job was skipped by policy. See the [push run](https://github.com/angelacoke/AngelaNexus/actions/runs/38045207635) and [PR run](https://github.com/angelacoke/AngelaNexus/actions/runs/38045209664). This CI evidence does not prove physical-device VPN consent, TUN traffic, or end-to-end proxying.
 
 ### Android Mihomo native runtime boundary
 
@@ -107,7 +108,7 @@ Implemented on Android as the first platform surface:
 - System light/dark theme support and Android dynamic colors.
 - Five-module navigation: Home / Profiles / Proxies / Rules / Settings.
 - Home connection controls and runtime phase are driven by the Android service state, not by fabricated traffic values.
-- Profiles shows Core import results and explicit-save, device-local encrypted profile management; configuration input remains local-file-only and is not cloud-synced.
+- Profiles shows Core import results and explicit-save, device-local encrypted profile management; configuration input supports local files, one-shot HTTPS subscription URLs, and manually pasted single-node/share-link/configuration text. The app does not read the clipboard automatically, auto-save imports, or sync profiles to the cloud.
 - Proxies shows Core-detected node count, kernel binding and up to 100 bounded, credential-free node summaries (name, protocol, server and port). A truncated preview is identified explicitly; summaries are read-only and do not provide live proxy selection.
 - The Android parser enforces the exact summary-field allowlist, string bounds, item cap and truncation consistency. The Node suite (1,015 tests) and Android Core bundle build pass locally. PR #114 commit `4571b2e` passed GitHub Actions with 18 successful checks, 1 skipped and 0 failed, including Android JVM tests, Debug APK assembly and emulator smoke.
 - Compose observes the process-wide runtime `StateFlow` with lifecycle-aware collection and resumes from its current value when the Activity returns to the foreground. This does not auto-start or reconnect the VPN; physical-device background, Doze and network-transition behavior remain unverified.
@@ -153,7 +154,7 @@ This is a data-contract milestone, **not** a claim that the cloud account servic
 3. Extract reusable UI into the multiplatform UI layer without leaking platform APIs.
 4. Implement account authentication and cloud data service behind a platform-neutral service contract.
 5. Connect Android local, HTTPS subscription and manual text imports to the kernel-neutral pipeline. **Local-file and HTTPS paths are Android CI-verified in `11e6a8e`; manual text import is CI-verified in `7b3b8b7`.**
-6. Implement Android lifecycle controls and a validated Core-to-VPN handoff. **Source and regression coverage are in PR #114; automated CI verifies Android tests, debug APK launch and pinned native-kernel builds. Physical-device TUN and traffic verification remains.**
+6. Implement Android lifecycle controls and a validated Core-to-VPN handoff. **PR #114 commit `7acf919` passed 21 checks (1 workflow-policy skip, 0 failures), including Android tests, Debug APK and emulator smoke; the push run also verified signed Release artifacts. Lifecycle work now runs on a serial background worker with cancellable traffic acceptance. Physical-device TUN and traffic verification remains.**
 7. Add Android-only encrypted local Profile persistence with Core revalidation. **Implemented and CI-verified in PR #114; cloud sync and device backup remain out of scope.**
 8. Establish Desktop JVM application shell shared by Windows/macOS/Linux.
 9. Establish iOS application entry point and Network Extension boundary.
