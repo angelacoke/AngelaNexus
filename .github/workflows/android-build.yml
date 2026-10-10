@@ -98,7 +98,7 @@ jobs:
       - name: Build canonical Android Core bundle
         run: |
           set -euo pipefail
-          npm install --no-audit --no-fund
+          npm ci --no-audit --no-fund
           npm run core:android:bundle
           test -s native/android/app/src/main/assets/angelanexus-core.bundle.js
       - uses: actions/download-artifact@v4
@@ -241,7 +241,7 @@ jobs:
       - name: Build canonical Android Core bundle
         run: |
           set -euo pipefail
-          npm install --no-audit --no-fund
+          npm ci --no-audit --no-fund
           npm run core:android:bundle
           test -s native/android/app/src/main/assets/angelanexus-core.bundle.js
       - uses: actions/download-artifact@v4
