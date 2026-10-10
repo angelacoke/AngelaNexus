@@ -145,7 +145,7 @@ jobs:
 
       - name: Assemble signed release APK and AAB with Mihomo
         working-directory: native/android
-        run: gradle --no-daemon --console=plain --stacktrace assembleRelease bundleRelease
+        run: gradle --no-daemon --console=plain --stacktrace -Pangelanexus.mihomoDistributionApproved=true assembleRelease bundleRelease
 
       - name: Verify packaged Mihomo libraries
         shell: bash

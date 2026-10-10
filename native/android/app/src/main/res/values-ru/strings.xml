@@ -6,6 +6,7 @@
     <string name="status_importing_config">Импорт конфигурации и проверка в AngelaNexus Core…</string>
     <string name="status_config_delivered">Core импортировал конфигурацию. Запуск среды выполнения — отдельный шаг.</string>
     <string name="status_config_not_startable">План Core неполон или среда Android не поддерживает выбранный режим/ядро; запуск VPN отключён.</string>
+    <string name="status_kernel_runtime_unavailable">Выбранное ядро Android не включено в приложение или не прошло проверку целостности. Автоматического переключения на другое ядро не будет.</string>
     <string name="status_core_unavailable">Не удалось импортировать конфигурацию: Core недоступен или файл не прошёл проверку.</string>
     <string name="status_vpn_not_ready">Разрешение VPN не предоставлено. Разрешите VPN-доступ и повторите попытку.</string>
     <string name="status_transparent_unavailable">Системный прозрачный режим недоступен на этом устройстве.</string>

@@ -9,9 +9,20 @@ import org.junit.Test
 
 class AndroidKernelDriverRegistryTest {
     @Test
-    fun registryIdentitySetContainsAllThreeParallelKernels() {
-        val identities = listOf("mihomo", "sing-box", "xray")
-        assertEquals(setOf("mihomo", "sing-box", "xray"), identities.toSet())
+    fun normalBuildDoesNotAssumeMihomoDistributionApproval() {
+        assertFalse(BuildConfig.MIHOMO_DISTRIBUTION_APPROVED)
+    }
+
+    @Test
+    fun mihomoIsStartableOnlyWhenItsNativeArtifactIsVerified() {
+        val withoutMihomo = AndroidKernelDriverRegistry.proxyExecutionKernelIds(false)
+        val withMihomo = AndroidKernelDriverRegistry.proxyExecutionKernelIds(true)
+
+        assertEquals(setOf("sing-box", "xray"), withoutMihomo)
+        assertEquals(setOf("mihomo", "sing-box", "xray"), withMihomo)
+        assertFalse(AndroidKernelDriverRegistry.supportsProxyExecution("mihomo", withoutMihomo))
+        assertTrue(AndroidKernelDriverRegistry.supportsProxyExecution("mihomo", withMihomo))
+        assertTrue(AndroidKernelDriverRegistry.supportsProxyExecution("sing-box", withoutMihomo))
     }
 
     @Test

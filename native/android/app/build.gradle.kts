@@ -6,9 +6,16 @@ plugins {
 
 import java.util.Base64
 
+val mihomoDistributionApproved =
+    providers.gradleProperty("angelanexus.mihomoDistributionApproved").orNull == "true"
+
 android {
     namespace = "app.angelanexus"
     compileSdk = 35
+
+    buildFeatures {
+        buildConfig = true
+    }
 
     defaultConfig {
         applicationId = "app.angelanexus"
@@ -16,6 +23,7 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("boolean", "MIHOMO_DISTRIBUTION_APPROVED", mihomoDistributionApproved.toString())
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {

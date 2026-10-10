@@ -41,6 +41,7 @@ internal fun AngelaNexusApp(
     rootAvailable: Boolean,
     importResult: CoreRuntimeImportResult?,
     executionState: KernelExecutionState,
+    availableProxyKernelIds: Set<String>,
     uiStatus: AndroidUiStatus,
     onTransparentModeChange: (AndroidTransparentMode) -> Unit,
     onImportConfig: () -> Unit,
@@ -75,7 +76,7 @@ internal fun AngelaNexusApp(
             RuntimeStatusBanner(uiStatus, executionState)
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (selected) {
-                    0 -> HomeScreen(PaddingValues(0.dp), transparentMode, rootAvailable, importResult, executionState, onTransparentModeChange, onImportConfig, onStartVpn, onStopVpn, profileOperationPending)
+                    0 -> HomeScreen(PaddingValues(0.dp), transparentMode, rootAvailable, importResult, executionState, availableProxyKernelIds, uiStatus, onTransparentModeChange, onImportConfig, onStartVpn, onStopVpn, profileOperationPending)
                     1 -> ProfilesScreen(
                         padding = PaddingValues(0.dp),
                         onImport = onImportConfig,
@@ -106,6 +107,7 @@ private fun RuntimeStatusBanner(status: AndroidUiStatus, executionState: KernelE
     val operationMessage = when (status) {
         AndroidUiStatus.CORE_RUNTIME_UNAVAILABLE -> R.string.status_core_unavailable to true
         AndroidUiStatus.CONFIG_NOT_STARTABLE -> R.string.status_config_not_startable to true
+        AndroidUiStatus.KERNEL_RUNTIME_UNAVAILABLE -> R.string.status_kernel_runtime_unavailable to true
         AndroidUiStatus.VPN_RUNTIME_NOT_READY -> R.string.status_vpn_not_ready to true
         AndroidUiStatus.PROFILE_STORAGE_UNAVAILABLE -> R.string.status_profile_storage_unavailable to true
         AndroidUiStatus.PROFILE_CHANGE_REQUIRES_STOP -> R.string.status_profile_change_requires_stop to true
@@ -130,6 +132,7 @@ private fun RuntimeStatusBanner(status: AndroidUiStatus, executionState: KernelE
             AndroidUiStatus.IMPORTING_CONFIG -> R.string.status_importing_config to false
             AndroidUiStatus.CONFIG_DELIVERED_TO_CORE -> R.string.status_config_delivered to false
             AndroidUiStatus.CONFIG_NOT_STARTABLE -> R.string.status_config_not_startable to true
+            AndroidUiStatus.KERNEL_RUNTIME_UNAVAILABLE -> R.string.status_kernel_runtime_unavailable to true
             AndroidUiStatus.CORE_RUNTIME_UNAVAILABLE -> R.string.status_core_unavailable to true
             AndroidUiStatus.PROFILE_STORAGE_UNAVAILABLE -> R.string.status_profile_storage_unavailable to true
             AndroidUiStatus.PROFILE_CHANGE_REQUIRES_STOP -> R.string.status_profile_change_requires_stop to true
@@ -159,6 +162,8 @@ private fun HomeScreen(
     rootAvailable: Boolean,
     importResult: CoreRuntimeImportResult?,
     executionState: KernelExecutionState,
+    availableProxyKernelIds: Set<String>,
+    uiStatus: AndroidUiStatus,
     onMode: (AndroidTransparentMode) -> Unit,
     onImport: () -> Unit,
     onStart: () -> Unit,
@@ -166,7 +171,7 @@ private fun HomeScreen(
     profileOperationPending: Boolean,
 ) {
     LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item { ConnectionCard(mode, rootAvailable, importResult, executionState, onMode, onStart, onStop, profileOperationPending) }
+        item { ConnectionCard(mode, rootAvailable, importResult, executionState, availableProxyKernelIds, uiStatus, onMode, onStart, onStop, profileOperationPending) }
         item { TrafficCard() }
         item { SectionTitle(R.string.section_environment); EnvironmentCard(importResult, executionState) }
         item { SectionTitle(R.string.section_quick_actions); QuickActions(onImport) }
@@ -180,6 +185,8 @@ private fun ConnectionCard(
     rootAvailable: Boolean,
     importResult: CoreRuntimeImportResult?,
     executionState: KernelExecutionState,
+    availableProxyKernelIds: Set<String>,
+    uiStatus: AndroidUiStatus,
     onMode: (AndroidTransparentMode) -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit,
@@ -190,7 +197,7 @@ private fun ConnectionCard(
         phase == KernelExecutionPhase.RUNNING ||
         phase == KernelExecutionPhase.STOPPING ||
         (phase == KernelExecutionPhase.FAILED && executionState.cleanupRequired)
-    val canStart = canStartAndroidRuntime(executionState, importResult) && !profileOperationPending
+    val canStart = canStartAndroidRuntime(executionState, importResult, availableProxyKernelIds) && !profileOperationPending
     ElevatedCard(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.transparent_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -220,7 +227,16 @@ private fun ConnectionCard(
             if (profileOperationPending && !activeOrCleaning) {
                 Text(stringResource(R.string.status_profile_operation_in_progress), style = MaterialTheme.typography.bodySmall)
             } else if (!canStart && !activeOrCleaning) {
-                Text(stringResource(R.string.start_requires_config), style = MaterialTheme.typography.bodySmall)
+                Text(
+                    stringResource(
+                        if (uiStatus == AndroidUiStatus.KERNEL_RUNTIME_UNAVAILABLE) {
+                            R.string.status_kernel_runtime_unavailable
+                        } else {
+                            R.string.start_requires_config
+                        },
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
     }

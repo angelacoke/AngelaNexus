@@ -67,6 +67,7 @@ private fun AngelaNexusRoot() {
     var profileSnapshot by remember { mutableStateOf(AndroidProfileStoreSnapshot()) }
     var loadedProfileId by remember { mutableStateOf<String?>(null) }
     var importedProfileName by remember { mutableStateOf<String?>(null) }
+    var availableProxyKernelIds by remember { mutableStateOf(setOf("sing-box", "xray")) }
     var profileFailure by remember { mutableStateOf<AndroidProfileStoreFailure?>(null) }
     var profilesLoading by remember { mutableStateOf(true) }
     var profileOperationPending by remember { mutableStateOf(false) }
@@ -88,11 +89,44 @@ private fun AngelaNexusRoot() {
         }
     }
 
+    fun hasUnavailableProxyKernel(result: CoreRuntimeImportResult?): Boolean {
+        val candidate = result ?: return false
+        if (!candidate.hasCompleteAndroidExecutionHandoff()) return false
+        val intent = candidate.executionIntentJson?.let {
+            runCatching { AndroidRoutingExecutionIntent.parse(it) }.getOrNull()
+        }
+        return intent?.mode == "proxy" &&
+            !AndroidKernelDriverRegistry.supportsProxyExecution(candidate.kernel, availableProxyKernelIds)
+    }
+
     fun statusFor(result: CoreRuntimeImportResult) {
-        status = if (result.hasExecutableAndroidExecutionHandoff()) {
-            AndroidUiStatus.CONFIG_DELIVERED_TO_CORE
-        } else {
-            AndroidUiStatus.CONFIG_NOT_STARTABLE
+        val intent = result.executionIntentJson?.let {
+            runCatching { AndroidRoutingExecutionIntent.parse(it) }.getOrNull()
+        }
+        status = when {
+            !result.hasCompleteAndroidExecutionHandoff() || intent?.mode != "proxy" ->
+                AndroidUiStatus.CONFIG_NOT_STARTABLE
+            hasUnavailableProxyKernel(result) ->
+                AndroidUiStatus.KERNEL_RUNTIME_UNAVAILABLE
+            else -> AndroidUiStatus.CONFIG_DELIVERED_TO_CORE
+        }
+    }
+
+    LaunchedEffect(context.applicationContext) {
+        availableProxyKernelIds = withContext(Dispatchers.IO) {
+            AndroidKernelDriverRegistry.availableProxyExecutionKernelIds(context.applicationContext)
+        }
+    }
+
+    LaunchedEffect(availableProxyKernelIds, importResult) {
+        val result = importResult
+        if (result != null && status in setOf(
+                AndroidUiStatus.CONFIG_DELIVERED_TO_CORE,
+                AndroidUiStatus.CONFIG_NOT_STARTABLE,
+                AndroidUiStatus.KERNEL_RUNTIME_UNAVAILABLE,
+            )
+        ) {
+            statusFor(result)
         }
     }
 
@@ -171,11 +205,17 @@ private fun AngelaNexusRoot() {
 
     fun startVpnService(kernelId: String) {
         val handoff = importResult
-        if (handoff?.kernel != kernelId || !handoff.hasExecutableAndroidExecutionHandoff()) {
-            status = AndroidUiStatus.CONFIG_NOT_STARTABLE
+        if (handoff?.kernel != kernelId || !handoff.hasExecutableAndroidExecutionHandoff(availableProxyKernelIds)) {
+            status = if (hasUnavailableProxyKernel(handoff)) {
+                AndroidUiStatus.KERNEL_RUNTIME_UNAVAILABLE
+            } else {
+                AndroidUiStatus.CONFIG_NOT_STARTABLE
+            }
             return
         }
-        val handoffToken = runCatching { AndroidRuntimeHandoffStore.publish(handoff) }
+        val handoffToken = runCatching {
+            AndroidRuntimeHandoffStore.publish(handoff, availableProxyKernelIds)
+        }
             .getOrElse {
                 status = AndroidUiStatus.CONFIG_NOT_STARTABLE
                 return
@@ -221,8 +261,12 @@ private fun AngelaNexusRoot() {
             status = AndroidUiStatus.PROFILE_OPERATION_IN_PROGRESS
             return
         }
-        if (!importResult.hasExecutableAndroidExecutionHandoff()) {
-            status = AndroidUiStatus.CONFIG_NOT_STARTABLE
+        if (!importResult.hasExecutableAndroidExecutionHandoff(availableProxyKernelIds)) {
+            status = if (hasUnavailableProxyKernel(importResult)) {
+                AndroidUiStatus.KERNEL_RUNTIME_UNAVAILABLE
+            } else {
+                AndroidUiStatus.CONFIG_NOT_STARTABLE
+            }
             return
         }
         val mode = selectAndroidTransparentMode(selectedMode, rootCapabilities)
@@ -397,6 +441,7 @@ private fun AngelaNexusRoot() {
         rootAvailable = rootCapabilities.rootAvailable && rootCapabilities.rootAuthorized,
         importResult = importResult,
         executionState = executionState,
+        availableProxyKernelIds = availableProxyKernelIds,
         uiStatus = status,
         onTransparentModeChange = { selectedMode = it },
         onImportConfig = {
@@ -463,6 +508,7 @@ private fun AngelaNexusPreview() {
             rootAvailable = false,
             importResult = null,
             executionState = KernelExecutionState(),
+            availableProxyKernelIds = setOf("sing-box", "xray"),
             uiStatus = AndroidUiStatus.READY,
             onTransparentModeChange = {},
             onImportConfig = {},

@@ -6,6 +6,7 @@
     <string name="status_importing_config">Importing configuration and validating it in AngelaNexus Core…</string>
     <string name="status_config_delivered">Configuration imported by Core. Runtime start is a separate step.</string>
     <string name="status_config_not_startable">The Core plan is incomplete or this Android runtime does not support its selected mode or kernel; VPN startup is disabled.</string>
+    <string name="status_kernel_runtime_unavailable">The selected Android kernel is not packaged or failed integrity verification. No fallback kernel will be selected.</string>
     <string name="status_core_unavailable">Configuration import failed: Core runtime is unavailable or rejected the file.</string>
     <string name="status_vpn_not_ready">VPN permission was not granted. Allow VPN access and try again.</string>
     <string name="status_transparent_unavailable">System transparent mode is unavailable on this device.</string>

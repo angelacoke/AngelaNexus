@@ -5,6 +5,9 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AndroidRuntimeHandoffPolicyTest {
+    private val allProxyKernels = setOf("mihomo", "sing-box", "xray")
+    private val nonMihomoProxyKernels = setOf("sing-box", "xray")
+
     @Test
     fun requiresCoreSelectedKernelConfigurationAndExecutionIntent() {
         val complete = CoreRuntimeImportResult(
@@ -29,7 +32,7 @@ class AndroidRuntimeHandoffPolicyTest {
     }
 
     @Test
-    fun executableHandoffRequiresProxyModeAndARegisteredAndroidKernel() {
+    fun executableHandoffRequiresProxyModeAndAnAvailableAndroidKernel() {
         val proxy = CoreRuntimeImportResult(
             source = "local-file",
             nodeCount = 1,
@@ -39,11 +42,12 @@ class AndroidRuntimeHandoffPolicyTest {
             executionIntentJson = """{"version":1,"kind":"routing-execution-intent","mode":"proxy","action":"route","target":"node-1"}""",
         )
 
-        assertTrue(proxy.hasExecutableAndroidExecutionHandoff())
-        for (kernel in setOf("mihomo", "sing-box", "xray")) {
-            assertTrue(proxy.copy(kernel = kernel).hasExecutableAndroidExecutionHandoff())
+        assertTrue(proxy.hasExecutableAndroidExecutionHandoff(allProxyKernels))
+        for (kernel in allProxyKernels) {
+            assertTrue(proxy.copy(kernel = kernel).hasExecutableAndroidExecutionHandoff(allProxyKernels))
         }
-        assertFalse(proxy.copy(kernel = "unknown-kernel").hasExecutableAndroidExecutionHandoff())
+        assertFalse(proxy.copy(kernel = "unknown-kernel").hasExecutableAndroidExecutionHandoff(allProxyKernels))
+        assertFalse(proxy.hasExecutableAndroidExecutionHandoff(nonMihomoProxyKernels))
 
         val unsupportedIntents = listOf(
             """{"version":1,"kind":"routing-execution-intent","mode":"direct","action":"bypass","target":"all"}""",
@@ -54,13 +58,13 @@ class AndroidRuntimeHandoffPolicyTest {
         for (intent in unsupportedIntents) {
             val result = proxy.copy(executionIntentJson = intent)
             assertTrue(result.hasCompleteAndroidExecutionHandoff())
-            assertFalse(result.hasExecutableAndroidExecutionHandoff())
-            assertFalse(canStartAndroidRuntime(KernelExecutionState(), result))
+            assertFalse(result.hasExecutableAndroidExecutionHandoff(allProxyKernels))
+            assertFalse(canStartAndroidRuntime(KernelExecutionState(), result, allProxyKernels))
         }
     }
 
     @Test
-    fun startGateRequiresACompleteHandoffAndARecoverableLifecyclePhase() {
+    fun startGateRequiresACompleteHandoffAvailableKernelAndRecoverableLifecyclePhase() {
         val complete = CoreRuntimeImportResult(
             source = "local-file",
             nodeCount = 1,
@@ -70,34 +74,39 @@ class AndroidRuntimeHandoffPolicyTest {
             executionIntentJson = """{"version":1,"kind":"routing-execution-intent","mode":"proxy","action":"route","target":"node-1"}""",
         )
 
-        assertTrue(canStartAndroidRuntime(KernelExecutionState(), complete))
-        assertTrue(canStartAndroidRuntime(KernelExecutionState(), complete.copy(kernel = "sing-box")))
-        assertTrue(canStartAndroidRuntime(KernelExecutionState(), complete.copy(kernel = "xray")))
-        assertFalse(canStartAndroidRuntime(KernelExecutionState(), complete.copy(kernel = "unknown-kernel")))
+        assertTrue(canStartAndroidRuntime(KernelExecutionState(), complete, allProxyKernels))
+        assertTrue(canStartAndroidRuntime(KernelExecutionState(), complete.copy(kernel = "sing-box"), nonMihomoProxyKernels))
+        assertTrue(canStartAndroidRuntime(KernelExecutionState(), complete.copy(kernel = "xray"), nonMihomoProxyKernels))
+        assertFalse(canStartAndroidRuntime(KernelExecutionState(), complete, nonMihomoProxyKernels))
+        assertFalse(canStartAndroidRuntime(KernelExecutionState(), complete.copy(kernel = "unknown-kernel"), allProxyKernels))
         assertTrue(
             canStartAndroidRuntime(
                 KernelExecutionState(phase = KernelExecutionPhase.STOPPED),
                 complete,
+                allProxyKernels,
             ),
         )
         assertTrue(
             canStartAndroidRuntime(
                 KernelExecutionState(phase = KernelExecutionPhase.FAILED),
                 complete,
+                allProxyKernels,
             ),
         )
         assertFalse(
             canStartAndroidRuntime(
                 KernelExecutionState(phase = KernelExecutionPhase.FAILED, cleanupRequired = true),
                 complete,
+                allProxyKernels,
             ),
         )
         assertFalse(
             canStartAndroidRuntime(
                 KernelExecutionState(phase = KernelExecutionPhase.RUNNING),
                 complete,
+                allProxyKernels,
             ),
         )
-        assertFalse(canStartAndroidRuntime(KernelExecutionState(), null))
+        assertFalse(canStartAndroidRuntime(KernelExecutionState(), null, allProxyKernels))
     }
 }

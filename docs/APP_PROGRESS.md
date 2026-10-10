@@ -94,10 +94,10 @@ Implemented and CI-verified:
 - reproducible `c-shared` build with version metadata pinned to `v1.19.32`;
 - SHA-256-pinned native artifacts for all three supported ABIs;
 - verified JNI loading boundary that refuses missing or hash-mismatched native artifacts;
-- dedicated Android packaging workflow that downloads only the verified artifacts, packages `libclash.so` plus the AngelaNexus JNI shim, and verifies the final APK contents and hashes;
-- signed Mihomo-enabled APK/AAB artifact successfully produced by CI.
+- a dedicated Android packaging workflow exists and requires approved distribution, license, provenance and naming gates before embedding Mihomo;
+- the current compliance manifest still marks distribution `blocked` and all three reviews `required`; the latest main-branch run skipped the release-package job and uploaded no APK/AAB.
 
-The native core is present in the dedicated Mihomo-enabled Android release artifact. This does **not** claim successful end-to-end TUN traffic on a physical Android device.
+The per-ABI native libraries are build-verified CI artifacts, **not** an approved Android app distribution. The normal Android build keeps a dedicated Mihomo approval flag false; only the release-package job behind the compliance gate passes that flag, and runtime availability also checks the installed library's pinned SHA-256. PR #114 adds these fail-closed checks without silent fallback; this change is pending CI verification. No physical-device TUN or end-to-end proxy traffic is claimed.
 
 ### Modern modular UI baseline
 

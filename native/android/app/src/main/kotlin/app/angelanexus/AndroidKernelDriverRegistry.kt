@@ -3,10 +3,20 @@ package app.angelanexus
 import android.content.Context
 
 object AndroidKernelDriverRegistry {
-    private val proxyExecutionKernelIds = setOf("mihomo", "sing-box", "xray")
+    private val bundledProxyExecutionKernelIds = setOf("sing-box", "xray")
 
-    fun supportsProxyExecution(kernelId: String?): Boolean =
-        kernelId?.trim()?.lowercase()?.let(proxyExecutionKernelIds::contains) == true
+    fun availableProxyExecutionKernelIds(context: Context): Set<String> =
+        proxyExecutionKernelIds(MihomoNativeRuntimeFactory.hasVerifiedArtifact(context))
+
+    internal fun proxyExecutionKernelIds(hasVerifiedMihomoArtifact: Boolean): Set<String> =
+        if (hasVerifiedMihomoArtifact) {
+            bundledProxyExecutionKernelIds + "mihomo"
+        } else {
+            bundledProxyExecutionKernelIds
+        }
+
+    fun supportsProxyExecution(kernelId: String?, availableKernelIds: Set<String>): Boolean =
+        kernelId?.trim()?.lowercase()?.let(availableKernelIds::contains) == true
 
     fun all(context: Context): List<AndroidKernelDriver> = listOf(
         MihomoAndroidKernelDriver(MihomoNativeRuntimeFactory.create(context)),

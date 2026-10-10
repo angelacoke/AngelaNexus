@@ -19,8 +19,11 @@ internal object AndroidRuntimeHandoffStore {
     private var pending: Entry? = null
 
     @Synchronized
-    fun publish(result: CoreRuntimeImportResult): String {
-        require(result.hasExecutableAndroidExecutionHandoff()) {
+    fun publish(
+        result: CoreRuntimeImportResult,
+        availableProxyKernelIds: Set<String>,
+    ): String {
+        require(result.hasExecutableAndroidExecutionHandoff(availableProxyKernelIds)) {
             "an executable Android proxy handoff is required before starting runtime"
         }
         val token = UUID.randomUUID().toString()

@@ -6,10 +6,13 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 class AndroidRuntimeHandoffStoreTest {
+    private val allProxyKernels = setOf("mihomo", "sing-box", "xray")
+    private val nonMihomoProxyKernels = setOf("sing-box", "xray")
+
     @Test
     fun handoffIsConsumedExactlyOnceAndWrongTokenDoesNotConsumeIt() {
         val result = validResult()
-        val token = AndroidRuntimeHandoffStore.publish(result)
+        val token = AndroidRuntimeHandoffStore.publish(result, allProxyKernels)
 
         assertNull(AndroidRuntimeHandoffStore.consume("wrong-token"))
         assertEquals(result.configuration, AndroidRuntimeHandoffStore.consume(token)?.configuration)
@@ -18,8 +21,8 @@ class AndroidRuntimeHandoffStoreTest {
 
     @Test
     fun replacingOrDiscardingUsesTokenIdentity() {
-        val oldToken = AndroidRuntimeHandoffStore.publish(validResult("old-config"))
-        val newToken = AndroidRuntimeHandoffStore.publish(validResult("new-config"))
+        val oldToken = AndroidRuntimeHandoffStore.publish(validResult("old-config"), allProxyKernels)
+        val newToken = AndroidRuntimeHandoffStore.publish(validResult("new-config"), allProxyKernels)
 
         AndroidRuntimeHandoffStore.discard(oldToken)
         assertEquals("new-config", AndroidRuntimeHandoffStore.consume(newToken)?.configuration)
@@ -33,14 +36,24 @@ class AndroidRuntimeHandoffStoreTest {
         )
 
         assertFailsWith<IllegalArgumentException> {
-            AndroidRuntimeHandoffStore.publish(unsupported)
+            AndroidRuntimeHandoffStore.publish(unsupported, allProxyKernels)
         }
     }
 
-    private fun validResult(configuration: String = "mixed-port: 7890") = CoreRuntimeImportResult(
+    @Test
+    fun unavailableNativeRuntimeCannotBePublishedForVpnStartup() {
+        assertFailsWith<IllegalArgumentException> {
+            AndroidRuntimeHandoffStore.publish(validResult(), nonMihomoProxyKernels)
+        }
+    }
+
+    private fun validResult(
+        configuration: String = "mixed-port: 7890",
+        kernel: String = "mihomo",
+    ) = CoreRuntimeImportResult(
         source = "local-file",
         nodeCount = 1,
-        kernel = "mihomo",
+        kernel = kernel,
         detectionConfidence = "explicit",
         configuration = configuration,
         executionIntentJson = """{"version":1,"kind":"routing-execution-intent","mode":"proxy","action":"route","target":"node-1"}""",

@@ -6,6 +6,7 @@
     <string name="status_importing_config">正在导入配置，并由 AngelaNexus Core 进行验证……</string>
     <string name="status_config_delivered">Core 已完成配置导入；启动运行时是独立步骤。</string>
     <string name="status_config_not_startable">Core 方案不完整，或当前 Android 运行时不支持所选模式/内核；已禁用 VPN 启动。</string>
+    <string name="status_kernel_runtime_unavailable">当前安装包未提供所选 Android 内核，或其完整性验证失败；不会静默切换到其他内核。</string>
     <string name="status_core_unavailable">配置导入失败：Core 运行时不可用，或配置未通过验证。</string>
     <string name="status_vpn_not_ready">尚未授予 VPN 权限。请允许 VPN 连接后重试。</string>
     <string name="status_transparent_unavailable">此设备当前无法使用系统透明模式。</string>

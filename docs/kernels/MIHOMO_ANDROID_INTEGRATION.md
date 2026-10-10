@@ -1,16 +1,16 @@
 # Android Native Runtime Integration Baseline
 
-Status: verified Android native-runtime packaging baseline; physical-device runtime evidence is still required.
+Status: Android native-runtime build and integrity baseline verified; application distribution is blocked by the compliance gate, and physical-device runtime evidence is still required.
 
 ## Verified runtime baseline
 
 - Current verified runtime release: v1.19.32
 - Release revision pinned by CI: 88dcbf7f1614a67c3b36b848ee3592dfa92ada36
-- Android arm64-v8a shipped `libclash.so` SHA-256: 667c94964d0a60f86cdcc130b2cdf3b385b02d9f2c5d3b324b3ed7a6b7326007
-- Android armeabi-v7a shipped `libclash.so` SHA-256: 3ae94d7defb1778cd611eceffcff6884407893d28c42a4350af2b49108ac9a09
-- Android x86_64 shipped `libclash.so` SHA-256: da7bcdbf165cc1e3457d3560b51e703cb3a478dd83f0c1cfe42ccf676d6c1f42
+- Android arm64-v8a build-artifact `libclash.so` SHA-256: 667c94964d0a60f86cdcc130b2cdf3b385b02d9f2c5d3b324b3ed7a6b7326007
+- Android armeabi-v7a build-artifact `libclash.so` SHA-256: 3ae94d7defb1778cd611eceffcff6884407893d28c42a4350af2b49108ac9a09
+- Android x86_64 build-artifact `libclash.so` SHA-256: da7bcdbf165cc1e3457d3560b51e703cb3a478dd83f0c1cfe42ccf676d6c1f42
 
-These are the exact SHA-256 values verified by the Android native packaging workflow for the shipped shared libraries.
+These are the pinned SHA-256 values for CI-built shared-library artifacts; they do not assert that the files have been included in a distributable app package.
 
 ## Integration boundary
 
@@ -46,9 +46,9 @@ The first real native bridge is now implemented and build-verified:
 3. `libclash.so` is built for arm64-v8a, armeabi-v7a and x86_64;
 4. the C/C++ JNI shim and Kotlin loader are present;
 5. Android VpnService remains the owner of the TUN descriptor and lifecycle boundary;
-6. native artifact hashes are pinned and verified during packaging;
-7. signed Mihomo-enabled APK/AAB artifacts are produced by CI.
+6. native artifact hashes are pinned and checked by the build/package workflow;
+7. the release-package job is gated on distribution, license, provenance and naming approvals; only that job passes the explicit Mihomo BuildConfig approval flag. The current compliance manifest remains `blocked`, the latest main run skipped that job, and no signed Mihomo APK/AAB artifact was uploaded.
 
-The remaining evidence gate is a reproducible Android physical-device smoke test proving load -> initialize -> configuration apply -> TUN start -> traffic -> stop. Until that evidence exists, the runtime is not marked end-to-end production-ready.
+The next steps are to complete the required compliance approvals, produce the gated app package, and run a reproducible Android physical-device smoke test proving load -> initialize -> configuration apply -> TUN start -> traffic -> stop. Until those gates pass, the runtime is not marked end-to-end production-ready.
 
 Configuration parsing and kernel selection remain in AngelaNexus Core; the Android native bridge must not duplicate that logic.

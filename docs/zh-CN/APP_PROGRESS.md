@@ -94,10 +94,10 @@ Android CI 会运行 JVM 单元测试、构建 Debug APK，并在 Android 模拟
 - 固定 `v1.19.32` 版本元数据的可复现 `c-shared` 构建；
 - 三种受支持 ABI 均固定 SHA-256 的原生构建产物；
 - JNI 加载边界会拒绝缺失或哈希不匹配的原生构建产物；
-- 专用 Android 打包工作流只下载已验证产物，将 `libclash.so` 与 AngelaNexus JNI shim 打包，并检查最终 APK 的内容与哈希；
-- CI 已成功产出启用 Mihomo 的已签名 APK/AAB 构建产物。
+- 已建立专用 Android 打包工作流；只有分发、许可证、来源链和命名审查均获批准后，才会把 Mihomo 嵌入应用；
+- 当前合规清单仍将分发标为 `blocked`，三项审查均为 `required`；最近一次 main 分支运行跳过正式打包 job，也没有上传 APK/AAB。
 
-专用 Mihomo Android 发布构建中已包含原生核心；这**不代表**已在 Android 真机上验证完整 TUN 流量。
+各 ABI 的 Mihomo 原生库是已验证的 CI 构建产物，**不等于获准分发的 Android 应用**。常规 Android 构建中的 Mihomo 审批位默认为 false；只有通过合规 gate 的正式打包 job 才会传入授权位，运行时还会校验安装包内库的 pinned SHA-256。PR #114 本轮加入这两道 fail-closed 检查，不会静默回退；本轮改动仍待 CI 验证。尚未声称已在真机验证 TUN 或端到端代理流量。
 
 ### 现代模块化 UI 基线
 
