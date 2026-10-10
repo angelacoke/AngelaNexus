@@ -14,4 +14,14 @@ data class CoreRuntimeImportResult(
     val detectionConfidence: String?,
     val configuration: String? = null,
     val executionIntentJson: String? = null,
+    val nodeSummaries: List<CoreNodeSummary> = emptyList(),
+    val nodeSummariesTruncated: Boolean = false,
+)
+
+/** Display-only fields projected by Core; authentication and runtime config stay out of this DTO. */
+data class CoreNodeSummary(
+    val name: String,
+    val protocol: String?,
+    val server: String?,
+    val port: Int?,
 )

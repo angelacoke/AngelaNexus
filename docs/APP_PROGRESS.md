@@ -97,7 +97,7 @@ Implemented and CI-verified:
 - a dedicated Android packaging workflow exists and requires approved distribution, license, provenance and naming gates before embedding Mihomo;
 - the current compliance manifest still marks distribution `blocked` and all three reviews `required`; the latest main-branch run skipped the release-package job and uploaded no APK/AAB.
 
-The per-ABI native libraries are build-verified CI artifacts, **not** an approved Android app distribution. The normal Android build keeps a dedicated Mihomo approval flag false; only the release-package job behind the compliance gate passes that flag, and runtime availability also checks the installed library's pinned SHA-256. PR #114 adds these fail-closed checks without silent fallback; this change is pending CI verification. No physical-device TUN or end-to-end proxy traffic is claimed.
+The per-ABI native libraries are build-verified CI artifacts, **not** an approved Android app distribution. The normal Android build keeps a dedicated Mihomo approval flag false; only the release-package job behind the compliance gate passes that flag, and runtime availability also checks the installed library's pinned SHA-256. PR #114 commit `0bc64db` passed CI (23 successful checks, 1 skipped, 0 failed/pending), including Android unit tests, Debug APK assembly, emulator smoke, and one connected instrumentation test. No physical-device TUN or end-to-end proxy traffic is claimed.
 
 ### Modern modular UI baseline
 
@@ -108,7 +108,8 @@ Implemented on Android as the first platform surface:
 - Five-module navigation: Home / Profiles / Proxies / Rules / Settings.
 - Home connection controls and runtime phase are driven by the Android service state, not by fabricated traffic values.
 - Profiles shows Core import results and explicit-save, device-local encrypted profile management; configuration input remains local-file-only and is not cloud-synced.
-- Proxies shows Core-detected node count and kernel binding; live node listings and selector controls are not connected.
+- Proxies shows Core-detected node count, kernel binding and up to 100 bounded, credential-free node summaries (name, protocol, server and port). A truncated preview is identified explicitly; summaries are read-only and do not provide live proxy selection.
+- The Android parser enforces the exact summary-field allowlist, string bounds, item cap and truncation consistency. The Node suite (1,012 tests) and Android Core bundle build pass locally; Android JVM/build/emulator verification of this incremental UI integration is pending GitHub Actions.
 - Rules shows a parsed Core routing-intent preview for inspection only; it does not claim the intent is active or that effective runtime rules have been reported.
 - Traffic, effective routing, anti-leak and GFW status are explicitly labeled unreported or unverified unless the active runtime supplies evidence.
 - Responsive semantic component structure intended for phone/tablet/desktop adaptation.
@@ -135,7 +136,7 @@ This is a data-contract milestone, **not** a claim that the cloud account servic
 ## Not yet claimed as production functionality
 
 - Physical-device TUN establishment and end-to-end proxy traffic interception are not yet verified. The emulator smoke test only launches the app; it does not exercise VPN consent, TUN setup, or real traffic.
-- Subscription URLs, single-node links, live proxy selection, effective runtime rules, live traffic counters and verified DNS/IPv6/leak status are not connected in the Android UI.
+- Subscription URLs, single-node links, live proxy selection, effective runtime rules, live traffic counters and verified DNS/IPv6/leak status are not connected in the Android UI. The node summaries are an import preview only, not live runtime state.
 - Android encrypted local Profiles are implemented and emulator-verified, but there is no account sync, profile export/backup, cross-device conflict/recovery or independent security audit.
 - The UI observes Android VPN lifecycle phases, but it is not yet backed by a complete Core execution/telemetry stream.
 - Active VPN session recovery after process/device restart, background and battery behavior remain unverified; saved Profile restoration does not auto-start the VPN, and a foreground-service notification channel is not proof of production lifecycle readiness.

@@ -15,7 +15,7 @@ class HttpCoreRuntimeTransportTest {
     fun sendsSerializedEnvelopeAndReturnsCoreResult() = runSuspend {
         val connection = RecordingConnection(
             URI("http://127.0.0.1:18181/v1/runtime/import"),
-            responseBody = """{"ok":true,"result":{"version":1,"source":"local-file","nodeCount":2,"kernel":"mihomo","detectionConfidence":"detected","executionIntent":{"version":1,"kind":"routing-execution-intent","mode":"proxy","action":"route","target":"node-1"}}}""",
+            responseBody = """{"ok":true,"result":{"version":1,"source":"local-file","nodeCount":2,"nodeSummaries":[{"name":"US","protocol":"socks5","server":"us.example","port":1080},{"name":"JP","protocol":"vless","server":"jp.example","port":443}],"nodeSummariesTruncated":false,"kernel":"mihomo","detectionConfidence":"detected","executionIntent":{"version":1,"kind":"routing-execution-intent","mode":"proxy","action":"route","target":"node-1"}}}""",
         )
         val transport = HttpCoreRuntimeTransport(
             URI("http://127.0.0.1:18181/"),
@@ -31,6 +31,11 @@ class HttpCoreRuntimeTransportTest {
         assertEquals("local-file", result.source)
         assertEquals(2, result.nodeCount)
         assertEquals("mihomo", result.kernel)
+        assertEquals(listOf(
+            CoreNodeSummary("US", "socks5", "us.example", 1080),
+            CoreNodeSummary("JP", "vless", "jp.example", 443),
+        ), result.nodeSummaries)
+        assertEquals(false, result.nodeSummariesTruncated)
         val intent = org.json.JSONObject(result.executionIntentJson ?: error("missing execution intent"))
         assertEquals("node-1", intent.getString("target"))
         assertEquals("proxy", intent.getString("mode"))

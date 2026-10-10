@@ -93,7 +93,15 @@
     <string name="save">ذخیره</string>
     <string name="rename">تغییر نام</string>
     <string name="delete">حذف</string>
-    <string name="proxies_description">تعداد گره‌های شناسایی‌شده توسط Core و اتصال هسته نمایش داده می‌شود؛ فهرست زنده گره‌ها و کنترل انتخاب هنوز متصل نیست.</string>
+    <string name="proxies_description">جزئیات گره‌های بدون اطلاعات احراز هویت که Core برای پیکربندی واردشده آماده کرده نمایش داده می‌شود. این فقط پیش‌نمایش است؛ انتخاب پراکسی هنوز متصل نیست.</string>
+    <string name="proxy_nodes_section">خلاصه گره‌های Core</string>
+    <string name="proxy_no_import">برای پیش‌نمایش جزئیات گره‌ها، یک پیکربندی وارد کنید.</string>
+    <string name="proxy_nodes_empty">Core در این مورد واردشده هیچ گره‌ای شناسایی نکرد.</string>
+    <string name="proxy_details_unavailable">Core برای این مورد واردشده جزئیات قابل‌نمایشی از گره‌ها ارائه نکرد.</string>
+    <string name="proxy_nodes_truncated">%1$d مورد از %2$d گره شناسایی‌شده نمایش داده می‌شود. جزئیات باقی‌مانده توسط Core حذف شده‌اند.</string>
+    <string name="proxy_protocol">پروتکل</string>
+    <string name="proxy_server">سرور</string>
+    <string name="proxy_port">درگاه</string>
     <string name="rules_description">قصد مسیریابی برگشتی از Core قابل پیش‌نمایش است؛ قوانین مؤثر اجرا، تصمیم‌های جلوگیری از نشت و وضعیت GFW هنوز گزارش یا تأیید نشده‌اند.</string>
     <string name="rules_intent_preview">پیش‌نمایش قصد مسیریابی Core (فقط برای بررسی؛ نشانه فعال بودن سیاست نیست)</string>
     <string name="rules_no_intent">برای دیدن پیش‌نمایش قصد مسیریابی Core، یک پیکربندی وارد کنید.</string>

@@ -111,7 +111,15 @@ Restore order:
 
 ## Proxy UX
 
-Proxy views are kernel-neutral. Common node fields are always available; kernel-specific capabilities are optional details. Chain composition is represented as a graph/list of outbound stages rather than fixed role names.
+Proxy views are kernel-neutral. Common node fields are exposed when Core can safely project them; kernel-specific capabilities are optional details. Chain composition is represented as a graph/list of outbound stages rather than fixed role names.
+
+### Android import preview boundary
+
+- The Android Proxies screen may show only the bounded, credential-free Core node summary fields: name, protocol, server and port.
+- The Core projection is display-only and must not be used to select a node, compile a route or imply that a proxy is active.
+- If Core omits node details, the UI says they were not provided. If Core truncates the list, the UI identifies the shown count and total; it must not imply that the preview is complete.
+- Credentials, tokens, UUIDs and other configuration secrets must never be copied into node-summary UI data.
+- Live selection, health, latency and traffic remain unavailable until independently implemented and verified.
 
 ## Rules UX
 

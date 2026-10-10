@@ -39,7 +39,7 @@ test("Android bundle executes the canonical Core import pipeline", async () => {
     version: 1,
     source: "local-file",
     name: "smoke.yaml",
-    content: "proxies:\n  - name: smoke\n    type: socks5\n    server: us.example\n    port: 1080\n"
+    content: "proxies:\n  - name: smoke\n    type: socks5\n    server: us.example\n    port: 1080\n    username: private-user\n    password: private-password\n"
   });
   const result = JSON.parse(await context.angelanexusCoreImport(envelope));
 
@@ -48,4 +48,12 @@ test("Android bundle executes the canonical Core import pipeline", async () => {
   assert.equal(result.result.nodeCount, 1);
   assert.equal(result.result.kernel, "mihomo");
   assert.equal(result.result.detectionConfidence, "schema");
+  assert.deepEqual(result.result.nodeSummaries, [{
+    name: "smoke",
+    protocol: "socks5",
+    server: "us.example",
+    port: 1080,
+  }]);
+  assert.equal(result.result.nodeSummariesTruncated, false);
+  assert.doesNotMatch(JSON.stringify(result), /private-user|private-password/);
 });

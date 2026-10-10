@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -21,6 +22,7 @@ import app.angelanexus.AndroidRoutingExecutionIntent
 import app.angelanexus.AndroidEncryptedProfileStore
 import app.angelanexus.AndroidLocalProfileSummary
 import app.angelanexus.AndroidProfileStoreFailure
+import app.angelanexus.CoreNodeSummary
 import app.angelanexus.CoreRuntimeImportResult
 import app.angelanexus.KernelExecutionPhase
 import app.angelanexus.KernelExecutionState
@@ -508,24 +510,64 @@ private fun isValidProfileName(name: String): Boolean {
 
 @Composable
 private fun ProxiesScreen(padding: PaddingValues, result: CoreRuntimeImportResult?, onImport: () -> Unit) {
+    val summaries = result?.nodeSummaries.orEmpty()
     LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { PageHeader(R.string.nav_proxies, R.string.proxies_description) }
         item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (result == null) {
-                        Text(stringResource(R.string.no_profiles), fontWeight = FontWeight.SemiBold)
-                        Text(stringResource(R.string.profile_support), style = MaterialTheme.typography.bodySmall)
+                        Text(stringResource(R.string.proxy_no_import), style = MaterialTheme.typography.bodyMedium)
                         FilledTonalButton(onClick = onImport) { Text(stringResource(R.string.add_config)) }
                     } else {
                         Text(stringResource(R.string.import_result_ready), fontWeight = FontWeight.SemiBold)
                         Text(stringResource(R.string.import_result_nodes, result.nodeCount))
                         Text(stringResource(R.string.import_result_kernel, result.kernel ?: stringResource(R.string.unknown_value)))
-                        Text(stringResource(R.string.status_not_reported), style = MaterialTheme.typography.bodySmall)
+                        if (summaries.isEmpty()) {
+                            Text(
+                                stringResource(if (result.nodeCount == 0) R.string.proxy_nodes_empty else R.string.proxy_details_unavailable),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        } else {
+                            Text(stringResource(R.string.proxy_nodes_section), style = MaterialTheme.typography.titleSmall)
+                            if (result.nodeSummariesTruncated) {
+                                Text(
+                                    stringResource(R.string.proxy_nodes_truncated, summaries.size, result.nodeCount),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
+        itemsIndexed(summaries) { _, summary -> NodeSummaryCard(summary) }
+    }
+}
+
+@Composable
+private fun NodeSummaryCard(summary: CoreNodeSummary) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = summary.name,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            summary.protocol?.let { NodeDetail(R.string.proxy_protocol, it) }
+            summary.server?.let { NodeDetail(R.string.proxy_server, it) }
+            summary.port?.let { NodeDetail(R.string.proxy_port, it.toString()) }
+        }
+    }
+}
+
+@Composable
+private fun NodeDetail(label: Int, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(stringResource(label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 

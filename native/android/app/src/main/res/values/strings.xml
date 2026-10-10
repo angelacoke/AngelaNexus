@@ -93,7 +93,15 @@
     <string name="save">Save</string>
     <string name="rename">Rename</string>
     <string name="delete">Delete</string>
-    <string name="proxies_description">Shows Core-detected node count and kernel binding; live node listings and selector controls are not connected yet.</string>
+    <string name="proxies_description">Shows credential-free node details projected by Core for the imported configuration. This is a read-only preview; proxy selection is not connected.</string>
+    <string name="proxy_nodes_section">Core node summaries</string>
+    <string name="proxy_no_import">Import a configuration to preview its node details.</string>
+    <string name="proxy_nodes_empty">Core detected no nodes in this import.</string>
+    <string name="proxy_details_unavailable">Core did not provide displayable node details for this import.</string>
+    <string name="proxy_nodes_truncated">Showing %1$d of %2$d detected nodes. Remaining details were omitted by Core.</string>
+    <string name="proxy_protocol">Protocol</string>
+    <string name="proxy_server">Server</string>
+    <string name="proxy_port">Port</string>
     <string name="rules_description">Preview the routing intent returned by Core. Effective runtime rules, leak decisions, and GFW status remain unreported or unverified.</string>
     <string name="rules_intent_preview">Core routing-intent preview (inspection only; not evidence that the policy is active)</string>
     <string name="rules_no_intent">Import a configuration to view a Core routing-intent preview.</string>

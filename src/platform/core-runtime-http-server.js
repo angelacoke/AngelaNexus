@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { createRuntimeImportService } from "./runtime-import-service.js";
+import { projectCoreNodeSummaries } from "./core-node-summary.js";
 
 export const CORE_RUNTIME_IMPORT_PATH = "/v1/runtime/import";
 export const CORE_RUNTIME_MAX_BODY_BYTES = 5 * 1024 * 1024;
@@ -34,10 +35,12 @@ async function readBody(request, maxBytes) {
 }
 
 function summarize(result) {
+  const nodeSummary = projectCoreNodeSummaries(result?.model);
   return {
     version: result?.binding ? 1 : null,
     source: result?.source ?? null,
     nodeCount: result?.model?.nodeCount ?? 0,
+    ...nodeSummary,
     kernel: result?.binding?.kernel ?? null,
     detectionConfidence: result?.binding?.prompt?.reason ?? null,
     configuration: result?.runtimeHandoff?.configuration ?? null,

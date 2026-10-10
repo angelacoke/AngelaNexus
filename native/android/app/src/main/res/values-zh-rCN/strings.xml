@@ -93,7 +93,15 @@
     <string name="save">保存</string>
     <string name="rename">重命名</string>
     <string name="delete">删除</string>
-    <string name="proxies_description">显示 Core 检测到的节点数和内核绑定；实时节点列表与选择控件尚未接入。</string>
+    <string name="proxies_description">显示 Core 为已导入配置投影的无凭据节点信息。此处仅供查看，尚未接入代理选择。</string>
+    <string name="proxy_nodes_section">Core 节点摘要</string>
+    <string name="proxy_no_import">导入配置后可预览其中的节点详情。</string>
+    <string name="proxy_nodes_empty">Core 在此导入结果中未检测到节点。</string>
+    <string name="proxy_details_unavailable">Core 未为此导入结果提供可显示的节点详情。</string>
+    <string name="proxy_nodes_truncated">显示 %1$d / %2$d 个检测到的节点。其余详情已由 Core 省略。</string>
+    <string name="proxy_protocol">协议</string>
+    <string name="proxy_server">服务器</string>
+    <string name="proxy_port">端口</string>
     <string name="rules_description">可预览 Core 返回的路由意图；有效运行规则、防泄露决策和 GFW 状态尚未报告或验证。</string>
     <string name="rules_intent_preview">Core 路由意图预览（仅供查看，不代表策略已生效）</string>
     <string name="rules_no_intent">导入配置后可查看 Core 返回的路由意图预览。</string>
