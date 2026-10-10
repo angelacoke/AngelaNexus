@@ -123,7 +123,7 @@ internal fun AngelaNexusApp(
                     }
                 }
             }
-        )
+        }
     }
 }
 
