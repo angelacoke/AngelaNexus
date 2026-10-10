@@ -12,7 +12,7 @@ jobs:
         with:
           node-version: 24
       - name: Install Node dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
       - name: Resolve maintained kernel versions
         id: versions
         run: |
