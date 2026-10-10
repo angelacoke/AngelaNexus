@@ -65,7 +65,7 @@
     <string name="add_config">Добавить конфигурацию</string>
     <string name="text_import_title">Вставить ссылку узла или текст конфигурации</string>
     <string name="text_import_label">Ссылка на один узел или текст конфигурации</string>
-    <string name="text_import_placeholder">Например, vless://… или текст файла конфигурации</string>
+    <string name="text_import_placeholder">Например: ссылка на узел или текст конфигурации</string>
     <string name="text_import_privacy">Вставляйте вручную; буфер обмена не считывается автоматически. Core проверяет данные; текст хранится только временно (до 5 МиБ).</string>
     <string name="text_import_too_large">Текст превышает лимит импорта 5 МиБ. Сократите его.</string>
     <string name="import_pasted_text">Проверить и импортировать текст</string>

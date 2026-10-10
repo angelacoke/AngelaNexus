@@ -65,7 +65,7 @@
     <string name="add_config">Add configuration</string>
     <string name="text_import_title">Paste a node link or configuration text</string>
     <string name="text_import_label">Single-node link or configuration text</string>
-    <string name="text_import_placeholder">For example, vless://… or a configuration file's text</string>
+    <string name="text_import_placeholder">Paste a single-node link or configuration text.</string>
     <string name="text_import_privacy">Paste manually; the app never reads the clipboard automatically. Core validates before use; input is temporary (up to 5 MiB).</string>
     <string name="text_import_too_large">Text exceeds the 5 MiB import limit. Reduce the pasted content.</string>
     <string name="import_pasted_text">Validate and import text</string>

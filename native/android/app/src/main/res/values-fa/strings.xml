@@ -65,7 +65,7 @@
     <string name="add_config">افزودن پیکربندی</string>
     <string name="text_import_title">چسباندن پیوند گره یا متن پیکربندی</string>
     <string name="text_import_label">پیوند تک‌گره یا متن پیکربندی</string>
-    <string name="text_import_placeholder">برای نمونه vless://… یا متن فایل پیکربندی</string>
+    <string name="text_import_placeholder">برای نمونه: پیوند گره یا متن پیکربندی</string>
     <string name="text_import_privacy">به‌صورت دستی بچسبانید؛ کلیپ‌بورد خودکار خوانده نمی‌شود. Core پیش از استفاده اعتبارسنجی می‌کند؛ متن فقط موقت است (حداکثر ۵ مگابایت).</string>
     <string name="text_import_too_large">متن از سقف وارد کردن ۵ مگابایت بیشتر است؛ آن را کوتاه کنید.</string>
     <string name="import_pasted_text">اعتبارسنجی و وارد کردن متن</string>
