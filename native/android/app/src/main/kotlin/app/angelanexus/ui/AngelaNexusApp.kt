@@ -15,7 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -25,6 +25,7 @@ import app.angelanexus.AndroidRoutingExecutionIntent
 import app.angelanexus.AndroidEncryptedProfileStore
 import app.angelanexus.AndroidLocalProfileSummary
 import app.angelanexus.AndroidProfileStoreFailure
+import app.angelanexus.isValidAndroidSubscriptionUrl
 import app.angelanexus.CoreNodeSummary
 import app.angelanexus.CoreRuntimeImportResult
 import app.angelanexus.KernelExecutionPhase
