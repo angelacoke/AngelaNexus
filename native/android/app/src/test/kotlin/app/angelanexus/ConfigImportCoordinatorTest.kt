@@ -46,4 +46,29 @@ class ConfigImportCoordinatorTest {
             request.trafficAcceptance,
         )
     }
+
+    @Test
+    fun sendsDownloadedSubscriptionBodyToCoreWithoutRetainingItsUrl() {
+        var received: ConfigImportRequest? = null
+        val expected = CoreRuntimeImportResult("subscription-url", 2, "sing-box", "detected")
+        val port = object : ConfigImportPort {
+            override suspend fun importConfiguration(request: ConfigImportRequest): CoreRuntimeImportResult {
+                received = request
+                return expected
+            }
+        }
+        val content = "vless://node.example:443#Example"
+        val result = kotlinx.coroutines.runBlocking {
+            ConfigImportCoordinator(port).importSubscriptionContent(
+                ByteArrayInputStream(content.toByteArray(StandardCharsets.UTF_8)),
+                "Imported subscription",
+            )
+        }
+
+        assertEquals(expected, result)
+        val request = assertNotNull(received)
+        assertEquals(ConfigImportRequest.Source.SUBSCRIPTION_URL, request.source)
+        assertEquals("Imported subscription", request.name)
+        assertEquals(content, request.content)
+    }
 }

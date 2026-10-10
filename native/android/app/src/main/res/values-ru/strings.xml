@@ -61,8 +61,14 @@
     <string name="speed_test">Тест скорости</string>
     <string name="runtime_title">Единая среда выполнения</string>
     <string name="runtime_description">Интерфейс платформы напрямую не управляет политиками ядер</string>
-    <string name="profiles_description">Импортируйте локальные файлы и безопасно сохраняйте несколько профилей на устройстве. URL подписок и ссылки на отдельные узлы пока недоступны.</string>
+    <string name="profiles_description">Импортируйте локальные файлы или загружайте подписки HTTPS по запросу. Профили шифруются на устройстве; ссылки на отдельные узлы пока недоступны.</string>
     <string name="add_config">Добавить конфигурацию</string>
+    <string name="subscription_url_label">URL подписки HTTPS</string>
+    <string name="subscription_url_privacy">Загрузка выполняется только по нажатию кнопки. URL не сохраняется; HTTP не поддерживается.</string>
+    <string name="subscription_url_invalid">Введите корректный URL HTTPS без встроенного имени пользователя или пароля.</string>
+    <string name="import_subscription">Загрузить и импортировать подписку</string>
+    <string name="subscription_import_failed">Не удалось загрузить подписку или проверить её в Core. Проверьте HTTPS URL и сеть; предыдущая конфигурация сохранена.</string>
+    <string name="default_subscription_name">Импортированная подписка</string>
     <string name="no_profiles">Нет сохранённых профилей</string>
     <string name="profile_support">Импортированная конфигурация хранится только в текущем сеансе, пока вы явно не сохраните её. При выборе сохранённый профиль повторно проверяется Core.</string>
     <string name="profile_storage_notice_title">Зашифровано на этом устройстве</string>

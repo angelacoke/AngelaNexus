@@ -29,6 +29,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import app.angelanexus.ui.AngelaNexusApp
 import app.angelanexus.ui.theme.AngelaNexusTheme
 import java.io.ByteArrayInputStream
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -58,6 +59,7 @@ private fun AngelaNexusRoot() {
     }
     val importPort = remember { SerializedConfigImportPort(coreRuntimeTransport) }
     val importCoordinator = remember { ConfigImportCoordinator(importPort) }
+    val subscriptionFetcher = remember { AndroidSubscriptionFetcher() }
     val profileStore = remember { AndroidEncryptedProfileStore(context.applicationContext) }
     val rootAdapter = remember { AndroidRootTransparentAdapter(context) }
     val rootCapabilities = remember { rootAdapter.inspect() }
@@ -71,6 +73,7 @@ private fun AngelaNexusRoot() {
     var profileFailure by remember { mutableStateOf<AndroidProfileStoreFailure?>(null) }
     var profilesLoading by remember { mutableStateOf(true) }
     var profileOperationPending by remember { mutableStateOf(false) }
+    var subscriptionImportFailed by remember { mutableStateOf(false) }
     var vpnAuthorizationPending by remember { mutableStateOf(false) }
     val executionState by AndroidKernelExecutionStateStore.state.collectAsStateWithLifecycle()
     val runtimeBusy = vpnAuthorizationPending || executionState.phase in setOf(
@@ -181,6 +184,7 @@ private fun AngelaNexusRoot() {
         }
         status = AndroidUiStatus.IMPORTING_CONFIG
         profileFailure = null
+        subscriptionImportFailed = false
         val sourceName = resolveDisplayName(context, uri) ?: context.getString(R.string.default_profile_name)
         profileOperationPending = true
         scope.launch {
@@ -198,6 +202,46 @@ private fun AngelaNexusRoot() {
                 importedProfileName = null
                 status = AndroidUiStatus.CORE_RUNTIME_UNAVAILABLE
             } finally {
+                profileOperationPending = false
+            }
+        }
+    }
+
+    fun importSubscription(subscriptionUrl: String) {
+        if (!profileActionsEnabled) {
+            reportProfileActionBlocked()
+            return
+        }
+        val previousStatus = status
+        status = AndroidUiStatus.IMPORTING_CONFIG
+        profileFailure = null
+        subscriptionImportFailed = false
+        profileOperationPending = true
+        val sourceName = context.getString(R.string.default_subscription_name)
+        scope.launch {
+            var downloaded: ByteArray? = null
+            try {
+                val content = withContext(Dispatchers.IO) {
+                    subscriptionFetcher.fetch(subscriptionUrl)
+                }
+                downloaded = content
+                val result = withContext(Dispatchers.IO) {
+                    ByteArrayInputStream(content).use { stream ->
+                        importCoordinator.importSubscriptionContent(stream, sourceName)
+                    }
+                }
+                importResult = result
+                loadedProfileId = null
+                importedProfileName = sourceName
+                statusFor(result)
+            } catch (cancelled: CancellationException) {
+                status = previousStatus
+                throw cancelled
+            } catch (_: Exception) {
+                subscriptionImportFailed = true
+                status = previousStatus
+            } finally {
+                downloaded?.fill(0)
                 profileOperationPending = false
             }
         }
@@ -453,6 +497,8 @@ private fun AngelaNexusRoot() {
                 documentLauncher.launch(arrayOf("*/*"))
             }
         },
+        onImportSubscription = ::importSubscription,
+        subscriptionImportFailed = subscriptionImportFailed,
         onStartVpn = ::startSelectedMode,
         onStopVpn = ::stopVpnService,
         currentLocaleTag = currentLocaleTag,

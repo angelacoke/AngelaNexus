@@ -125,6 +125,13 @@
 
 输入交给 Core 的 sniffing/import pipeline；在 Core 可以检测时，用户不需要手动选择执行后端。
 
+### Android 一次性 HTTPS 订阅导入
+
+- 只有用户明确点击后才会获取订阅 URL；仅接受 HTTPS，不为应用开放明文 HTTP。
+- URL 仅在本次请求的内存中使用，不发送给 Core、不持久化、不写日志。下载的正文以 `subscription-url` 来源标记交给 Core 做统一解析和校验。
+- 限制重定向、连接/读取超时及 5 MiB 响应大小。下载失败或 Core 校验失败时，保留此前的内存导入结果。
+- 这是手动导入，不是订阅管理器：不保存 URL、不安排自动更新；Android UI 暂不支持单节点链接。
+
 ### Android 本机 Profile 持久化
 
 - 导入配置仅为临时结果；用户显式将其保存为本机 Profile 后才会持久化。

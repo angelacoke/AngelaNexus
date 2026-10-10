@@ -61,8 +61,14 @@
     <string name="speed_test">测速</string>
     <string name="runtime_title">统一运行时</string>
     <string name="runtime_description">平台 UI 不直接承担内核策略</string>
-    <string name="profiles_description">可导入本地配置文件，并将多个档案加密保存在本机。订阅 URL 和单节点链接尚未接入。</string>
+    <string name="profiles_description">可导入本地文件，或按需获取 HTTPS 订阅；多个档案可加密保存在本机。暂不支持单节点链接。</string>
     <string name="add_config">添加配置</string>
+    <string name="subscription_url_label">HTTPS 订阅链接</string>
+    <string name="subscription_url_privacy">仅在点击导入时获取；链接不会保存；不支持 HTTP。</string>
+    <string name="subscription_url_invalid">请输入有效的 HTTPS 链接，且不要嵌入用户名或密码。</string>
+    <string name="import_subscription">获取并导入订阅</string>
+    <string name="subscription_import_failed">无法下载订阅或未通过 Core 校验。请检查 HTTPS 链接和网络；之前的配置保持不变。</string>
+    <string name="default_subscription_name">导入的订阅</string>
     <string name="no_profiles">尚无已保存档案</string>
     <string name="profile_support">导入配置仅在当前会话临时可用；点击保存后才会持久化。切换已保存档案时会重新交由 Core 校验。</string>
     <string name="profile_storage_notice_title">设备本机加密存储</string>

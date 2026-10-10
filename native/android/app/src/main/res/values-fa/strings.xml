@@ -61,8 +61,14 @@
     <string name="speed_test">آزمون سرعت</string>
     <string name="runtime_title">محیط اجرای یکپارچه</string>
     <string name="runtime_description">رابط پلتفرم مستقیماً سیاست‌های هسته را مدیریت نمی‌کند</string>
-    <string name="profiles_description">فایل‌های محلی را وارد کنید و چند پروفایل را به‌صورت امن روی همین دستگاه ذخیره کنید. نشانی اشتراک و پیوند گره منفرد هنوز در دسترس نیست.</string>
+    <string name="profiles_description">فایل محلی را وارد کنید یا اشتراک HTTPS را به درخواست خود دریافت کنید. پروفایل‌ها روی این دستگاه رمزگذاری می‌شوند؛ پیوند گره تکی هنوز در دسترس نیست.</string>
     <string name="add_config">افزودن پیکربندی</string>
+    <string name="subscription_url_label">نشانی اشتراک HTTPS</string>
+    <string name="subscription_url_privacy">فقط با زدن دکمه دریافت می‌شود؛ نشانی ذخیره نمی‌شود؛ HTTP پشتیبانی نمی‌شود.</string>
+    <string name="subscription_url_invalid">نشانی معتبر HTTPS بدون نام کاربری یا گذرواژهٔ تعبیه‌شده وارد کنید.</string>
+    <string name="import_subscription">دریافت و وارد کردن اشتراک</string>
+    <string name="subscription_import_failed">دریافت اشتراک یا تأیید آن در Core ناموفق بود. نشانی HTTPS و شبکه را بررسی کنید؛ پیکربندی قبلی حفظ شد.</string>
+    <string name="default_subscription_name">اشتراک واردشده</string>
     <string name="no_profiles">پروفایل ذخیره‌شده‌ای وجود ندارد</string>
     <string name="profile_support">پیکربندی واردشده فقط تا پایان نشست جاری نگه داشته می‌شود، مگر اینکه آن را صریحاً ذخیره کنید. هنگام انتخاب پروفایل ذخیره‌شده، Core آن را دوباره بررسی می‌کند.</string>
     <string name="profile_storage_notice_title">رمزگذاری‌شده روی این دستگاه</string>

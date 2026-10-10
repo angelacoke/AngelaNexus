@@ -61,8 +61,14 @@
     <string name="speed_test">Speed test</string>
     <string name="runtime_title">Unified runtime</string>
     <string name="runtime_description">The platform UI does not directly own kernel policies</string>
-    <string name="profiles_description">Import local files and securely save multiple profiles on this device. Subscription URLs and single-node links remain unavailable.</string>
+    <string name="profiles_description">Import local files or fetch HTTPS subscriptions on demand. Save multiple profiles encrypted on this device; single-node links are not available yet.</string>
     <string name="add_config">Add configuration</string>
+    <string name="subscription_url_label">HTTPS subscription URL</string>
+    <string name="subscription_url_privacy">Fetched only when you tap Import. The URL is not saved; HTTP is not supported.</string>
+    <string name="subscription_url_invalid">Enter a valid HTTPS URL without embedded username or password.</string>
+    <string name="import_subscription">Fetch and import subscription</string>
+    <string name="subscription_import_failed">Could not download or validate the subscription. Check the HTTPS URL and network; the previous configuration was kept.</string>
+    <string name="default_subscription_name">Imported subscription</string>
     <string name="no_profiles">No saved profiles</string>
     <string name="profile_support">An imported configuration stays temporary until you explicitly save it. Switching a saved profile sends it through Core again.</string>
     <string name="profile_storage_notice_title">Encrypted on this device</string>

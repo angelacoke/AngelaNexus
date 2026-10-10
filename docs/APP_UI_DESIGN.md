@@ -88,6 +88,13 @@ The user can provide:
 
 The UI hands input to the Core import/sniffing pipeline and does not require manual kernel selection when Core detection is available.
 
+### Android one-shot HTTPS subscription import
+
+- A subscription URL is fetched only after an explicit user action. Only HTTPS is accepted; the app does not enable cleartext HTTP traffic.
+- The URL is held in memory for the request only and is not sent to Core, persisted, or logged. The downloaded content is passed to Core with the `subscription-url` source classification for canonical parsing and validation.
+- Download redirects, connection/read timeouts and the 5 MiB response limit are enforced. A failed download or Core validation leaves the previous in-memory import unchanged.
+- This is a manual import, not a subscription manager: no URL is saved, no automatic refresh is scheduled, and single-node links remain unsupported in the Android UI.
+
 ### Android local Profile persistence
 
 - An imported configuration is temporary until the user explicitly saves it as a local Profile.

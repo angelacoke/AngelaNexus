@@ -15,6 +15,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.angelanexus.AndroidTransparentMode
@@ -48,6 +50,8 @@ internal fun AngelaNexusApp(
     uiStatus: AndroidUiStatus,
     onTransparentModeChange: (AndroidTransparentMode) -> Unit,
     onImportConfig: () -> Unit,
+    onImportSubscription: (String) -> Unit = {},
+    subscriptionImportFailed: Boolean = false,
     onStartVpn: () -> Unit,
     onStopVpn: () -> Unit,
     currentLocaleTag: String,
@@ -103,6 +107,8 @@ internal fun AngelaNexusApp(
                             1 -> ProfilesScreen(
                                 padding = PaddingValues(0.dp),
                                 onImport = onImportConfig,
+                                onImportSubscription = onImportSubscription,
+                                subscriptionImportFailed = subscriptionImportFailed,
                                 result = importResult,
                                 profiles = profiles,
                                 activeProfileId = activeProfileId,
@@ -111,6 +117,7 @@ internal fun AngelaNexusApp(
                                 profileFailure = profileFailure,
                                 profilesLoading = profilesLoading,
                                 profileActionsEnabled = profileActionsEnabled,
+                                profileOperationPending = profileOperationPending,
                                 onSaveProfile = onSaveProfile,
                                 onSelectProfile = onSelectProfile,
                                 onRenameProfile = onRenameProfile,
@@ -303,6 +310,8 @@ private fun ConnectionCard(
 private fun ProfilesScreen(
     padding: PaddingValues,
     onImport: () -> Unit,
+    onImportSubscription: (String) -> Unit,
+    subscriptionImportFailed: Boolean,
     result: CoreRuntimeImportResult?,
     profiles: List<AndroidLocalProfileSummary>,
     activeProfileId: String?,
@@ -311,6 +320,7 @@ private fun ProfilesScreen(
     profileFailure: AndroidProfileStoreFailure?,
     profilesLoading: Boolean,
     profileActionsEnabled: Boolean,
+    profileOperationPending: Boolean,
     onSaveProfile: (String) -> Unit,
     onSelectProfile: (String) -> Unit,
     onRenameProfile: (String, String) -> Unit,
@@ -322,6 +332,8 @@ private fun ProfilesScreen(
     var renameName by remember { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<AndroidLocalProfileSummary?>(null) }
     var invalidName by remember { mutableStateOf(false) }
+    var subscriptionUrl by remember { mutableStateOf("") }
+    var invalidSubscriptionUrl by remember { mutableStateOf(false) }
     val saveableConfiguration = !result?.configuration.isNullOrBlank()
 
     LazyColumn(
@@ -338,6 +350,40 @@ private fun ProfilesScreen(
                     enabled = profileActionsEnabled,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(stringResource(R.string.add_config)) }
+                OutlinedTextField(
+                    value = subscriptionUrl,
+                    onValueChange = { subscriptionUrl = it; invalidSubscriptionUrl = false },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.subscription_url_label)) },
+                    singleLine = true,
+                    enabled = profileActionsEnabled,
+                    isError = invalidSubscriptionUrl,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    supportingText = {
+                        Text(stringResource(if (invalidSubscriptionUrl) R.string.subscription_url_invalid else R.string.subscription_url_privacy))
+                    },
+                )
+                OutlinedButton(
+                    onClick = {
+                        val candidate = subscriptionUrl.trim()
+                        if (isValidAndroidSubscriptionUrl(candidate)) {
+                            onImportSubscription(candidate)
+                            subscriptionUrl = ""
+                            invalidSubscriptionUrl = false
+                        } else {
+                            invalidSubscriptionUrl = true
+                        }
+                    },
+                    enabled = profileActionsEnabled && subscriptionUrl.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(stringResource(R.string.import_subscription)) }
+                if (subscriptionImportFailed) {
+                    Text(
+                        stringResource(R.string.subscription_import_failed),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 if (result != null && loadedProfileId == null && saveableConfiguration) {
                     OutlinedButton(
                         onClick = {
@@ -379,7 +425,7 @@ private fun ProfilesScreen(
                 }
             }
         }
-        if (profilesLoading) {
+        if (profilesLoading || profileOperationPending) {
             item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
         } else if (profiles.isEmpty()) {
             item { ProfileCard(R.string.no_profiles, R.string.profile_support) }
