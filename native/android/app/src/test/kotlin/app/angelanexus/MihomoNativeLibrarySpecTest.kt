@@ -46,6 +46,18 @@ class MihomoNativeLibrarySpecTest {
     }
 
     @Test
+    fun pinnedHashVerifierRejectsMissingOrUnverifiedArtifact() {
+        val directory = Files.createTempDirectory("mihomo-runtime-check").toFile()
+        try {
+            assertFalse(MihomoNativeRuntimeFactory.artifactMatchesPinnedHash(directory, "x86_64"))
+            File(directory, "libclash.so").writeBytes(byteArrayOf(1, 2, 3))
+            assertFalse(MihomoNativeRuntimeFactory.artifactMatchesPinnedHash(directory, "x86_64"))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun loaderOnlyCallsSystemLoadAfterVerification() {
         val directory = Files.createTempDirectory("mihomo").toFile()
         val file = File(directory, "libclash.so")

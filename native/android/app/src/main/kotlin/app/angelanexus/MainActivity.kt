@@ -1,9 +1,13 @@
 package app.angelanexus
 
+import android.content.Context
 import android.content.Intent
+import android.database.Cursor
+import android.net.Uri
 import android.net.VpnService
-import android.os.Bundle
 import android.os.Build
+import android.os.Bundle
+import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -12,21 +16,26 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.tooling.preview.Preview
 import app.angelanexus.ui.AngelaNexusApp
 import app.angelanexus.ui.theme.AngelaNexusTheme
+import java.io.ByteArrayInputStream
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
-    override fun attachBaseContext(newBase: android.content.Context) {
+    override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(LocaleAwareContext(newBase))
     }
 
@@ -50,52 +59,271 @@ private fun AngelaNexusRoot() {
     }
     val importPort = remember { SerializedConfigImportPort(coreRuntimeTransport) }
     val importCoordinator = remember { ConfigImportCoordinator(importPort) }
+    val subscriptionFetcher = remember { AndroidSubscriptionFetcher() }
+    val profileStore = remember { AndroidEncryptedProfileStore(context.applicationContext) }
     val rootAdapter = remember { AndroidRootTransparentAdapter(context) }
     val rootCapabilities = remember { rootAdapter.inspect() }
     var selectedMode by remember { mutableStateOf(AndroidTransparentMode.AUTO) }
     var status by remember { mutableStateOf(AndroidUiStatus.READY) }
     var importResult by remember { mutableStateOf<CoreRuntimeImportResult?>(null) }
-    val executionState by AndroidKernelExecutionStateStore.state.collectAsState()
+    var profileSnapshot by remember { mutableStateOf(AndroidProfileStoreSnapshot()) }
+    var loadedProfileId by remember { mutableStateOf<String?>(null) }
+    var importedProfileName by remember { mutableStateOf<String?>(null) }
+    var availableProxyKernelIds by remember { mutableStateOf(setOf("sing-box", "xray")) }
+    var profileFailure by remember { mutableStateOf<AndroidProfileStoreFailure?>(null) }
+    var profilesLoading by remember { mutableStateOf(true) }
+    var profileOperationPending by remember { mutableStateOf(false) }
+    var subscriptionImportFailed by remember { mutableStateOf(false) }
+    var textImportFailed by remember { mutableStateOf(false) }
+    var vpnAuthorizationPending by remember { mutableStateOf(false) }
+    val executionState by AndroidKernelExecutionStateStore.state.collectAsStateWithLifecycle()
+    val runtimeBusy = vpnAuthorizationPending || executionState.phase in setOf(
+        KernelExecutionPhase.STARTING,
+        KernelExecutionPhase.RUNNING,
+        KernelExecutionPhase.STOPPING,
+    ) || (executionState.phase == KernelExecutionPhase.FAILED && executionState.cleanupRequired)
+    val profileActionsEnabled = !runtimeBusy && !profileOperationPending && !profilesLoading
+
+    fun setProfileFailure(error: Throwable) {
+        val failure = (error as? AndroidProfileStoreException)?.failure
+            ?: AndroidProfileStoreFailure.CORRUPT_OR_UNAVAILABLE
+        profileFailure = failure
+        if (failure == AndroidProfileStoreFailure.CORRUPT_OR_UNAVAILABLE) {
+            status = AndroidUiStatus.PROFILE_STORAGE_UNAVAILABLE
+        }
+    }
+
+    fun hasUnavailableProxyKernel(result: CoreRuntimeImportResult?): Boolean {
+        val candidate = result ?: return false
+        if (!candidate.hasCompleteAndroidExecutionHandoff()) return false
+        val intent = candidate.executionIntentJson?.let {
+            runCatching { AndroidRoutingExecutionIntent.parse(it) }.getOrNull()
+        }
+        return intent?.mode == "proxy" &&
+            !AndroidKernelDriverRegistry.supportsProxyExecution(candidate.kernel, availableProxyKernelIds)
+    }
+
+    fun statusFor(result: CoreRuntimeImportResult) {
+        val intent = result.executionIntentJson?.let {
+            runCatching { AndroidRoutingExecutionIntent.parse(it) }.getOrNull()
+        }
+        status = when {
+            !result.hasCompleteAndroidExecutionHandoff() || intent?.mode != "proxy" ->
+                AndroidUiStatus.CONFIG_NOT_STARTABLE
+            hasUnavailableProxyKernel(result) ->
+                AndroidUiStatus.KERNEL_RUNTIME_UNAVAILABLE
+            else -> AndroidUiStatus.CONFIG_DELIVERED_TO_CORE
+        }
+    }
+
+    LaunchedEffect(context.applicationContext) {
+        availableProxyKernelIds = withContext(Dispatchers.IO) {
+            AndroidKernelDriverRegistry.availableProxyExecutionKernelIds(context.applicationContext)
+        }
+    }
+
+    LaunchedEffect(availableProxyKernelIds, importResult) {
+        val result = importResult
+        if (result != null && status in setOf(
+                AndroidUiStatus.CONFIG_DELIVERED_TO_CORE,
+                AndroidUiStatus.CONFIG_NOT_STARTABLE,
+                AndroidUiStatus.KERNEL_RUNTIME_UNAVAILABLE,
+            )
+        ) {
+            statusFor(result)
+        }
+    }
+
+    fun reportProfileActionBlocked() {
+        status = if (runtimeBusy) {
+            AndroidUiStatus.PROFILE_CHANGE_REQUIRES_STOP
+        } else {
+            AndroidUiStatus.PROFILE_OPERATION_IN_PROGRESS
+        }
+    }
+
+    LaunchedEffect(profileStore, importCoordinator) {
+        try {
+            val snapshot = withContext(Dispatchers.IO) { profileStore.snapshot() }
+            profileSnapshot = snapshot
+            val activeId = snapshot.activeProfileId
+            if (activeId != null) {
+                val profile = snapshot.profiles.firstOrNull { it.id == activeId }
+                    ?: throw AndroidProfileStoreException(AndroidProfileStoreFailure.CORRUPT_OR_UNAVAILABLE)
+                val configBytes = withContext(Dispatchers.IO) {
+                    profileStore.loadConfigurationBytes(activeId)
+                }
+                status = AndroidUiStatus.IMPORTING_CONFIG
+                val result = try {
+                    importCoordinator.importLocalFile(ByteArrayInputStream(configBytes), profile.name)
+                } catch (_: Exception) {
+                    status = AndroidUiStatus.CORE_RUNTIME_UNAVAILABLE
+                    return@LaunchedEffect
+                } finally {
+                    configBytes.fill(0)
+                }
+                importResult = result
+                loadedProfileId = profile.id
+                importedProfileName = profile.name
+                statusFor(result)
+            }
+        } catch (error: Exception) {
+            setProfileFailure(error)
+        } finally {
+            profilesLoading = false
+        }
+    }
 
     val documentLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) {
             status = AndroidUiStatus.READY
             return@rememberLauncherForActivityResult
         }
+        if (!profileActionsEnabled) {
+            reportProfileActionBlocked()
+            return@rememberLauncherForActivityResult
+        }
         status = AndroidUiStatus.IMPORTING_CONFIG
+        profileFailure = null
+        subscriptionImportFailed = false
+        textImportFailed = false
+        val sourceName = resolveDisplayName(context, uri) ?: context.getString(R.string.default_profile_name)
+        profileOperationPending = true
         scope.launch {
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                context.contentResolver.openInputStream(uri)?.use { stream ->
-                    importCoordinator.importLocalFile(stream, uri.lastPathSegment)
+            try {
+                val result = context.contentResolver.openInputStream(uri)?.use { stream ->
+                    importCoordinator.importLocalFile(stream, sourceName)
                 } ?: throw IllegalStateException("selected configuration cannot be opened")
-            }.fold(
-                onSuccess = { result ->
-                    importResult = result
-                    status = AndroidUiStatus.CONFIG_DELIVERED_TO_CORE
-                },
-                onFailure = {
-                    importResult = null
-                    status = AndroidUiStatus.CORE_RUNTIME_UNAVAILABLE
+                importResult = result
+                loadedProfileId = null
+                importedProfileName = sourceName
+                statusFor(result)
+            } catch (_: Exception) {
+                importResult = null
+                loadedProfileId = null
+                importedProfileName = null
+                status = AndroidUiStatus.CORE_RUNTIME_UNAVAILABLE
+            } finally {
+                profileOperationPending = false
+            }
+        }
+    }
+
+    fun importSubscription(subscriptionUrl: String) {
+        if (!profileActionsEnabled) {
+            reportProfileActionBlocked()
+            return
+        }
+        val previousStatus = status
+        status = AndroidUiStatus.IMPORTING_CONFIG
+        profileFailure = null
+        subscriptionImportFailed = false
+        textImportFailed = false
+        profileOperationPending = true
+        val sourceName = context.getString(R.string.default_subscription_name)
+        scope.launch {
+            var downloaded: ByteArray? = null
+            try {
+                val content = withContext(Dispatchers.IO) {
+                    subscriptionFetcher.fetch(subscriptionUrl)
                 }
-            )
+                downloaded = content
+                val result = withContext(Dispatchers.IO) {
+                    ByteArrayInputStream(content).use { stream ->
+                        importCoordinator.importSubscriptionContent(stream, sourceName)
+                    }
+                }
+                importResult = result
+                loadedProfileId = null
+                importedProfileName = sourceName
+                statusFor(result)
+            } catch (cancelled: CancellationException) {
+                status = previousStatus
+                throw cancelled
+            } catch (_: Exception) {
+                subscriptionImportFailed = true
+                status = previousStatus
+            } finally {
+                downloaded?.fill(0)
+                profileOperationPending = false
+            }
+        }
+    }
+
+    fun importPastedText(content: String) {
+        if (!profileActionsEnabled) {
+            reportProfileActionBlocked()
+            return
+        }
+        val previousStatus = status
+        status = AndroidUiStatus.IMPORTING_CONFIG
+        profileFailure = null
+        subscriptionImportFailed = false
+        textImportFailed = false
+        profileOperationPending = true
+        val sourceName = context.getString(R.string.default_text_import_name)
+        scope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    importCoordinator.importText(content, sourceName)
+                }
+                importResult = result
+                loadedProfileId = null
+                importedProfileName = sourceName
+                statusFor(result)
+            } catch (cancelled: CancellationException) {
+                status = previousStatus
+                throw cancelled
+            } catch (_: Exception) {
+                textImportFailed = true
+                status = previousStatus
+            } finally {
+                profileOperationPending = false
+            }
         }
     }
 
     fun startVpnService(kernelId: String) {
+        val handoff = importResult
+        if (handoff?.kernel != kernelId || !handoff.hasExecutableAndroidExecutionHandoff(availableProxyKernelIds)) {
+            status = if (hasUnavailableProxyKernel(handoff)) {
+                AndroidUiStatus.KERNEL_RUNTIME_UNAVAILABLE
+            } else {
+                AndroidUiStatus.CONFIG_NOT_STARTABLE
+            }
+            return
+        }
+        val handoffToken = runCatching {
+            AndroidRuntimeHandoffStore.publish(handoff, availableProxyKernelIds)
+        }
+            .getOrElse {
+                status = AndroidUiStatus.CONFIG_NOT_STARTABLE
+                return
+            }
         val intent = Intent(context, AngelaNexusVpnService::class.java)
             .setAction(AngelaNexusVpnService.ACTION_START)
-            .putExtra(AngelaNexusVpnService.EXTRA_KERNEL_ID, kernelId)
-            .putExtra(AngelaNexusVpnService.EXTRA_CONFIGURATION, importResult?.configuration)
-            .putExtra(AngelaNexusVpnService.EXTRA_EXECUTION_INTENT_JSON, importResult?.executionIntentJson)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(intent)
-        } else {
-            context.startService(intent)
+            .putExtra(AngelaNexusVpnService.EXTRA_HANDOFF_TOKEN, handoffToken)
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        }.onFailure {
+            AndroidRuntimeHandoffStore.discard(handoffToken)
+            status = AndroidUiStatus.VPN_RUNTIME_NOT_READY
         }
     }
 
+    fun stopVpnService() {
+        context.startService(
+            Intent(context, AngelaNexusVpnService::class.java)
+                .setAction(AngelaNexusVpnService.ACTION_STOP),
+        )
+    }
+
     val vpnLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        vpnAuthorizationPending = false
         if (result.resultCode == android.app.Activity.RESULT_OK) {
             val kernelId = importResult?.kernel
             if (kernelId.isNullOrBlank()) {
@@ -109,6 +337,18 @@ private fun AngelaNexusRoot() {
     }
 
     fun startSelectedMode() {
+        if (profilesLoading || profileOperationPending) {
+            status = AndroidUiStatus.PROFILE_OPERATION_IN_PROGRESS
+            return
+        }
+        if (!importResult.hasExecutableAndroidExecutionHandoff(availableProxyKernelIds)) {
+            status = if (hasUnavailableProxyKernel(importResult)) {
+                AndroidUiStatus.KERNEL_RUNTIME_UNAVAILABLE
+            } else {
+                AndroidUiStatus.CONFIG_NOT_STARTABLE
+            }
+            return
+        }
         val mode = selectAndroidTransparentMode(selectedMode, rootCapabilities)
         if (mode == null) {
             status = AndroidUiStatus.TRANSPARENT_MODE_UNAVAILABLE
@@ -128,10 +368,139 @@ private fun AngelaNexusRoot() {
                 if (intent == null) {
                     startVpnService(kernelId)
                 } else {
+                    vpnAuthorizationPending = true
                     vpnLauncher.launch(intent)
                 }
             }
             AndroidTransparentMode.AUTO -> error("auto mode must resolve before startup")
+        }
+    }
+
+    fun saveCurrentProfile(name: String) {
+        if (!profileActionsEnabled) {
+            reportProfileActionBlocked()
+            return
+        }
+        val configuration = importResult?.configuration
+        if (configuration.isNullOrBlank()) {
+            profileFailure = AndroidProfileStoreFailure.INVALID_CONFIGURATION
+            return
+        }
+        profileFailure = null
+        profileOperationPending = true
+        scope.launch {
+            try {
+                val saved = withContext(Dispatchers.IO) {
+                    profileStore.saveProfile(name, configuration)
+                }
+                profileSnapshot = profileSnapshot.copy(
+                    profiles = profileSnapshot.profiles + saved,
+                    activeProfileId = saved.id,
+                )
+                loadedProfileId = saved.id
+                importedProfileName = saved.name
+            } catch (error: Exception) {
+                setProfileFailure(error)
+            } finally {
+                profileOperationPending = false
+            }
+        }
+    }
+
+    fun selectProfile(profileId: String) {
+        if (!profileActionsEnabled) {
+            reportProfileActionBlocked()
+            return
+        }
+        val profile = profileSnapshot.profiles.firstOrNull { it.id == profileId }
+        if (profile == null) {
+            setProfileFailure(AndroidProfileStoreException(AndroidProfileStoreFailure.PROFILE_NOT_FOUND))
+            return
+        }
+        profileFailure = null
+        importResult = null
+        loadedProfileId = null
+        importedProfileName = null
+        status = AndroidUiStatus.IMPORTING_CONFIG
+        profileOperationPending = true
+        scope.launch {
+            try {
+                val configBytes = withContext(Dispatchers.IO) {
+                    profileStore.loadConfigurationBytes(profileId)
+                }
+                val result = try {
+                    importCoordinator.importLocalFile(ByteArrayInputStream(configBytes), profile.name)
+                } finally {
+                    configBytes.fill(0)
+                }
+                val updated = withContext(Dispatchers.IO) {
+                    profileStore.setActiveProfile(profileId)
+                }
+                profileSnapshot = updated
+                importResult = result
+                loadedProfileId = profile.id
+                importedProfileName = profile.name
+                statusFor(result)
+            } catch (error: AndroidProfileStoreException) {
+                importResult = null
+                loadedProfileId = null
+                importedProfileName = null
+                setProfileFailure(error)
+            } catch (_: Exception) {
+                importResult = null
+                loadedProfileId = null
+                importedProfileName = null
+                status = AndroidUiStatus.CORE_RUNTIME_UNAVAILABLE
+            } finally {
+                profileOperationPending = false
+            }
+        }
+    }
+
+    fun renameProfile(profileId: String, name: String) {
+        if (!profileActionsEnabled) {
+            reportProfileActionBlocked()
+            return
+        }
+        profileFailure = null
+        profileOperationPending = true
+        scope.launch {
+            try {
+                profileSnapshot = withContext(Dispatchers.IO) {
+                    profileStore.renameProfile(profileId, name)
+                }
+                if (loadedProfileId == profileId) importedProfileName = name.trim()
+            } catch (error: Exception) {
+                setProfileFailure(error)
+            } finally {
+                profileOperationPending = false
+            }
+        }
+    }
+
+    fun deleteProfile(profileId: String) {
+        if (!profileActionsEnabled) {
+            reportProfileActionBlocked()
+            return
+        }
+        profileFailure = null
+        profileOperationPending = true
+        scope.launch {
+            try {
+                profileSnapshot = withContext(Dispatchers.IO) {
+                    profileStore.deleteProfile(profileId)
+                }
+                if (loadedProfileId == profileId) {
+                    importResult = null
+                    loadedProfileId = null
+                    importedProfileName = null
+                    status = AndroidUiStatus.READY
+                }
+            } catch (error: Exception) {
+                setProfileFailure(error)
+            } finally {
+                profileOperationPending = false
+            }
         }
     }
 
@@ -152,13 +521,24 @@ private fun AngelaNexusRoot() {
         rootAvailable = rootCapabilities.rootAvailable && rootCapabilities.rootAuthorized,
         importResult = importResult,
         executionState = executionState,
+        availableProxyKernelIds = availableProxyKernelIds,
         uiStatus = status,
         onTransparentModeChange = { selectedMode = it },
         onImportConfig = {
-            status = AndroidUiStatus.SELECTING_CONFIG
-            documentLauncher.launch(arrayOf("*/*"))
+            if (!profileActionsEnabled) {
+                reportProfileActionBlocked()
+            } else {
+                profileFailure = null
+                status = AndroidUiStatus.SELECTING_CONFIG
+                documentLauncher.launch(arrayOf("*/*"))
+            }
         },
+        onImportSubscription = ::importSubscription,
+        subscriptionImportFailed = subscriptionImportFailed,
+        onImportText = ::importPastedText,
+        textImportFailed = textImportFailed,
         onStartVpn = ::startSelectedMode,
+        onStopVpn = ::stopVpnService,
         currentLocaleTag = currentLocaleTag,
         onLocaleSelected = { tag ->
             if (tag == null) {
@@ -167,12 +547,39 @@ private fun AngelaNexusRoot() {
                 AndroidLocalePreference.save(context, tag)
             }
             (context as? MainActivity)?.recreate()
-        }
+        },
+        profiles = profileSnapshot.profiles,
+        activeProfileId = profileSnapshot.activeProfileId,
+        loadedProfileId = loadedProfileId,
+        importedProfileName = importedProfileName,
+        profileFailure = profileFailure,
+        profilesLoading = profilesLoading,
+        profileActionsEnabled = profileActionsEnabled,
+        profileOperationPending = profilesLoading || profileOperationPending,
+        onSaveProfile = ::saveCurrentProfile,
+        onSelectProfile = ::selectProfile,
+        onRenameProfile = ::renameProfile,
+        onDeleteProfile = ::deleteProfile,
     )
 
     if (LocalInspectionMode.current) {
         @Suppress("UNUSED_VARIABLE") val previewStatus = status
     }
+}
+
+private fun resolveDisplayName(context: Context, uri: Uri): String? {
+    val queried = runCatching {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor: Cursor ->
+            if (cursor.moveToFirst()) {
+                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (index >= 0) cursor.getString(index) else null
+            } else {
+                null
+            }
+        }
+    }.getOrNull()
+    return queried?.takeIf { it.isNotBlank() }
+        ?: uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
 }
 
 @Preview(showBackground = true)
@@ -185,12 +592,14 @@ private fun AngelaNexusPreview() {
             rootAvailable = false,
             importResult = null,
             executionState = KernelExecutionState(),
+            availableProxyKernelIds = setOf("sing-box", "xray"),
             uiStatus = AndroidUiStatus.READY,
             onTransparentModeChange = {},
             onImportConfig = {},
             onStartVpn = {},
+            onStopVpn = {},
             currentLocaleTag = "en",
-            onLocaleSelected = {}
+            onLocaleSelected = {},
         )
     }
 }

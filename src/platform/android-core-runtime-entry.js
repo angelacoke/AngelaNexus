@@ -1,4 +1,5 @@
 import { createRuntimeImportService } from "./runtime-import-service.js";
+import { projectCoreNodeSummaries } from "./core-node-summary.js";
 
 const runtime = createRuntimeImportService();
 
@@ -8,11 +9,13 @@ globalThis.angelanexusCoreImport = async (payload) => {
   }
   const result = await runtime.receive(payload);
   const envelope = JSON.parse(payload);
+  const nodeSummary = projectCoreNodeSummaries(result?.model);
   return JSON.stringify({
     ok: true,
     result: {
       source: envelope.source ?? null,
       nodeCount: result?.model?.nodeCount ?? 0,
+      ...nodeSummary,
       kernel: result?.binding?.kernel ?? null,
       detectionConfidence: result?.binding?.prompt?.reason ?? null,
       configuration: result?.runtimeHandoff?.configuration ?? null,

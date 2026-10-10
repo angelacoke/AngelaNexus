@@ -6,8 +6,11 @@ import android.app.NotificationManager
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Android system interception boundary.
@@ -21,9 +24,7 @@ class AngelaNexusVpnService : VpnService() {
     companion object {
         const val ACTION_START = "app.angelanexus.action.START"
         const val ACTION_STOP = "app.angelanexus.action.STOP"
-        const val EXTRA_KERNEL_ID = "app.angelanexus.extra.KERNEL_ID"
-        const val EXTRA_CONFIGURATION = "app.angelanexus.extra.CONFIGURATION"
-        const val EXTRA_EXECUTION_INTENT_JSON = "app.angelanexus.extra.EXECUTION_INTENT_JSON"
+        const val EXTRA_HANDOFF_TOKEN = "app.angelanexus.extra.HANDOFF_TOKEN"
 
         private const val CHANNEL_ID = "angelanexus-vpn"
         private const val NOTIFICATION_ID = 18181
@@ -31,8 +32,13 @@ class AngelaNexusVpnService : VpnService() {
     }
 
     private val policy = AndroidVpnRuntimePolicy.default()
+    private val runtimeOperations = AndroidRuntimeOperationQueue()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val stopThroughStartId = AtomicInteger(0)
+    @Volatile private var latestStartId = 0
     private var driver: AndroidKernelDriver? = null
-    private var tunEstablished = false
+    @Volatile private var tunEstablished = false
+    @Volatile private var activeTrafficAcceptanceProbe: AndroidTrafficAcceptanceProbe? = null
     private var stopFailure: Throwable? = null
 
     override fun onCreate() {
@@ -41,22 +47,62 @@ class AngelaNexusVpnService : VpnService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        latestStartId = startId
         return when (intent?.action) {
-            ACTION_START -> startRuntime(
-                intent.getStringExtra(EXTRA_KERNEL_ID),
-                intent.getStringExtra(EXTRA_CONFIGURATION),
-                intent.getStringExtra(EXTRA_EXECUTION_INTENT_JSON),
-                startId,
-            )
+            ACTION_START -> {
+                if (tunEstablished) return START_NOT_STICKY
+                val handoffToken = intent.getStringExtra(EXTRA_HANDOFF_TOKEN)
+                // Promote synchronously before returning from this foreground-service start;
+                // all potentially blocking runtime work is serialized on the worker below.
+                startForeground(NOTIFICATION_ID, notification("VPN runtime starting"))
+                runtimeOperations.execute {
+                    if (isStartCancelled(startId)) {
+                        handoffToken?.let { AndroidRuntimeHandoffStore.discard(it) }
+                        return@execute
+                    }
+                    val handoff = AndroidRuntimeHandoffStore.consume(handoffToken)
+                    if (handoff == null) rejectMissingHandoff(startId)
+                    else startRuntime(
+                        handoff.kernel,
+                        handoff.configuration,
+                        handoff.executionIntentJson,
+                        startId,
+                    )
+                }
+                START_NOT_STICKY
+            }
             ACTION_STOP -> {
-                stopRuntime()
+                stopThroughStartId.updateAndGet { current -> maxOf(current, startId) }
+                activeTrafficAcceptanceProbe?.cancel()
+                runtimeOperations.execute { stopRuntime(startId = startId) }
                 START_NOT_STICKY
             }
             else -> {
-                stopSelfResult(startId)
+                stopThroughStartId.updateAndGet { current -> maxOf(current, startId) }
+                activeTrafficAcceptanceProbe?.cancel()
+                runtimeOperations.execute { stopRuntime(startId = startId) }
                 START_NOT_STICKY
             }
         }
+    }
+
+    private fun rejectMissingHandoff(startId: Int): Int {
+        val state = AndroidKernelExecutionStateStore.state.value
+        if (!state.cleanupRequired && state.phase in setOf(
+                KernelExecutionPhase.IDLE,
+                KernelExecutionPhase.READY,
+                KernelExecutionPhase.STOPPED,
+            )
+        ) {
+            AndroidKernelExecutionStateStore.beginStart(state.kernelId)
+        }
+        AndroidKernelExecutionStateStore.markFailure(
+            "Android runtime handoff expired or unavailable; import the configuration again",
+            state.kernelId,
+            cleanupRequired = state.cleanupRequired,
+        )
+        requestServiceStop(startId)
+        return START_NOT_STICKY
     }
 
     private fun startRuntime(
@@ -65,13 +111,16 @@ class AngelaNexusVpnService : VpnService() {
         executionIntentJson: String?,
         startId: Int,
     ): Int {
-        if (tunEstablished) return START_NOT_STICKY
+        if (tunEstablished || isStartCancelled(startId)) return START_NOT_STICKY
         stopFailure?.let {
-            fail("VPN runtime remains in failed-stop state: " + (it.message ?: it::class.java.simpleName), kernelId)
+            fail(
+                "VPN runtime remains in failed-stop state: " + (it.message ?: it::class.java.simpleName),
+                kernelId,
+                cleanupRequired = true,
+            )
             return START_NOT_STICKY
         }
 
-        startForeground(NOTIFICATION_ID, notification("VPN runtime starting"))
         AndroidKernelExecutionStateStore.beginStart(kernelId)
 
         return runCatching {
@@ -113,6 +162,7 @@ class AngelaNexusVpnService : VpnService() {
                 builder.addDnsServer(it)
             }
 
+            check(!isStartCancelled(startId)) { "VPN start cancelled by stop request" }
             val descriptor = builder.establish()
                 ?: error("Android VPN TUN establishment failed")
 
@@ -121,6 +171,7 @@ class AngelaNexusVpnService : VpnService() {
             val fd = descriptor.detachFd()
             var driverOwnsTun = false
             try {
+                check(!isStartCancelled(startId)) { "VPN start cancelled by stop request" }
                 selectedDriver.attachTun(fd, policy)
                 driverOwnsTun = true
                 selectedDriver.start()
@@ -137,6 +188,7 @@ class AngelaNexusVpnService : VpnService() {
                     "kernel driver reported a non-running state after start: " +
                         (runtimeStatus.detail ?: "no detail")
                 }
+                check(!isStartCancelled(startId)) { "VPN start cancelled by stop request" }
 
                 // Native health is only a runtime liveness signal. When Core
                 // explicitly requires network acceptance, prove a real HTTPS
@@ -148,18 +200,33 @@ class AngelaNexusVpnService : VpnService() {
                         !acceptance.expectedResponseValue.isNullOrBlank()) {
                         "required traffic acceptance has no trusted proxy-evidence response marker"
                     }
-                    val acceptanceResult = AndroidTrafficAcceptanceProbe().probe(
-                        targetUrl = acceptance.targetUrl,
-                        timeoutMs = acceptance.timeoutMs,
-                        expectedResponseHeader = acceptance.expectedResponseHeader,
-                        expectedResponseValue = acceptance.expectedResponseValue,
-                    )
+                    val probe = AndroidTrafficAcceptanceProbe()
+                    activeTrafficAcceptanceProbe = probe
+                    if (isStartCancelled(startId)) probe.cancel()
+                    val acceptanceResult = try {
+                        probe.probe(
+                            targetUrl = acceptance.targetUrl,
+                            timeoutMs = acceptance.timeoutMs,
+                            expectedResponseHeader = acceptance.expectedResponseHeader,
+                            expectedResponseValue = acceptance.expectedResponseValue,
+                        )
+                    } finally {
+                        if (activeTrafficAcceptanceProbe === probe) {
+                            activeTrafficAcceptanceProbe = null
+                        }
+                    }
+                    if (acceptanceResult.result == AndroidTrafficAcceptanceProbe.RESULT_CANCELLED &&
+                        isStartCancelled(startId)
+                    ) {
+                        error("VPN start cancelled by stop request")
+                    }
                     check(acceptanceResult.result == AndroidTrafficAcceptanceProbe.RESULT_SUCCESS) {
                         "traffic acceptance failed for " + acceptanceResult.targetUrl + ": " +
                             (acceptanceResult.reason ?: "unexpected-http-status")
                     }
                 }
 
+                check(!isStartCancelled(startId)) { "VPN start cancelled by stop request" }
                 tunEstablished = true
             } finally {
                 if (!driverOwnsTun) {
@@ -170,21 +237,47 @@ class AngelaNexusVpnService : VpnService() {
             updateNotification("VPN runtime active — ${selectedDriver.id}")
             START_NOT_STICKY
         }.getOrElse { error ->
-            val cleanupFailure = stopRuntime()
-            val detail = if (cleanupFailure == null) {
-                error.message ?: "VPN runtime failed"
+            val cleanupFailure = stopRuntime(keepService = true)
+            if (isStartCancelled(startId)) {
+                if (cleanupFailure != null) {
+                    fail(
+                        "VPN start was cancelled but runtime cleanup failed: " +
+                            (cleanupFailure.message ?: cleanupFailure::class.java.simpleName),
+                        kernelId,
+                        cleanupRequired = true,
+                    )
+                    updateNotification("VPN runtime stop failed; retry cleanup from the app")
+                }
             } else {
-                (error.message ?: "VPN runtime failed") + "; cleanup also failed: " +
-                    (cleanupFailure.message ?: cleanupFailure::class.java.simpleName)
+                val detail = if (cleanupFailure == null) {
+                    error.message ?: "VPN runtime failed"
+                } else {
+                    (error.message ?: "VPN runtime failed") + "; cleanup also failed: " +
+                        (cleanupFailure.message ?: cleanupFailure::class.java.simpleName)
+                }
+                fail(detail, kernelId, cleanupRequired = cleanupFailure != null)
+                if (cleanupFailure == null) {
+                    requestServiceStop(startId)
+                } else {
+                    updateNotification("VPN runtime stop failed; retry cleanup from the app")
+                }
             }
-            fail(detail, kernelId)
-            stopSelfResult(startId)
             START_NOT_STICKY
         }
     }
 
-    private fun stopRuntime(keepService: Boolean = false): Throwable? {
-        if (driver != null || tunEstablished) {
+    private fun stopRuntime(
+        keepService: Boolean = false,
+        startId: Int? = null,
+    ): Throwable? {
+        val phase = AndroidKernelExecutionStateStore.state.value.phase
+        val hasRuntimeResources = driver != null || tunEstablished
+        val stopRequestedForActivePhase = !keepService && phase in setOf(
+            KernelExecutionPhase.STARTING,
+            KernelExecutionPhase.RUNNING,
+            KernelExecutionPhase.FAILED,
+        )
+        if ((hasRuntimeResources || stopRequestedForActivePhase) && phase != KernelExecutionPhase.STOPPING) {
             AndroidKernelExecutionStateStore.beginStop()
         }
 
@@ -209,9 +302,10 @@ class AngelaNexusVpnService : VpnService() {
 
         if (!keepService) {
             if (failure == null) {
-                stopForegroundCompat()
-                AndroidKernelExecutionStateStore.markStopped()
-                stopSelf()
+                if (AndroidKernelExecutionStateStore.state.value.phase == KernelExecutionPhase.STOPPING) {
+                    AndroidKernelExecutionStateStore.markStopped()
+                }
+                requestServiceStop(startId)
             } else {
                 // A failed kernel stop means native runtime state is not
                 // proven stopped. Keep the service alive and fail closed:
@@ -220,14 +314,30 @@ class AngelaNexusVpnService : VpnService() {
                 AndroidKernelExecutionStateStore.markFailure(
                     failure.message ?: "kernel stop failed",
                     null,
+                    cleanupRequired = true,
                 )
             }
         }
         return failure
     }
 
-    private fun fail(detail: String, kernelId: String?) {
-        AndroidKernelExecutionStateStore.markFailure(detail, kernelId)
+    private fun isStartCancelled(startId: Int): Boolean =
+        startId <= stopThroughStartId.get()
+
+    private fun requestServiceStop(startId: Int?) {
+        mainHandler.post {
+            val shouldStop = if (startId == null) {
+                stopSelf()
+                true
+            } else {
+                stopSelfResult(startId)
+            }
+            if (shouldStop) stopForegroundCompat()
+        }
+    }
+
+    private fun fail(detail: String, kernelId: String?, cleanupRequired: Boolean = false) {
+        AndroidKernelExecutionStateStore.markFailure(detail, kernelId, cleanupRequired)
         updateNotification("VPN runtime failed")
     }
 
@@ -275,12 +385,35 @@ class AngelaNexusVpnService : VpnService() {
     }
 
     override fun onDestroy() {
-        stopRuntime()
+        runtimeOperations.execute {
+            val cleanupFailure = stopRuntime(keepService = true)
+            if (cleanupFailure == null) {
+                val phase = AndroidKernelExecutionStateStore.state.value.phase
+                if (phase !in setOf(KernelExecutionPhase.IDLE, KernelExecutionPhase.STOPPED)) {
+                    if (phase != KernelExecutionPhase.STOPPING) {
+                        AndroidKernelExecutionStateStore.beginStop()
+                    }
+                    AndroidKernelExecutionStateStore.markStopped()
+                }
+            } else {
+                AndroidKernelExecutionStateStore.markFailure(
+                    cleanupFailure.message ?: "kernel stop failed during service destruction",
+                    null,
+                    cleanupRequired = true,
+                )
+            }
+        }
+        runtimeOperations.shutdown()
         super.onDestroy()
     }
 
     override fun onRevoke() {
-        stopRuntime()
+        val revokeStartId = latestStartId
+        stopThroughStartId.updateAndGet { current -> maxOf(current, revokeStartId) }
+        activeTrafficAcceptanceProbe?.cancel()
+        runtimeOperations.execute {
+            stopRuntime(startId = revokeStartId.takeIf { it > 0 })
+        }
         super.onRevoke()
     }
 

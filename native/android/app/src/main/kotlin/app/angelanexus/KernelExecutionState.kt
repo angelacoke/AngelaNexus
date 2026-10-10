@@ -22,13 +22,19 @@ data class KernelExecutionState(
     val phase: KernelExecutionPhase = KernelExecutionPhase.IDLE,
     val kernelId: String? = null,
     val detail: String? = null,
+    val cleanupRequired: Boolean = false,
 ) {
     companion object {
-        fun failed(kernelId: String?, detail: String): KernelExecutionState =
+        fun failed(
+            kernelId: String?,
+            detail: String,
+            cleanupRequired: Boolean = false,
+        ): KernelExecutionState =
             KernelExecutionState(
                 phase = KernelExecutionPhase.FAILED,
                 kernelId = kernelId,
                 detail = detail,
+                cleanupRequired = cleanupRequired,
             )
     }
 }

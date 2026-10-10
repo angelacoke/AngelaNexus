@@ -8,12 +8,25 @@ import java.net.URL
  * endpoint reachability; proxy acceptance requires an expected response marker
  * configured on a trusted endpoint that confirms the intended egress path.
  * The probe never invents a destination or treats lifecycle state as evidence.
+ * Callers must run [probe] on a background thread.
  */
 class AndroidTrafficAcceptanceProbe(
     private val openConnection: (URL) -> HttpURLConnection = {
         it.openConnection() as HttpURLConnection
     },
 ) {
+    @Volatile
+    private var cancellationRequested = false
+
+    @Volatile
+    private var activeConnection: HttpURLConnection? = null
+
+    /** Best-effort cancellation for an in-flight request; network timeouts remain the bound. */
+    fun cancel() {
+        cancellationRequested = true
+        runCatching { activeConnection?.disconnect() }
+    }
+
     fun probe(
         targetUrl: String,
         timeoutMs: Int = DEFAULT_TIMEOUT_MS,
@@ -33,9 +46,16 @@ class AndroidTrafficAcceptanceProbe(
         }
 
         val startedAt = System.nanoTime()
+        if (cancellationRequested) return cancelledResult(url, startedAt)
+
         var connection: HttpURLConnection? = null
         return try {
-            connection = openConnection(url).apply {
+            val openedConnection = openConnection(url)
+            connection = openedConnection
+            activeConnection = openedConnection
+            if (cancellationRequested) return cancelledResult(url, startedAt)
+
+            openedConnection.apply {
                 requestMethod = "GET"
                 connectTimeout = timeoutMs
                 readTimeout = timeoutMs
@@ -45,13 +65,15 @@ class AndroidTrafficAcceptanceProbe(
                 setRequestProperty("Cache-Control", "no-cache")
             }
 
-            connection.connect()
-            val statusCode = connection.responseCode
+            openedConnection.connect()
+            if (cancellationRequested) return cancelledResult(url, startedAt)
+
+            val statusCode = openedConnection.responseCode
             val durationMs = elapsedMs(startedAt)
             val evidenceFailure = if (expectedResponseHeader == null) {
                 null
             } else {
-                val actual = connection.getHeaderField(expectedResponseHeader)
+                val actual = openedConnection.getHeaderField(expectedResponseHeader)
                 when {
                     actual == null -> "proxy-evidence-header-missing"
                     actual != expectedResponseValue -> "proxy-evidence-header-mismatch"
@@ -59,7 +81,9 @@ class AndroidTrafficAcceptanceProbe(
                 }
             }
 
-            if (statusCode in 200..299 && evidenceFailure == null) {
+            if (cancellationRequested) {
+                cancelledResult(url, startedAt)
+            } else if (statusCode in 200..299 && evidenceFailure == null) {
                 AndroidTrafficAcceptanceResult(
                     result = RESULT_SUCCESS,
                     targetUrl = url.toExternalForm(),
@@ -77,17 +101,33 @@ class AndroidTrafficAcceptanceProbe(
                 )
             }
         } catch (error: Exception) {
-            AndroidTrafficAcceptanceResult(
-                result = RESULT_FAILURE,
-                targetUrl = url.toExternalForm(),
-                statusCode = null,
-                durationMs = elapsedMs(startedAt),
-                reason = error.message ?: error::class.java.simpleName,
-            )
+            if (cancellationRequested) {
+                cancelledResult(url, startedAt)
+            } else {
+                AndroidTrafficAcceptanceResult(
+                    result = RESULT_FAILURE,
+                    targetUrl = url.toExternalForm(),
+                    statusCode = null,
+                    durationMs = elapsedMs(startedAt),
+                    reason = error.message ?: error::class.java.simpleName,
+                )
+            }
         } finally {
-            connection?.disconnect()
+            connection?.let { openedConnection ->
+                runCatching { openedConnection.disconnect() }
+                if (activeConnection === openedConnection) activeConnection = null
+            }
         }
     }
+
+    private fun cancelledResult(url: URL, startedAt: Long): AndroidTrafficAcceptanceResult =
+        AndroidTrafficAcceptanceResult(
+            result = RESULT_CANCELLED,
+            targetUrl = url.toExternalForm(),
+            statusCode = null,
+            durationMs = elapsedMs(startedAt),
+            reason = "cancelled",
+        )
 
     private fun validateTarget(targetUrl: String): URL {
         val value = targetUrl.trim()
@@ -111,6 +151,7 @@ class AndroidTrafficAcceptanceProbe(
     companion object {
         const val RESULT_SUCCESS = "success"
         const val RESULT_FAILURE = "failure"
+        const val RESULT_CANCELLED = "cancelled"
         const val DEFAULT_TIMEOUT_MS = 5000
     }
 }

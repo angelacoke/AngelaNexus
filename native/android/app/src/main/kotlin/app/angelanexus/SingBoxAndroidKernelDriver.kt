@@ -337,6 +337,8 @@ class SingBoxAndroidKernelDriver(
         override fun readWIFIState(): WIFIState? = null
         override fun clearDNSCache() = Unit
         override fun sendNotification(notification: io.nekohasekai.libbox.Notification) = Unit
+        // This driver does not surface libbox notifications, so cancellation is a matching no-op.
+        override fun cancelNotification(identifier: String, typeID: Int) = Unit
         override fun startNeighborMonitor(listener: NeighborUpdateListener) = Unit
         override fun closeNeighborMonitor(listener: NeighborUpdateListener) = Unit
         override fun registerMyInterface(name: String) = Unit

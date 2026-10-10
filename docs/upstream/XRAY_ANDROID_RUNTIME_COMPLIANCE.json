@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "runtime": {
+    "kernel": "xray",
+    "version": "libXray v26.9.30; Xray-core v26.9.30 pre-release declared by pinned go.mod; actual build resolution unverified",
+    "wrapper": "libXray",
+    "wrapperRelease": "v26.9.30",
+    "coreReleaseDeclaredByPinnedGoMod": "v26.9.30 (upstream pre-release)",
+    "platform": "android",
+    "abis": ["arm64-v8a", "armeabi-v7a", "x86_64"],
+    "linkage": "embedded",
+    "artifact": "libXray.aar"
+  },
+  "declaredLicense": "MIT (XTLS/libXray) + MPL-2.0 (XTLS/Xray-core); transitive dependency inventory pending",
+  "distributionStatus": "blocked",
+  "licenseReview": {
+    "status": "required",
+    "reason": "The wrapper is MIT-licensed and the Xray-core revision declared by the pinned wrapper is MPL-2.0. The complete transitive license/notice inventory, source-offer terms, and compatibility review for the exact shipped AAR are not approved. This is an engineering gate, not legal advice."
+  },
+  "provenanceReview": {
+    "status": "required",
+    "reason": "The pinned libXray builder deletes and recreates go.mod/go.sum, runs go mod tidy, installs gomobile@latest, performs unversioned go get operations, and downloads geosite/geoip from mutable latest-release URLs without checksum validation. The generated AAR dependency/data set is therefore not established by the repository's pinned wrapper commit."
+  },
+  "namingCompliance": {
+    "status": "required",
+    "reason": "Xray/libXray name and trademark use must be reviewed against the exact app naming and distribution presentation before release."
+  },
+  "source": {
+    "repository": "https://github.com/XTLS/libXray",
+    "tag": "v26.9.30",
+    "pinnedCommit": "3c694b23290f9849fe52284a345ebd4343bc90cd",
+    "declaredGoModuleCore": {
+      "repository": "https://github.com/XTLS/Xray-core",
+      "moduleVersion": "v1.260327.1-0.20260930074004-b26a91de4f32",
+      "resolvedCommit": "b26a91de4f3294e26a0ad0a970b81a386a41f789",
+      "releaseTag": "v26.9.30",
+      "releaseStatus": "pre-release"
+    }
+  },
+  "policy": {
+    "failClosed": true,
+    "noSilentFallback": true,
+    "runtimeContract": {
+      "requiresDistributionApproval": true,
+      "requiresLicenseReviewApproval": true,
+      "requiresProvenanceApproval": true,
+      "requiresNamingComplianceApproval": true
+    }
+  }
+}

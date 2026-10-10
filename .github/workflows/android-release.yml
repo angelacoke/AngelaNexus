@@ -7,11 +7,34 @@ permissions:
   contents: read
 
 jobs:
-  release:
+  runtime-compliance-gate:
+    if: github.ref == 'refs/heads/main' && vars.ANGELANEXUS_ANDROID_RELEASE_APPROVED == 'true'
+    name: Verify Android runtime distribution approvals
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+      - name: Require approved Xray and sing-box manifests
+        run: python3 scripts/verify_android_runtime_release_gate.py --kernels xray singbox
+
+  release:
+    needs: runtime-compliance-gate
+    if: github.ref == 'refs/heads/main' && vars.ANGELANEXUS_ANDROID_RELEASE_APPROVED == 'true' && needs.runtime-compliance-gate.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Build canonical Android Core bundle
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run core:android:bundle
+          test -s native/android/app/src/main/assets/angelanexus-core.bundle.js
 
       - uses: actions/setup-java@v4
         with:
@@ -21,6 +44,15 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.8'
+
+      - name: Build pinned Android runtime AARs in this runner
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: ./scripts/build-android-kernel-aars.sh
 
       - name: Validate release signing secrets
         env:
@@ -34,25 +66,31 @@ jobs:
           test -n "$KEY_ALIAS"
           test -n "$KEY_PASSWORD"
 
-      - name: Assemble signed release APK
+      - name: Assemble signed release APK and AAB
         working-directory: native/android
         env:
           ANGELANEXUS_RELEASE_KEYSTORE_B64: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_B64 }}
           ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD }}
           ANGELANEXUS_RELEASE_KEY_ALIAS: ${{ secrets.ANGELANEXUS_RELEASE_KEY_ALIAS }}
           ANGELANEXUS_RELEASE_KEY_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEY_PASSWORD }}
-        run: gradle --no-daemon --console=plain --stacktrace assembleRelease
+        run: gradle --no-daemon --console=plain --stacktrace assembleRelease bundleRelease
 
       - name: Verify APK signature
         working-directory: native/android
         run: |
           APK="app/build/outputs/apk/release/app-release.apk"
+          AAB="app/build/outputs/bundle/release/app-release.aab"
           test -f "$APK"
+          test -f "$AAB"
           apksigner verify --verbose "$APK"
+          jarsigner -verify "$AAB"
 
       - name: Publish artifact
         uses: actions/upload-artifact@v4
         with:
           name: AngelaNexus-android-release
-          path: native/android/app/build/outputs/apk/release/app-release.apk
+          path: |
+            native/android/app/build/outputs/apk/release/app-release.apk
+            native/android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
+          retention-days: 14

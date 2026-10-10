@@ -3,6 +3,7 @@
 .gradle/
 **/build/
 local.properties
+native/android/app/src/main/assets/angelanexus-core.bundle.js
 
 # Production signing material — never commit these files
 *.keystore

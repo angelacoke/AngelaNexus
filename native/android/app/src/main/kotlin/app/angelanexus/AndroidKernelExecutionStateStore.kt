@@ -27,6 +27,10 @@ object AndroidKernelExecutionStateStore {
     fun markRunning(kernelId: String?) = bridge.markRunning(kernelId)
     fun beginStop() = bridge.beginStop()
     fun markStopped() = bridge.markStopped()
-    fun markFailure(detail: String, kernelId: String?) = bridge.markFailure(detail, kernelId)
+    fun markFailure(
+        detail: String,
+        kernelId: String?,
+        cleanupRequired: Boolean = false,
+    ) = bridge.markFailure(detail, kernelId, cleanupRequired)
     fun reset() = bridge.reset()
 }

@@ -24,11 +24,10 @@ Implemented:
 
 - Gradle Android application module under `native/android/app`.
 - `app.angelanexus` application namespace and package.
-- Launcher `MainActivity`.
-- AngelaNexus brand mark used by the application UI and launcher icon.
+- Launcher `MainActivity` and AngelaNexus brand mark in the application UI and launcher icon.
 - Native Android `VpnService` boundary wired into the application manifest.
-- Android document picker entry point for configuration import.
-- Explicit runtime status indicating that kernel execution is not yet connected.
+- Android document picker entry point for local configuration-file import.
+- State-aware VPN start/stop controls with explicit unsupported-plan and cleanup-failure feedback.
 - Dedicated Android debug-build CI workflow.
 
 ### Android configuration import path
@@ -40,9 +39,23 @@ Implemented and tested:
 - Android transport boundary that sends only the serialized envelope;
 - platform-neutral runtime receiver that validates envelope type, version, source, name and byte limit;
 - Core import runtime handoff into the existing kernel-neutral import pipeline;
-- regression coverage for valid envelopes and malformed/oversized input.
+- regression coverage for valid envelopes and malformed/oversized input;
+- Android local-file and one-shot HTTPS subscription imports are Android CI-verified in PR #114 code commit `11e6a8e`. Manual single-node/share-link and configuration-text import is Android CI-verified in `7b3b8b7`.
 
-This milestone establishes the import path contract. It does **not** claim that a kernel has already started from the imported configuration.
+This milestone establishes the import and handoff contracts. A separate Android-only encrypted local Profile MVP is now implemented and CI-verified; this does not claim that every valid Core intent is executable or that profiles sync across devices.
+
+### Android encrypted local Profiles MVP
+
+Implemented and verified by GitHub Actions for PR #114 commit `04da7d6`:
+
+- Explicit local save, list, select, rename and confirmed delete for up to 20 profiles, with a 5 MiB configuration limit per profile.
+- Profile names, active index and configuration bodies use AES-GCM authenticated encryption with a non-exportable Android Keystore AES-256 key; ciphertext is stored in `noBackupFilesDir` and is not uploaded, synced or included in device backup.
+- Startup restoration and every profile selection re-enter the Core import/validation pipeline. A failed or unavailable key, corrupt ciphertext or invalid Core result does not silently reset or start a profile.
+- Profile mutations, imports and VPN start are serialized; profile changes are blocked while VPN execution or cleanup is active.
+- JVM regression tests cover CRUD, limits, tampering, corrupt indexes and plaintext absence. One emulator instrumentation test verifies non-exportable Keystore key material, persistence, AES-GCM tamper rejection and CRUD.
+- The complete PR check set finished with 23 successful, 1 conditionally skipped and 0 failed checks. See [PR #114](https://github.com/angelacoke/AngelaNexus/pull/114) and the [Android build run](https://github.com/angelacoke/AngelaNexus/actions/runs/38020683132).
+
+This is Android device-local persistence, not account/cloud synchronization or backup. It has not received an independent security audit and does not establish physical-device networking behavior.
 
 ### Android transparent/root networking baseline
 
@@ -57,16 +70,20 @@ Implemented and tested at the contract/integration level:
 
 Real-device traffic interception remains a separate verification requirement and is not marked complete without reproducible device evidence.
 
-### Android execution-state bridge
+### Android execution-state bridge and launch gate
 
 Implemented in source with regression coverage:
 
 - stable kernel-neutral execution phases from import receipt through start, running, stop and failure;
-- platform control-plane state object carrying the selected kernel identifier and failure detail;
-- listener-based state publication for UI/runtime integration;
-- explicit rejection of blank kernel identifiers and failure details.
+- process-wide `StateFlow` publication so the VPN service reports lifecycle facts and the UI observes them;
+- complete Core handoff validation: selected kernel, configuration and canonical routing execution intent are all required;
+- launch gate restricted to the currently executable `proxy` mode and a registered Android driver (`mihomo`, `sing-box` or `xray`); valid `direct`, `reject`, `chain` and `dns` intents remain inspectable but cannot be started or silently reinterpreted as proxy;
+- one-shot, in-memory handoff token; the configuration is not placed in the Android service Intent or written as a plaintext handoff cache;
+- verified-stop requirement: if native cleanup fails, the UI stays fail-closed and offers a cleanup retry instead of allowing reconnection;
+- regression coverage for lifecycle transitions, cleanup failure, supported/unsupported intents and one-shot token consumption.
+- VPN Service startup, native/TUN attachment, stop, revocation and destruction—including required HTTPS traffic acceptance—run on a single serial worker; foreground notification promotion remains synchronous, STOP cancels an in-flight probe, and canceled starts cannot publish Running.
 
-This is an executable control-plane milestone. It does **not** claim that a Mihomo/sing-box/Xray runtime is already embedded or running.
+The Android CI workflow runs JVM unit tests, assembles a debug APK, and installs/launches the app in an Android emulator. The smoke test proves that the APK and launcher activity start and the process remains alive; it does **not** prove physical-device TUN traffic or successful end-to-end proxying. PR #114 code commit `7acf919` passed 21 checks, with 1 workflow-policy skip and 0 failures. In the push run, Android unit tests, Debug APK, emulator runtime smoke, signed Release APK/AAB assembly, and artifact/signature verification all passed; the PR run's Android unit tests, Debug APK and emulator smoke also passed, while its Release job was skipped by policy. See the [push run](https://github.com/angelacoke/AngelaNexus/actions/runs/38045207635) and [PR run](https://github.com/angelacoke/AngelaNexus/actions/runs/38045209664). This CI evidence does not prove physical-device VPN consent, TUN traffic, or end-to-end proxying.
 
 ### Android Mihomo native runtime boundary
 
@@ -78,10 +95,10 @@ Implemented and CI-verified:
 - reproducible `c-shared` build with version metadata pinned to `v1.19.32`;
 - SHA-256-pinned native artifacts for all three supported ABIs;
 - verified JNI loading boundary that refuses missing or hash-mismatched native artifacts;
-- dedicated Android packaging workflow that downloads only the verified artifacts, packages `libclash.so` plus the AngelaNexus JNI shim, and verifies the final APK contents and hashes;
-- signed Mihomo-enabled APK/AAB artifact successfully produced by CI.
+- a dedicated Android packaging workflow exists and requires approved distribution, license, provenance and naming gates before embedding Mihomo;
+- the current compliance manifest still marks distribution `blocked` and all three reviews `required`; the latest main-branch run skipped the release-package job and uploaded no APK/AAB.
 
-The native core is now actually present in the dedicated Mihomo-enabled Android release artifact. This does **not** claim successful end-to-end TUN traffic on a physical Android device.
+The per-ABI native libraries are build-verified CI artifacts, **not** an approved Android app distribution. The normal Android build keeps a dedicated Mihomo approval flag false; only the release-package job behind the compliance gate passes that flag, and runtime availability also checks the installed library's pinned SHA-256. PR #114 commit `0bc64db` passed CI (23 successful checks, 1 skipped, 0 failed/pending), including Android unit tests, Debug APK assembly, emulator smoke, and one connected instrumentation test. No physical-device TUN or end-to-end proxy traffic is claimed.
 
 ### Modern modular UI baseline
 
@@ -90,9 +107,16 @@ Implemented on Android as the first platform surface:
 - Jetpack Compose + Material 3 foundation.
 - System light/dark theme support and Android dynamic colors.
 - Five-module navigation: Home / Profiles / Proxies / Rules / Settings.
-- Compact card-based dashboard with AngelaNexus-specific information architecture.
-- Explicit Core, VPN, routing, anti-leak and GFW status surfaces.
-- Responsive semantic component structure intended for phone/tablet/desktop adaptation.
+- Home connection controls and runtime phase are driven by the Android service state, not by fabricated traffic values.
+- Profiles shows Core import results and explicit-save, device-local encrypted profile management; configuration input supports local files, one-shot HTTPS subscription URLs, and manually pasted single-node/share-link/configuration text. The app does not read the clipboard automatically, auto-save imports, or sync profiles to the cloud.
+- Proxies shows Core-detected node count, kernel binding and up to 100 bounded, credential-free node summaries (name, protocol, server and port). A truncated preview is identified explicitly; summaries are read-only and do not provide live proxy selection.
+- The Android parser enforces the exact summary-field allowlist, string bounds, item cap and truncation consistency. The Node suite (1,015 tests) and Android Core bundle build pass locally. PR #114 commit `4571b2e` passed GitHub Actions with 18 successful checks, 1 skipped and 0 failed, including Android JVM tests, Debug APK assembly and emulator smoke.
+- Compose observes the process-wide runtime `StateFlow` with lifecycle-aware collection and resumes from its current value when the Activity returns to the foreground. This does not auto-start or reconnect the VPN; physical-device background, Doze and network-transition behavior remain unverified.
+- The upstream sync check now handles GitHub's bounded compare-file response and passes; no production kernel pin was changed (`sing-box` remains `1.14.2`).
+- Rules shows a parsed Core routing-intent preview for inspection only; it does not claim the intent is active or that effective runtime rules have been reported.
+- Traffic, effective routing, anti-leak and GFW status are explicitly labeled unreported or unverified unless the active runtime supplies evidence.
+- The Android shell keeps bottom navigation in compact windows and switches to a labeled Material 3 navigation rail at 600 dp or wider; the selected destination survives Activity recreation. The breakpoint has JVM regression coverage.
+- Tablet/desktop content adaptation beyond the navigation shell remains pending.
 - UI design specification in `docs/APP_UI_DESIGN.md`.
 
 The long-term UI implementation will move common semantics and reusable UI into the shared multiplatform layer. Android-only APIs remain in the Android shell.
@@ -115,11 +139,11 @@ This is a data-contract milestone, **not** a claim that the cloud account servic
 
 ## Not yet claimed as production functionality
 
-- The standard Android shell release is not yet the final Mihomo-enabled production release; the dedicated Mihomo-enabled release artifact is the current verified native packaging path.
-- The imported configuration is not yet automatically compiled, bound to the selected kernel, and launched through the Android VPN lifecycle.
-- Physical-device TUN establishment and end-to-end proxy traffic interception are not yet verified evidence.
-- The UI is not yet backed by the complete Core execution state stream.
-- No production Android background lifecycle, notification channel, secure storage, or battery policy integration is claimed yet.
+- Physical-device TUN establishment and end-to-end proxy traffic interception are not yet verified. The emulator smoke test only launches the app; it does not exercise VPN consent, TUN setup, or real traffic.
+- One-shot HTTPS subscription import is implemented and Android CI-verified in code commit `11e6a8e`; manual pasted text for single-node/share links and configuration text is Android CI-verified in `7b3b8b7`. Live proxy selection, effective runtime rules, live traffic counters and verified DNS/IPv6/leak status remain unavailable. Node summaries are an import preview, not live runtime state.
+- Android encrypted local Profiles are implemented and emulator-verified, but there is no account sync, profile export/backup, cross-device conflict/recovery or independent security audit.
+- The UI observes Android VPN lifecycle phases, but it is not yet backed by a complete Core execution/telemetry stream.
+- Active VPN session recovery after process/device restart, background and battery behavior remain unverified; saved Profile restoration does not auto-start the VPN, and a foreground-service notification channel is not proof of production lifecycle readiness.
 - Production cloud authentication/storage/sync service is not yet implemented.
 - iOS, Windows, macOS and Linux executable application shells are not yet claimed as implemented.
 
@@ -129,13 +153,14 @@ This is a data-contract milestone, **not** a claim that the cloud account servic
 2. Establish account/sync/backup contracts and security boundaries. **Done at Core contract level.**
 3. Extract reusable UI into the multiplatform UI layer without leaking platform APIs.
 4. Implement account authentication and cloud data service behind a platform-neutral service contract.
-5. Connect Android configuration import to the kernel-neutral import pipeline. **Done at contract + automated-test level.**
-6. Complete Android execution-state bridge and one verified kernel runtime. **Execution-state bridge implemented; Mihomo v1.19.32 native build, hash verification, JNI packaging and signed APK/AAB packaging are verified; physical-device runtime/traffic verification remains.**
-7. Establish Desktop JVM application shell shared by Windows/macOS/Linux.
-8. Establish iOS application entry point and Network Extension boundary.
-9. Add platform-specific secure storage, background lifecycle, notifications, network state and resource-policy adapters.
-10. Integrate Mihomo/sing-box/Xray per platform only after adapter-level verification.
-11. Add device/OS regression verification and release packaging for every target.
+5. Connect Android local, HTTPS subscription and manual text imports to the kernel-neutral pipeline. **Local-file and HTTPS paths are Android CI-verified in `11e6a8e`; manual text import is CI-verified in `7b3b8b7`.**
+6. Implement Android lifecycle controls and a validated Core-to-VPN handoff. **PR #114 commit `7acf919` passed 21 checks (1 workflow-policy skip, 0 failures), including Android tests, Debug APK and emulator smoke; the push run also verified signed Release artifacts. Lifecycle work now runs on a serial background worker with cancellable traffic acceptance. Physical-device TUN and traffic verification remains.**
+7. Add Android-only encrypted local Profile persistence with Core revalidation. **Implemented and CI-verified in PR #114; cloud sync and device backup remain out of scope.**
+8. Establish Desktop JVM application shell shared by Windows/macOS/Linux.
+9. Establish iOS application entry point and Network Extension boundary.
+10. Add platform-specific secure storage, background lifecycle, notifications, network state and resource-policy adapters.
+11. Integrate Mihomo/sing-box/Xray per platform only after adapter-level verification.
+12. Add device/OS regression verification and release packaging for every target.
 
 ## Evidence rule
 

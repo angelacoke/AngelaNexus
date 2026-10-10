@@ -72,6 +72,12 @@ The home screen remains compact:
 
 The connection card must never claim active proxy traffic until the Core reports an active execution state.
 
+The connection workflow must preserve the same evidence boundary:
+- Start is an explicit user action and is enabled only when Core returns a complete, valid platform handoff.
+- Stop remains available while the runtime is starting or running; if cleanup cannot be verified, reconnect stays blocked until cleanup succeeds.
+- A measured zero is different from unavailable telemetry. Never display hard-coded zero traffic as a live measurement.
+- Routing, anti-leak, DNS and GFW status must be labeled unreported or unverified until the runtime exposes evidence for them.
+
 ## Configuration UX
 
 The user can provide:
@@ -81,6 +87,27 @@ The user can provide:
 - multiple nodes, including mixed formats.
 
 The UI hands input to the Core import/sniffing pipeline and does not require manual kernel selection when Core detection is available.
+
+### Android one-shot HTTPS subscription import
+
+- A subscription URL is fetched only after an explicit user action. Only HTTPS is accepted; the app does not enable cleartext HTTP traffic.
+- The URL is held in memory for the request only and is not sent to Core, persisted, or logged. The downloaded content is passed to Core with the `subscription-url` source classification for canonical parsing and validation.
+- Download redirects, connection/read timeouts and the 5 MiB response limit are enforced. A failed download or Core validation leaves the previous in-memory import unchanged.
+- This is a manual import, not a subscription manager: no URL is saved and no automatic refresh is scheduled. Single-node/share links are supported through the separate manual text-import field below.
+
+### Android manual text and single-node import
+
+- Pasted content is sent to Core with the `text` source classification; Core owns format sniffing, parsing, validation and kernel binding. Android does not parse node credentials or select a backend.
+- Paste must be initiated by the user in the text field. The app does not access the clipboard programmatically or read it automatically. The field is session-only and clears on submit; the resulting import stays temporary until explicitly saved as a local Profile.
+- UTF-8 text is limited to 5 MiB. Blank or oversized input is rejected, and a failed import leaves the previous in-memory result unchanged.
+
+### Android local Profile persistence
+
+- An imported configuration is temporary until the user explicitly saves it as a local Profile.
+- Saved names, selection metadata and Core configuration are authenticated-encrypted with an Android Keystore key and stored outside device backup. This MVP does not upload or synchronize profile contents.
+- Startup restoration and every Profile selection must re-enter Core import/validation; a saved file is not proof that its configuration remains valid or executable.
+- Profile editing, deletion and switching are disabled while VPN execution or cleanup is active. Deletion requires explicit confirmation.
+- This Android storage boundary does not redefine the cross-platform shared Profile model; future synchronization must use an explicit schema and field-level data classification.
 
 ## Backup/restore UX
 
@@ -97,7 +124,15 @@ Restore order:
 
 ## Proxy UX
 
-Proxy views are kernel-neutral. Common node fields are always available; kernel-specific capabilities are optional details. Chain composition is represented as a graph/list of outbound stages rather than fixed role names.
+Proxy views are kernel-neutral. Common node fields are exposed when Core can safely project them; kernel-specific capabilities are optional details. Chain composition is represented as a graph/list of outbound stages rather than fixed role names.
+
+### Android import preview boundary
+
+- The Android Proxies screen may show only the bounded, credential-free Core node summary fields: name, protocol, server and port.
+- The Core projection is display-only and must not be used to select a node, compile a route or imply that a proxy is active.
+- If Core omits node details, the UI says they were not provided. If Core truncates the list, the UI identifies the shown count and total; it must not imply that the preview is complete.
+- Credentials, tokens, UUIDs and other configuration secrets must never be copied into node-summary UI data.
+- Live selection, health, latency and traffic remain unavailable until independently implemented and verified.
 
 ## Rules UX
 

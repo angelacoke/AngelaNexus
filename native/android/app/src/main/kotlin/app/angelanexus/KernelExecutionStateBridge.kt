@@ -2,12 +2,12 @@ package app.angelanexus
 
 /**
  * Small executable control-plane bridge between Core orchestration and a
- * platform kernel runtime.
+ * Android VPN service and UI.
  *
  * It deliberately does not choose a kernel or parse configuration. The caller
  * supplies the selected kernel identifier after Core has resolved the import.
- * A future native/process adapter can use this bridge without changing the UI
- * state contract.
+ * It keeps platform execution state separate from routing policy and exposes one
+ * contract for the service lifecycle and the UI.
  */
 class KernelExecutionStateBridge(
     initialState: KernelExecutionState = KernelExecutionState(),
@@ -23,7 +23,10 @@ class KernelExecutionStateBridge(
     }
 
     fun markImportReceived() {
-        transition(KernelExecutionPhase.IMPORT_RECEIVED)
+        check(!currentState.cleanupRequired) {
+            "cannot import a new configuration while runtime cleanup is unverified"
+        }
+        transition(KernelExecutionPhase.IMPORT_RECEIVED, cleanupRequired = false)
     }
 
     fun beginResolution() {
@@ -32,28 +35,57 @@ class KernelExecutionStateBridge(
 
     fun markReady(kernelId: String) {
         require(kernelId.isNotBlank()) { "kernelId must not be blank" }
-        transition(KernelExecutionPhase.READY, kernelId = kernelId, detail = null)
+        transition(
+            KernelExecutionPhase.READY,
+            kernelId = kernelId,
+            detail = null,
+            cleanupRequired = false,
+        )
     }
 
     fun beginStart(kernelId: String? = currentState.kernelId) {
-        transition(KernelExecutionPhase.STARTING, kernelId = kernelId)
+        check(!currentState.cleanupRequired) {
+            "cannot start a new runtime while cleanup is unverified"
+        }
+        transition(
+            KernelExecutionPhase.STARTING,
+            kernelId = kernelId,
+            detail = null,
+            cleanupRequired = false,
+        )
     }
 
     fun markRunning(kernelId: String? = currentState.kernelId) {
-        transition(KernelExecutionPhase.RUNNING, kernelId = kernelId, detail = null)
+        transition(
+            KernelExecutionPhase.RUNNING,
+            kernelId = kernelId,
+            detail = null,
+            cleanupRequired = false,
+        )
     }
 
     fun beginStop() {
-        transition(KernelExecutionPhase.STOPPING)
+        if (currentState.phase != KernelExecutionPhase.STOPPING) {
+            transition(KernelExecutionPhase.STOPPING)
+        }
     }
 
     fun markStopped() {
-        transition(KernelExecutionPhase.STOPPED)
+        transition(KernelExecutionPhase.STOPPED, cleanupRequired = false)
     }
 
-    fun markFailure(detail: String, kernelId: String? = currentState.kernelId) {
+    fun markFailure(
+        detail: String,
+        kernelId: String? = currentState.kernelId,
+        cleanupRequired: Boolean = false,
+    ) {
         require(detail.isNotBlank()) { "detail must not be blank" }
-        transition(KernelExecutionPhase.FAILED, kernelId = kernelId, detail = detail)
+        transition(
+            KernelExecutionPhase.FAILED,
+            kernelId = kernelId,
+            detail = detail,
+            cleanupRequired = cleanupRequired,
+        )
     }
 
     fun reset() {
@@ -65,6 +97,7 @@ class KernelExecutionStateBridge(
         phase: KernelExecutionPhase,
         kernelId: String? = currentState.kernelId,
         detail: String? = currentState.detail,
+        cleanupRequired: Boolean = currentState.cleanupRequired,
     ) {
         check(isTransitionAllowed(currentState.phase, phase)) {
             "invalid kernel execution state transition: " +
@@ -74,6 +107,7 @@ class KernelExecutionStateBridge(
             phase = phase,
             kernelId = kernelId,
             detail = detail,
+            cleanupRequired = cleanupRequired,
         )
         notifyState()
     }
@@ -85,6 +119,7 @@ class KernelExecutionStateBridge(
         return when (from) {
             KernelExecutionPhase.IDLE ->
                 to == KernelExecutionPhase.IMPORT_RECEIVED ||
+                    to == KernelExecutionPhase.STARTING ||
                     to == KernelExecutionPhase.FAILED
             KernelExecutionPhase.IMPORT_RECEIVED ->
                 to == KernelExecutionPhase.RESOLVING ||
@@ -108,9 +143,14 @@ class KernelExecutionStateBridge(
                     to == KernelExecutionPhase.FAILED
             KernelExecutionPhase.STOPPED ->
                 to == KernelExecutionPhase.IMPORT_RECEIVED ||
+                    to == KernelExecutionPhase.STARTING ||
                     to == KernelExecutionPhase.IDLE
             KernelExecutionPhase.FAILED ->
                 to == KernelExecutionPhase.IMPORT_RECEIVED ||
+                    to == KernelExecutionPhase.STARTING ||
+                    to == KernelExecutionPhase.STOPPING ||
+                    to == KernelExecutionPhase.STOPPED ||
+                    to == KernelExecutionPhase.FAILED ||
                     to == KernelExecutionPhase.IDLE
         }
     }

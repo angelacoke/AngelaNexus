@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "runtime": {
+    "kernel": "sing-box",
+    "version": "1.14.2",
+    "platform": "android",
+    "abis": ["arm64-v8a", "armeabi-v7a", "x86_64"],
+    "linkage": "embedded",
+    "artifacts": ["libbox.aar", "libbox-legacy.aar"]
+  },
+  "declaredLicense": "GPL-3.0-or-later, with an additional upstream name/association restriction",
+  "distributionStatus": "blocked",
+  "licenseReview": {
+    "status": "required",
+    "reason": "The pinned sing-box Android AARs are embedded in the Apache-2.0 AngelaNexus app. A distribution/linkage compatibility review and complete notices/source obligations for the exact shipped artifacts have not been approved. This is an engineering gate, not legal advice."
+  },
+  "provenanceReview": {
+    "status": "required",
+    "reason": "The source tag and commit are pinned, but the per-ABI AAR hashes, reproducible build record, resolved dependency SBOM, and release provenance have not been approved as a distributable runtime contract."
+  },
+  "namingCompliance": {
+    "status": "required",
+    "reason": "The LICENSE at the pinned upstream tag states that derivative works may not use the product name or imply association without prior consent. The exact AngelaNexus product/UI/release naming has not been reviewed or approved against that condition."
+  },
+  "source": {
+    "repository": "https://github.com/SagerNet/sing-box",
+    "tag": "v1.14.2",
+    "pinnedCommit": "af6e64c3b69e6132ebaee0e1a3d24e93903f6709",
+    "releaseStatus": "stable",
+    "goVersion": "1.25.5",
+    "gomobileVersion": "v0.1.12"
+  },
+  "policy": {
+    "failClosed": true,
+    "noSilentFallback": true,
+    "runtimeContract": {
+      "requiresDistributionApproval": true,
+      "requiresLicenseReviewApproval": true,
+      "requiresProvenanceApproval": true,
+      "requiresNamingComplianceApproval": true
+    }
+  }
+}

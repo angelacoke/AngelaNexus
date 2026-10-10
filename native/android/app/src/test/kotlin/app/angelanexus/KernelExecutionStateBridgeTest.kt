@@ -27,6 +27,21 @@ class KernelExecutionStateBridgeTest {
     }
 
     @Test
+    fun vpnServiceCanStartFromIdleAndReconnectAfterVerifiedStop() {
+        val bridge = KernelExecutionStateBridge()
+
+        bridge.beginStart("mihomo")
+        bridge.markRunning()
+        bridge.beginStop()
+        bridge.markStopped()
+        bridge.beginStart("mihomo")
+
+        assertEquals(KernelExecutionPhase.STARTING, bridge.state().phase)
+        assertEquals("mihomo", bridge.state().kernelId)
+        assertEquals(false, bridge.state().cleanupRequired)
+    }
+
+    @Test
     fun invalidLifecycleTransitionsAreRejected() {
         val bridge = KernelExecutionStateBridge()
 
@@ -85,6 +100,29 @@ class KernelExecutionStateBridgeTest {
         assertEquals(KernelExecutionPhase.FAILED, bridge.state().phase)
         assertEquals("mihomo", bridge.state().kernelId)
         assertEquals("native runtime unavailable", bridge.state().detail)
+    }
+
+    @Test
+    fun cleanFailureCanBeRetriedButUnverifiedCleanupMustBeRetriedFirst() {
+        val cleanFailure = KernelExecutionStateBridge()
+        cleanFailure.markFailure("runtime failed", "mihomo")
+        cleanFailure.beginStart("mihomo")
+        assertEquals(KernelExecutionPhase.STARTING, cleanFailure.state().phase)
+
+        val cleanupFailure = KernelExecutionStateBridge()
+        cleanupFailure.markFailure("stop failed", "mihomo", cleanupRequired = true)
+        assertFailsWith<IllegalStateException> {
+            cleanupFailure.beginStart("mihomo")
+        }
+
+        cleanupFailure.beginStop()
+        cleanupFailure.markFailure("stop still failed", "mihomo", cleanupRequired = true)
+        cleanupFailure.beginStop()
+        cleanupFailure.markStopped()
+        cleanupFailure.beginStart("mihomo")
+
+        assertEquals(KernelExecutionPhase.STARTING, cleanupFailure.state().phase)
+        assertEquals(false, cleanupFailure.state().cleanupRequired)
     }
 
     @Test

@@ -6,9 +6,16 @@ plugins {
 
 import java.util.Base64
 
+val mihomoDistributionApproved =
+    providers.gradleProperty("angelanexus.mihomoDistributionApproved").orNull == "true"
+
 android {
     namespace = "app.angelanexus"
     compileSdk = 35
+
+    buildFeatures {
+        buildConfig = true
+    }
 
     defaultConfig {
         applicationId = "app.angelanexus"
@@ -16,6 +23,8 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("boolean", "MIHOMO_DISTRIBUTION_APPROVED", mihomoDistributionApproved.toString())
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
@@ -89,6 +98,7 @@ dependencies {
     implementation(files("libs/libXray.aar"))
     implementation(files("libs/libbox.aar"))
     implementation("androidx.activity:activity-compose:1.10.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.javascriptengine:javascriptengine:1.1.1")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
@@ -97,6 +107,8 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation(kotlin("test"))
     testImplementation("org.json:json:20250517")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }
 
 kotlin {

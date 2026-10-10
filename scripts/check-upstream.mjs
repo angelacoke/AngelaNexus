@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { UpstreamKernelRegistry } from "../src/core/kernel-registry.js";
 import { createKernelUpdateCandidate } from "../src/core/kernel-update-manager.js";
 import { selectReleaseChannels, summarizeRelease } from "../src/core/upstream-release.js";
+import { normalizeGitHubComparisonFiles } from "./upstream-compare.js";
 
 const args = process.argv.slice(2);
 const propose = args.includes("--propose");
@@ -58,30 +59,10 @@ async function compareRelease(entry, configured, upstream) {
     return { files: [], truncated: false };
   }
 
-  const files = [];
-  const perPage = 100;
-  for (let page = 1; page <= 10; page += 1) {
-    const result = await github(
-      `https://api.github.com/repos/${entry.repository}/compare/v${encodeURIComponent(configured)}...v${encodeURIComponent(upstream)}?per_page=${perPage}&page=${page}`
-    );
-    if (!Array.isArray(result.files)) {
-      throw new Error(entry.repository + ": upstream comparison returned no file list");
-    }
-
-    files.push(...result.files.map(file => ({
-      filename: file.filename,
-      status: file.status,
-      additions: file.additions,
-      deletions: file.deletions,
-      changes: file.changes
-    })));
-
-    if (result.files.length < perPage) {
-      return { files, truncated: false };
-    }
-  }
-
-  return { files, truncated: true };
+  const result = await github(
+    `https://api.github.com/repos/${entry.repository}/compare/v${encodeURIComponent(configured)}...v${encodeURIComponent(upstream)}?per_page=100`
+  );
+  return normalizeGitHubComparisonFiles(entry.repository, result);
 }
 
 function replaceStable(source, kernel, version) {
@@ -116,7 +97,7 @@ for (const [kernel, entry] of Object.entries(UpstreamKernelRegistry)) {
   const release = channels.stable;
   const comparison = await compareRelease(entry, entry.stable, release.tag);
   if (comparison.truncated) {
-    throw new Error(kernel + ": upstream comparison exceeded pagination safety bound; refusing incomplete impact analysis");
+    throw new Error(kernel + ": GitHub comparison file limit reached; refusing incomplete impact analysis");
   }
   const changedFiles = comparison.files;
   const candidate = createKernelUpdateCandidate({
