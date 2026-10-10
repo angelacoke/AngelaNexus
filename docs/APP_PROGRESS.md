@@ -42,7 +42,20 @@ Implemented and tested:
 - regression coverage for valid envelopes and malformed/oversized input;
 - Android UI support for local files only; subscription URLs and single-node links are not available in the current Android UI.
 
-This milestone establishes the import and handoff contracts. It does not claim that every valid Core intent is executable on Android, or that imported profiles are durably stored across process restarts.
+This milestone establishes the import and handoff contracts. A separate Android-only encrypted local Profile MVP is now implemented and CI-verified; this does not claim that every valid Core intent is executable or that profiles sync across devices.
+
+### Android encrypted local Profiles MVP
+
+Implemented and verified by GitHub Actions for PR #114 commit `04da7d6`:
+
+- Explicit local save, list, select, rename and confirmed delete for up to 20 profiles, with a 5 MiB configuration limit per profile.
+- Profile names, active index and configuration bodies use AES-GCM authenticated encryption with a non-exportable Android Keystore AES-256 key; ciphertext is stored in `noBackupFilesDir` and is not uploaded, synced or included in device backup.
+- Startup restoration and every profile selection re-enter the Core import/validation pipeline. A failed or unavailable key, corrupt ciphertext or invalid Core result does not silently reset or start a profile.
+- Profile mutations, imports and VPN start are serialized; profile changes are blocked while VPN execution or cleanup is active.
+- JVM regression tests cover CRUD, limits, tampering, corrupt indexes and plaintext absence. One emulator instrumentation test verifies non-exportable Keystore key material, persistence, AES-GCM tamper rejection and CRUD.
+- The complete PR check set finished with 23 successful, 1 conditionally skipped and 0 failed checks. See [PR #114](https://github.com/angelacoke/AngelaNexus/pull/114) and the [Android build run](https://github.com/angelacoke/AngelaNexus/actions/runs/38020683132).
+
+This is Android device-local persistence, not account/cloud synchronization or backup. It has not received an independent security audit and does not establish physical-device networking behavior.
 
 ### Android transparent/root networking baseline
 
@@ -94,7 +107,7 @@ Implemented on Android as the first platform surface:
 - System light/dark theme support and Android dynamic colors.
 - Five-module navigation: Home / Profiles / Proxies / Rules / Settings.
 - Home connection controls and runtime phase are driven by the Android service state, not by fabricated traffic values.
-- Profiles shows the imported Core result; the current Android UI imports local files only.
+- Profiles shows Core import results and explicit-save, device-local encrypted profile management; configuration input remains local-file-only and is not cloud-synced.
 - Proxies shows Core-detected node count and kernel binding; live node listings and selector controls are not connected.
 - Rules shows a parsed Core routing-intent preview for inspection only; it does not claim the intent is active or that effective runtime rules have been reported.
 - Traffic, effective routing, anti-leak and GFW status are explicitly labeled unreported or unverified unless the active runtime supplies evidence.
@@ -123,9 +136,9 @@ This is a data-contract milestone, **not** a claim that the cloud account servic
 
 - Physical-device TUN establishment and end-to-end proxy traffic interception are not yet verified. The emulator smoke test only launches the app; it does not exercise VPN consent, TUN setup, or real traffic.
 - Subscription URLs, single-node links, live proxy selection, effective runtime rules, live traffic counters and verified DNS/IPv6/leak status are not connected in the Android UI.
-- Durable profile persistence and production-grade at-rest protection for imported configurations are not yet implemented.
+- Android encrypted local Profiles are implemented and emulator-verified, but there is no account sync, profile export/backup, cross-device conflict/recovery or independent security audit.
 - The UI observes Android VPN lifecycle phases, but it is not yet backed by a complete Core execution/telemetry stream.
-- Production-grade process restart/recovery, background and battery behavior remain unverified; the existence of a foreground-service notification channel is not a claim of production lifecycle readiness.
+- Active VPN session recovery after process/device restart, background and battery behavior remain unverified; saved Profile restoration does not auto-start the VPN, and a foreground-service notification channel is not proof of production lifecycle readiness.
 - Production cloud authentication/storage/sync service is not yet implemented.
 - iOS, Windows, macOS and Linux executable application shells are not yet claimed as implemented.
 
@@ -137,11 +150,12 @@ This is a data-contract milestone, **not** a claim that the cloud account servic
 4. Implement account authentication and cloud data service behind a platform-neutral service contract.
 5. Connect Android local configuration import to the kernel-neutral import pipeline. **Done at contract + automated-test level.**
 6. Implement Android lifecycle controls and a validated Core-to-VPN handoff. **Source and regression coverage are in PR #114; automated CI verifies Android tests, debug APK launch and pinned native-kernel builds. Physical-device TUN and traffic verification remains.**
-7. Establish Desktop JVM application shell shared by Windows/macOS/Linux.
-8. Establish iOS application entry point and Network Extension boundary.
-9. Add platform-specific secure storage, background lifecycle, notifications, network state and resource-policy adapters.
-10. Integrate Mihomo/sing-box/Xray per platform only after adapter-level verification.
-11. Add device/OS regression verification and release packaging for every target.
+7. Add Android-only encrypted local Profile persistence with Core revalidation. **Implemented and CI-verified in PR #114; cloud sync and device backup remain out of scope.**
+8. Establish Desktop JVM application shell shared by Windows/macOS/Linux.
+9. Establish iOS application entry point and Network Extension boundary.
+10. Add platform-specific secure storage, background lifecycle, notifications, network state and resource-policy adapters.
+11. Integrate Mihomo/sing-box/Xray per platform only after adapter-level verification.
+12. Add device/OS regression verification and release packaging for every target.
 
 ## Evidence rule
 
