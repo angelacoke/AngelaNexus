@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/xray-android-native-build.yml"
       - "docs/upstream/XRAY_ANDROID_RUNTIME_COMPLIANCE.json"
+      - "scripts/build-android-kernel-aars.sh"
       - "native/android/xray-bridge/**"
       - "native/android/app/src/main/kotlin/app/angelanexus/XrayRuntime*.kt"
       - "native/android/app/src/main/kotlin/app/angelanexus/XrayAndroidKernelDriver.kt"
@@ -19,21 +20,9 @@ permissions:
 
 jobs:
   build:
-    name: Verify native Xray runtime build (${{ matrix.abi }})
+    name: Verify native Xray runtime build
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - abi: arm64-v8a
-            goarch: arm64
-            cc: aarch64-linux-android24-clang
-          - abi: armeabi-v7a
-            goarch: arm
-            cc: armv7a-linux-androideabi24-clang
-          - abi: x86_64
-            goarch: amd64
-            cc: x86_64-linux-android24-clang
+    timeout-minutes: 60
 
     steps:
       - name: Checkout AngelaNexus
@@ -70,10 +59,9 @@ jobs:
           git -C "$RUNNER_TEMP/libXray" fetch origin "$LIBXRAY_COMMIT"
           git -C "$RUNNER_TEMP/libXray" checkout --detach "$LIBXRAY_COMMIT"
           test "$(git -C "$RUNNER_TEMP/libXray" rev-parse HEAD)" = "$LIBXRAY_COMMIT"
-          test -d "$RUNNER_TEMP/libXray"
           git -C "$RUNNER_TEMP/libXray" rev-parse HEAD
 
-      - name: Build Android libXray
+      - name: Build Android libXray in this runner only
         shell: bash
         working-directory: ${{ runner.temp }}/libXray
         env:
@@ -85,42 +73,40 @@ jobs:
           python3 build/main.py android
           test -s libXray.aar
           mkdir -p "$RUNNER_TEMP/xray"
-          cp libXray.aar "$RUNNER_TEMP/xray/libXray-${{ matrix.abi }}.aar"
+          cp libXray.aar "$RUNNER_TEMP/xray/libXray.aar"
 
-      - name: Verify artifact and provenance
+      - name: Verify temporary AAR and record unresolved build inputs
         shell: bash
+        env:
+          LIBXRAY_COMMIT: "3c694b23290f9849fe52284a345ebd4343bc90cd"
         run: |
           set -euo pipefail
-          ARTIFACT="$RUNNER_TEMP/xray/libXray-${{ matrix.abi }}.aar"
+          ARTIFACT="$RUNNER_TEMP/xray/libXray.aar"
           test -s "$ARTIFACT"
           unzip -t "$ARTIFACT" >/dev/null
           SHA256="$(sha256sum "$ARTIFACT" | awk '{print $1}')"
           SOURCE_HEAD="$(git -C "$RUNNER_TEMP/libXray" rev-parse HEAD)"
-          test -n "$SOURCE_HEAD"
+          test "$SOURCE_HEAD" = "$LIBXRAY_COMMIT"
           python3 - <<PY
           import json
           from pathlib import Path
-          out = Path("$RUNNER_TEMP/xray/libxray-provenance-${{ matrix.abi }}.json")
+          out = Path("$RUNNER_TEMP/xray/libxray-provenance.json")
           out.write_text(json.dumps({
               "version": 1,
               "kernel": "xray",
               "wrapper": {"repository": "https://github.com/XTLS/libXray", "commit": "$SOURCE_HEAD"},
-              "core": {"repository": "https://github.com/XTLS/Xray-core", "version": "pinned by libXray go.mod at build time"},
+              "coreDeclaredByPinnedGoMod": {
+                  "repository": "https://github.com/XTLS/Xray-core",
+                  "moduleVersion": "v1.260327.1-0.20260930074004-b26a91de4f32",
+                  "commit": "b26a91de4f3294e26a0ad0a970b81a386a41f789",
+                  "release": "v26.9.30 pre-release"
+              },
+              "buildResolution": "unverified: upstream builder regenerates go.mod/go.sum, performs unversioned dependency operations, and downloads mutable latest geodata",
               "platform": "android",
-              "abi": "${{ matrix.abi }}",
-              "toolchain": {"go": "$(go version)", "java": "$(printf temurin-17)", "androidNdk": "28.0.13004108"},
-              "artifact": {"name": "libXray-${{ matrix.abi }}.aar", "sha256": "$SHA256"},
-              "isolation": "separate Android process required; libXray must not share a process with another independent Go runtime"
+              "toolchain": {"go": "$(go version)", "java": "temurin-17", "androidNdk": "28.0.13004108"},
+              "artifact": {"name": "libXray.aar", "sha256": "$SHA256"},
+              "distributionStatus": "blocked"
           }, indent=2) + "\n", encoding="utf-8")
           PY
-          cat "$RUNNER_TEMP/xray/libxray-provenance-${{ matrix.abi }}.json"
-
-      - name: Upload verified Xray runtime artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: xray-native-runtime-${{ matrix.abi }}
-          path: |
-            ${{ runner.temp }}/xray/libXray-${{ matrix.abi }}.aar
-            ${{ runner.temp }}/xray/libxray-provenance-${{ matrix.abi }}.json
-          if-no-files-found: error
-          retention-days: 14
+          cat "$RUNNER_TEMP/xray/libxray-provenance.json"
+          echo "No Xray AAR is uploaded or passed to another workflow."
