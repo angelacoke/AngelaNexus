@@ -109,7 +109,7 @@ Implemented on Android as the first platform surface:
 - Home connection controls and runtime phase are driven by the Android service state, not by fabricated traffic values.
 - Profiles shows Core import results and explicit-save, device-local encrypted profile management; configuration input remains local-file-only and is not cloud-synced.
 - Proxies shows Core-detected node count, kernel binding and up to 100 bounded, credential-free node summaries (name, protocol, server and port). A truncated preview is identified explicitly; summaries are read-only and do not provide live proxy selection.
-- The Android parser enforces the exact summary-field allowlist, string bounds, item cap and truncation consistency. The Node suite (1,012 tests) and Android Core bundle build pass locally; Android JVM/build/emulator verification of this incremental UI integration is pending GitHub Actions.
+- The Android parser enforces the exact summary-field allowlist, string bounds, item cap and truncation consistency. The Node suite (1,015 tests) and Android Core bundle build pass locally; Android JVM/build/emulator verification of this incremental UI integration is pending GitHub Actions.
 - Rules shows a parsed Core routing-intent preview for inspection only; it does not claim the intent is active or that effective runtime rules have been reported.
 - Traffic, effective routing, anti-leak and GFW status are explicitly labeled unreported or unverified unless the active runtime supplies evidence.
 - Responsive semantic component structure intended for phone/tablet/desktop adaptation.
