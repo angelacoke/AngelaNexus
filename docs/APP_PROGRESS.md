@@ -40,7 +40,7 @@ Implemented and tested:
 - platform-neutral runtime receiver that validates envelope type, version, source, name and byte limit;
 - Core import runtime handoff into the existing kernel-neutral import pipeline;
 - regression coverage for valid envelopes and malformed/oversized input;
-- Android local-file and one-shot HTTPS subscription imports are Android CI-verified in PR #114 code commit `11e6a8e`. Manual single-node/share-link and configuration-text import is implemented in PR #114 but awaits CI.
+- Android local-file and one-shot HTTPS subscription imports are Android CI-verified in PR #114 code commit `11e6a8e`. Manual single-node/share-link and configuration-text import is Android CI-verified in `7b3b8b7`.
 
 This milestone establishes the import and handoff contracts. A separate Android-only encrypted local Profile MVP is now implemented and CI-verified; this does not claim that every valid Core intent is executable or that profiles sync across devices.
 
@@ -139,7 +139,7 @@ This is a data-contract milestone, **not** a claim that the cloud account servic
 ## Not yet claimed as production functionality
 
 - Physical-device TUN establishment and end-to-end proxy traffic interception are not yet verified. The emulator smoke test only launches the app; it does not exercise VPN consent, TUN setup, or real traffic.
-- One-shot HTTPS subscription import is implemented and Android CI-verified in code commit `11e6a8e`. Manual pasted text for single-node/share links and configuration text is in PR #114 and awaits Android CI. Live proxy selection, effective runtime rules, live traffic counters and verified DNS/IPv6/leak status remain unavailable. Node summaries are an import preview, not live runtime state.
+- One-shot HTTPS subscription import is implemented and Android CI-verified in code commit `11e6a8e`; manual pasted text for single-node/share links and configuration text is Android CI-verified in `7b3b8b7`. Live proxy selection, effective runtime rules, live traffic counters and verified DNS/IPv6/leak status remain unavailable. Node summaries are an import preview, not live runtime state.
 - Android encrypted local Profiles are implemented and emulator-verified, but there is no account sync, profile export/backup, cross-device conflict/recovery or independent security audit.
 - The UI observes Android VPN lifecycle phases, but it is not yet backed by a complete Core execution/telemetry stream.
 - Active VPN session recovery after process/device restart, background and battery behavior remain unverified; saved Profile restoration does not auto-start the VPN, and a foreground-service notification channel is not proof of production lifecycle readiness.
@@ -152,7 +152,7 @@ This is a data-contract milestone, **not** a claim that the cloud account servic
 2. Establish account/sync/backup contracts and security boundaries. **Done at Core contract level.**
 3. Extract reusable UI into the multiplatform UI layer without leaking platform APIs.
 4. Implement account authentication and cloud data service behind a platform-neutral service contract.
-5. Connect Android local, HTTPS subscription and manual text imports to the kernel-neutral pipeline. **Local-file and HTTPS paths are Android CI-verified in `11e6a8e`; manual text import is implemented in this PR and awaits CI.**
+5. Connect Android local, HTTPS subscription and manual text imports to the kernel-neutral pipeline. **Local-file and HTTPS paths are Android CI-verified in `11e6a8e`; manual text import is CI-verified in `7b3b8b7`.**
 6. Implement Android lifecycle controls and a validated Core-to-VPN handoff. **Source and regression coverage are in PR #114; automated CI verifies Android tests, debug APK launch and pinned native-kernel builds. Physical-device TUN and traffic verification remains.**
 7. Add Android-only encrypted local Profile persistence with Core revalidation. **Implemented and CI-verified in PR #114; cloud sync and device backup remain out of scope.**
 8. Establish Desktop JVM application shell shared by Windows/macOS/Linux.
