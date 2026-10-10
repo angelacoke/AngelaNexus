@@ -1,15 +1,29 @@
 package app.angelanexus
 
 /**
- * A Core import is launchable on Android only when it produced the complete,
- * canonical handoff expected by the VPN service. The platform never fills in
- * missing configuration or execution policy on the user's behalf.
+ * A Core import is structurally complete when it produced the canonical
+ * handoff. The platform never fills in missing configuration or execution
+ * policy on the user's behalf.
  */
 internal fun CoreRuntimeImportResult?.hasCompleteAndroidExecutionHandoff(): Boolean {
     val result = this ?: return false
     if (result.kernel.isNullOrBlank() || result.configuration.isNullOrBlank()) return false
     val serializedIntent = result.executionIntentJson ?: return false
     return runCatching { AndroidRoutingExecutionIntent.parse(serializedIntent) }.isSuccess
+}
+
+/**
+ * Android currently executes only proxy-mode intents with a registered
+ * Android kernel driver. Other valid Core intents remain inspectable but cannot
+ * be started through the Android VPN UI until their execution paths exist.
+ */
+internal fun CoreRuntimeImportResult?.hasExecutableAndroidExecutionHandoff(): Boolean {
+    val result = this ?: return false
+    if (!result.hasCompleteAndroidExecutionHandoff()) return false
+    val serializedIntent = result.executionIntentJson ?: return false
+    val intent = runCatching { AndroidRoutingExecutionIntent.parse(serializedIntent) }
+        .getOrNull() ?: return false
+    return intent.mode == "proxy" && AndroidKernelDriverRegistry.supportsProxyExecution(result.kernel)
 }
 
 internal fun canStartAndroidRuntime(
@@ -27,5 +41,5 @@ internal fun canStartAndroidRuntime(
         KernelExecutionPhase.RUNNING,
         KernelExecutionPhase.STOPPING -> false
     }
-    return lifecycleAllowsStart && importResult.hasCompleteAndroidExecutionHandoff()
+    return lifecycleAllowsStart && importResult.hasExecutableAndroidExecutionHandoff()
 }

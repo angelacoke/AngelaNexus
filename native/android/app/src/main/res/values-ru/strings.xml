@@ -5,7 +5,7 @@
     <string name="status_select_config">Выберите файл конфигурации.</string>
     <string name="status_importing_config">Импорт конфигурации и проверка в AngelaNexus Core…</string>
     <string name="status_config_delivered">Core импортировал конфигурацию. Запуск среды выполнения — отдельный шаг.</string>
-    <string name="status_config_not_startable">Core не вернул полный план Android (ядро, конфигурацию и намерение выполнения); запуск VPN отключён.</string>
+    <string name="status_config_not_startable">План Core неполон или среда Android не поддерживает выбранный режим/ядро; запуск VPN отключён.</string>
     <string name="status_core_unavailable">Не удалось импортировать конфигурацию: Core недоступен или файл не прошёл проверку.</string>
     <string name="status_vpn_not_ready">Разрешение VPN не предоставлено. Разрешите VPN-доступ и повторите попытку.</string>
     <string name="status_transparent_unavailable">Системный прозрачный режим недоступен на этом устройстве.</string>
@@ -46,7 +46,7 @@
     <string name="retry_start">Повторить подключение</string>
     <string name="retry_cleanup">Повторить очистку</string>
     <string name="runtime_action_stopping">Остановка…</string>
-    <string name="start_requires_config">Перед подключением импортируйте конфигурацию с проверенной привязкой ядра и планом выполнения.</string>
+    <string name="start_requires_config">Импортируйте полный план Core. Эта сборка Android пока запускает только режим proxy с зарегистрированным ядром.</string>
     <string name="traffic_title">Текущий трафик</string>
     <string name="traffic_idle">Телеметрия трафика ещё не подключена; значения трафика недоступны.</string>
     <string name="route_policy">Политика маршрутизации</string>

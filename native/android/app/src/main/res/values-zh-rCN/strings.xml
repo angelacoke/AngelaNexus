@@ -5,7 +5,7 @@
     <string name="status_select_config">请选择配置文件。</string>
     <string name="status_importing_config">正在导入配置，并由 AngelaNexus Core 进行验证……</string>
     <string name="status_config_delivered">Core 已完成配置导入；启动运行时是独立步骤。</string>
-    <string name="status_config_not_startable">Core 未返回完整的 Android 运行方案（内核、配置和执行意图），已禁用 VPN 启动。</string>
+    <string name="status_config_not_startable">Core 方案不完整，或当前 Android 运行时不支持所选模式/内核；已禁用 VPN 启动。</string>
     <string name="status_core_unavailable">配置导入失败：Core 运行时不可用，或配置未通过验证。</string>
     <string name="status_vpn_not_ready">尚未授予 VPN 权限。请允许 VPN 连接后重试。</string>
     <string name="status_transparent_unavailable">此设备当前无法使用系统透明模式。</string>
@@ -46,7 +46,7 @@
     <string name="retry_start">重试连接</string>
     <string name="retry_cleanup">重试清理</string>
     <string name="runtime_action_stopping">正在停止……</string>
-    <string name="start_requires_config">请先导入包含已验证内核绑定和执行方案的配置，再连接。</string>
+    <string name="start_requires_config">请导入完整的 Core 运行方案。当前 Android 构建仅能启动已注册内核的代理（proxy）模式。</string>
     <string name="traffic_title">实时流量</string>
     <string name="traffic_idle">尚未接入实时流量遥测；当前没有可用流量数值。</string>
     <string name="route_policy">路由策略</string>

@@ -5,7 +5,7 @@
     <string name="status_select_config">Choose a configuration file.</string>
     <string name="status_importing_config">Importing configuration and validating it in AngelaNexus Core…</string>
     <string name="status_config_delivered">Configuration imported by Core. Runtime start is a separate step.</string>
-    <string name="status_config_not_startable">Core did not return a complete Android runtime plan (kernel, configuration, and execution intent); VPN startup is disabled.</string>
+    <string name="status_config_not_startable">The Core plan is incomplete or this Android runtime does not support its selected mode or kernel; VPN startup is disabled.</string>
     <string name="status_core_unavailable">Configuration import failed: Core runtime is unavailable or rejected the file.</string>
     <string name="status_vpn_not_ready">VPN permission was not granted. Allow VPN access and try again.</string>
     <string name="status_transparent_unavailable">System transparent mode is unavailable on this device.</string>
@@ -46,7 +46,7 @@
     <string name="retry_start">Retry connection</string>
     <string name="retry_cleanup">Retry cleanup</string>
     <string name="runtime_action_stopping">Stopping…</string>
-    <string name="start_requires_config">Import a configuration with a verified kernel binding and execution plan before connecting.</string>
+    <string name="start_requires_config">Import a complete Core plan. This Android build can currently launch only proxy-mode intents with a registered kernel.</string>
     <string name="traffic_title">Live traffic</string>
     <string name="traffic_idle">Live traffic telemetry is not connected; traffic values are unavailable.</string>
     <string name="route_policy">Routing policy</string>

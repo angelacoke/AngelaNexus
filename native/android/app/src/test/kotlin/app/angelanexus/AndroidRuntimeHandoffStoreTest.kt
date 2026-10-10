@@ -2,6 +2,7 @@ package app.angelanexus
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 class AndroidRuntimeHandoffStoreTest {
@@ -23,6 +24,17 @@ class AndroidRuntimeHandoffStoreTest {
         AndroidRuntimeHandoffStore.discard(oldToken)
         assertEquals("new-config", AndroidRuntimeHandoffStore.consume(newToken)?.configuration)
         assertNull(AndroidRuntimeHandoffStore.consume(oldToken))
+    }
+
+    @Test
+    fun unsupportedCoreModeCannotBePublishedForVpnStartup() {
+        val unsupported = validResult().copy(
+            executionIntentJson = """{"version":1,"kind":"routing-execution-intent","mode":"direct","action":"bypass","target":"all"}""",
+        )
+
+        assertFailsWith<IllegalArgumentException> {
+            AndroidRuntimeHandoffStore.publish(unsupported)
+        }
     }
 
     private fun validResult(configuration: String = "mixed-port: 7890") = CoreRuntimeImportResult(

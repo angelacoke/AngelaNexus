@@ -5,7 +5,7 @@
     <string name="status_select_config">فایل پیکربندی را انتخاب کنید.</string>
     <string name="status_importing_config">در حال وارد کردن پیکربندی و اعتبارسنجی آن در AngelaNexus Core…</string>
     <string name="status_config_delivered">پیکربندی توسط Core وارد شد؛ راه‌اندازی محیط اجرا مرحله‌ای جداگانه است.</string>
-    <string name="status_config_not_startable">Core طرح کامل اندروید (هسته، پیکربندی و قصد اجرا) را برنگرداند؛ راه‌اندازی VPN غیرفعال شد.</string>
+    <string name="status_config_not_startable">طرح Core ناقص است یا محیط اجرای اندروید از حالت یا هسته انتخاب‌شده پشتیبانی نمی‌کند؛ راه‌اندازی VPN غیرفعال شد.</string>
     <string name="status_core_unavailable">وارد کردن پیکربندی ناموفق بود: Core در دسترس نیست یا فایل تأیید نشد.</string>
     <string name="status_vpn_not_ready">مجوز VPN داده نشد. دسترسی VPN را تأیید کرده و دوباره تلاش کنید.</string>
     <string name="status_transparent_unavailable">حالت شفاف سیستم در این دستگاه در دسترس نیست.</string>
@@ -46,7 +46,7 @@
     <string name="retry_start">تلاش دوباره برای اتصال</string>
     <string name="retry_cleanup">تلاش دوباره برای پاک‌سازی</string>
     <string name="runtime_action_stopping">در حال توقف…</string>
-    <string name="start_requires_config">پیش از اتصال، پیکربندی دارای اتصال هسته و طرح اجرای تأییدشده را وارد کنید.</string>
+    <string name="start_requires_config">یک طرح کامل Core وارد کنید. این نسخه اندروید در حال حاضر فقط حالت proxy را با هسته ثبت‌شده اجرا می‌کند.</string>
     <string name="traffic_title">ترافیک لحظه‌ای</string>
     <string name="traffic_idle">تله‌متری ترافیک هنوز متصل نیست؛ مقادیر ترافیک در دسترس نیستند.</string>
     <string name="route_policy">سیاست مسیریابی</string>

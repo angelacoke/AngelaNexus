@@ -72,7 +72,11 @@ private fun AngelaNexusRoot() {
             }.fold(
                 onSuccess = { result ->
                     importResult = result
-                    status = AndroidUiStatus.CONFIG_DELIVERED_TO_CORE
+                    status = if (result.hasExecutableAndroidExecutionHandoff()) {
+                        AndroidUiStatus.CONFIG_DELIVERED_TO_CORE
+                    } else {
+                        AndroidUiStatus.CONFIG_NOT_STARTABLE
+                    }
                 },
                 onFailure = {
                     importResult = null
@@ -84,7 +88,7 @@ private fun AngelaNexusRoot() {
 
     fun startVpnService(kernelId: String) {
         val handoff = importResult
-        if (handoff?.kernel != kernelId || !handoff.hasCompleteAndroidExecutionHandoff()) {
+        if (handoff?.kernel != kernelId || !handoff.hasExecutableAndroidExecutionHandoff()) {
             status = AndroidUiStatus.CONFIG_NOT_STARTABLE
             return
         }
@@ -129,7 +133,7 @@ private fun AngelaNexusRoot() {
     }
 
     fun startSelectedMode() {
-        if (!importResult.hasCompleteAndroidExecutionHandoff()) {
+        if (!importResult.hasExecutableAndroidExecutionHandoff()) {
             status = AndroidUiStatus.CONFIG_NOT_STARTABLE
             return
         }

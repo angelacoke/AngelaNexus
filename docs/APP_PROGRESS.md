@@ -24,11 +24,10 @@ Implemented:
 
 - Gradle Android application module under `native/android/app`.
 - `app.angelanexus` application namespace and package.
-- Launcher `MainActivity`.
-- AngelaNexus brand mark used by the application UI and launcher icon.
+- Launcher `MainActivity` and AngelaNexus brand mark in the application UI and launcher icon.
 - Native Android `VpnService` boundary wired into the application manifest.
-- Android document picker entry point for configuration import.
-- Explicit runtime status indicating that kernel execution is not yet connected.
+- Android document picker entry point for local configuration-file import.
+- State-aware VPN start/stop controls with explicit unsupported-plan and cleanup-failure feedback.
 - Dedicated Android debug-build CI workflow.
 
 ### Android configuration import path
@@ -40,9 +39,10 @@ Implemented and tested:
 - Android transport boundary that sends only the serialized envelope;
 - platform-neutral runtime receiver that validates envelope type, version, source, name and byte limit;
 - Core import runtime handoff into the existing kernel-neutral import pipeline;
-- regression coverage for valid envelopes and malformed/oversized input.
+- regression coverage for valid envelopes and malformed/oversized input;
+- Android UI support for local files only; subscription URLs and single-node links are not available in the current Android UI.
 
-This milestone establishes the import path contract. It does **not** claim that a kernel has already started from the imported configuration.
+This milestone establishes the import and handoff contracts. It does not claim that every valid Core intent is executable on Android, or that imported profiles are durably stored across process restarts.
 
 ### Android transparent/root networking baseline
 
@@ -57,16 +57,19 @@ Implemented and tested at the contract/integration level:
 
 Real-device traffic interception remains a separate verification requirement and is not marked complete without reproducible device evidence.
 
-### Android execution-state bridge
+### Android execution-state bridge and launch gate
 
 Implemented in source with regression coverage:
 
 - stable kernel-neutral execution phases from import receipt through start, running, stop and failure;
-- platform control-plane state object carrying the selected kernel identifier and failure detail;
-- listener-based state publication for UI/runtime integration;
-- explicit rejection of blank kernel identifiers and failure details.
+- process-wide `StateFlow` publication so the VPN service reports lifecycle facts and the UI observes them;
+- complete Core handoff validation: selected kernel, configuration and canonical routing execution intent are all required;
+- launch gate restricted to the currently executable `proxy` mode and a registered Android driver (`mihomo`, `sing-box` or `xray`); valid `direct`, `reject`, `chain` and `dns` intents remain inspectable but cannot be started or silently reinterpreted as proxy;
+- one-shot, in-memory handoff token; the configuration is not placed in the Android service Intent or written as a plaintext handoff cache;
+- verified-stop requirement: if native cleanup fails, the UI stays fail-closed and offers a cleanup retry instead of allowing reconnection;
+- regression coverage for lifecycle transitions, cleanup failure, supported/unsupported intents and one-shot token consumption.
 
-This is an executable control-plane milestone. It does **not** claim that a Mihomo/sing-box/Xray runtime is already embedded or running.
+The Android CI workflow runs JVM unit tests, assembles a debug APK, and installs/launches the app in an Android emulator. The smoke test proves that the APK and launcher activity start and the process remains alive; it does **not** prove physical-device TUN traffic or successful end-to-end proxying. See [PR #114](https://github.com/angelacoke/AngelaNexus/pull/114) for the current implementation and checks.
 
 ### Android Mihomo native runtime boundary
 
@@ -81,7 +84,7 @@ Implemented and CI-verified:
 - dedicated Android packaging workflow that downloads only the verified artifacts, packages `libclash.so` plus the AngelaNexus JNI shim, and verifies the final APK contents and hashes;
 - signed Mihomo-enabled APK/AAB artifact successfully produced by CI.
 
-The native core is now actually present in the dedicated Mihomo-enabled Android release artifact. This does **not** claim successful end-to-end TUN traffic on a physical Android device.
+The native core is present in the dedicated Mihomo-enabled Android release artifact. This does **not** claim successful end-to-end TUN traffic on a physical Android device.
 
 ### Modern modular UI baseline
 
@@ -90,8 +93,11 @@ Implemented on Android as the first platform surface:
 - Jetpack Compose + Material 3 foundation.
 - System light/dark theme support and Android dynamic colors.
 - Five-module navigation: Home / Profiles / Proxies / Rules / Settings.
-- Compact card-based dashboard with AngelaNexus-specific information architecture.
-- Explicit Core, VPN, routing, anti-leak and GFW status surfaces.
+- Home connection controls and runtime phase are driven by the Android service state, not by fabricated traffic values.
+- Profiles shows the imported Core result; the current Android UI imports local files only.
+- Proxies shows Core-detected node count and kernel binding; live node listings and selector controls are not connected.
+- Rules shows a parsed Core routing-intent preview for inspection only; it does not claim the intent is active or that effective runtime rules have been reported.
+- Traffic, effective routing, anti-leak and GFW status are explicitly labeled unreported or unverified unless the active runtime supplies evidence.
 - Responsive semantic component structure intended for phone/tablet/desktop adaptation.
 - UI design specification in `docs/APP_UI_DESIGN.md`.
 
@@ -115,11 +121,11 @@ This is a data-contract milestone, **not** a claim that the cloud account servic
 
 ## Not yet claimed as production functionality
 
-- The standard Android shell release is not yet the final Mihomo-enabled production release; the dedicated Mihomo-enabled release artifact is the current verified native packaging path.
-- The imported configuration is not yet automatically compiled, bound to the selected kernel, and launched through the Android VPN lifecycle.
-- Physical-device TUN establishment and end-to-end proxy traffic interception are not yet verified evidence.
-- The UI is not yet backed by the complete Core execution state stream.
-- No production Android background lifecycle, notification channel, secure storage, or battery policy integration is claimed yet.
+- Physical-device TUN establishment and end-to-end proxy traffic interception are not yet verified. The emulator smoke test only launches the app; it does not exercise VPN consent, TUN setup, or real traffic.
+- Subscription URLs, single-node links, live proxy selection, effective runtime rules, live traffic counters and verified DNS/IPv6/leak status are not connected in the Android UI.
+- Durable profile persistence and production-grade at-rest protection for imported configurations are not yet implemented.
+- The UI observes Android VPN lifecycle phases, but it is not yet backed by a complete Core execution/telemetry stream.
+- Production-grade process restart/recovery, background and battery behavior remain unverified; the existence of a foreground-service notification channel is not a claim of production lifecycle readiness.
 - Production cloud authentication/storage/sync service is not yet implemented.
 - iOS, Windows, macOS and Linux executable application shells are not yet claimed as implemented.
 
@@ -129,8 +135,8 @@ This is a data-contract milestone, **not** a claim that the cloud account servic
 2. Establish account/sync/backup contracts and security boundaries. **Done at Core contract level.**
 3. Extract reusable UI into the multiplatform UI layer without leaking platform APIs.
 4. Implement account authentication and cloud data service behind a platform-neutral service contract.
-5. Connect Android configuration import to the kernel-neutral import pipeline. **Done at contract + automated-test level.**
-6. Complete Android execution-state bridge and one verified kernel runtime. **Execution-state bridge implemented; Mihomo v1.19.32 native build, hash verification, JNI packaging and signed APK/AAB packaging are verified; physical-device runtime/traffic verification remains.**
+5. Connect Android local configuration import to the kernel-neutral import pipeline. **Done at contract + automated-test level.**
+6. Implement Android lifecycle controls and a validated Core-to-VPN handoff. **Source and regression coverage are in PR #114; automated CI verifies Android tests, debug APK launch and pinned native-kernel builds. Physical-device TUN and traffic verification remains.**
 7. Establish Desktop JVM application shell shared by Windows/macOS/Linux.
 8. Establish iOS application entry point and Network Extension boundary.
 9. Add platform-specific secure storage, background lifecycle, notifications, network state and resource-policy adapters.

@@ -20,8 +20,8 @@ internal object AndroidRuntimeHandoffStore {
 
     @Synchronized
     fun publish(result: CoreRuntimeImportResult): String {
-        require(result.hasCompleteAndroidExecutionHandoff()) {
-            "complete Core handoff is required before starting Android runtime"
+        require(result.hasExecutableAndroidExecutionHandoff()) {
+            "an executable Android proxy handoff is required before starting runtime"
         }
         val token = UUID.randomUUID().toString()
         pending = Entry(token, result)

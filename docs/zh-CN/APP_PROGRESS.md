@@ -1,8 +1,8 @@
-# AngelaNexus APP Progress
+# AngelaNexus 应用进度
 
-## Product scope
+## 产品范围
 
-AngelaNexus APP is a full-platform product from the architecture baseline:
+AngelaNexus 应用从架构基线起就是一个面向多平台的产品：
 
 - Android
 - iOS
@@ -10,133 +10,139 @@ AngelaNexus APP is a full-platform product from the architecture baseline:
 - macOS
 - Linux
 
-Android is currently the first platform with an executable application shell. It is not the architectural primary platform.
+目前 Android 是第一个拥有可执行应用壳的目标平台，但它不是架构上的优先平台。
 
-See `docs/APP_PLATFORM_STRATEGY.md` for the cross-platform application architecture and capability boundaries.
+跨平台应用架构与能力边界见 `docs/APP_PLATFORM_STRATEGY.md`。
 
-## Verified Android baseline
+## 已验证的 Android 基线
 
-The repository contains a real Android application module in addition to the platform-neutral core and native VPN boundary.
+仓库包含真正的 Android 应用模块，以及平台无关核心和原生 VPN 边界。
 
-### Android 0.1.0 application shell
+### Android 0.1.0 应用壳
 
-Implemented:
+已实现：
 
-- Gradle Android application module under `native/android/app`.
-- `app.angelanexus` application namespace and package.
-- Launcher `MainActivity`.
-- AngelaNexus brand mark used by the application UI and launcher icon.
-- Native Android `VpnService` boundary wired into the application manifest.
-- Android document picker entry point for configuration import.
-- Explicit runtime status indicating that kernel execution is not yet connected.
-- Dedicated Android debug-build CI workflow.
+- 位于 `native/android/app` 的 Gradle Android 应用模块。
+- `app.angelanexus` 应用命名空间和包名。
+- 启动入口 `MainActivity`，以及应用界面和启动图标中的 AngelaNexus 品牌标识。
+- 已在应用 Manifest 中声明并接入原生 Android `VpnService` 边界。
+- 用于导入本地配置文件的 Android 文档选择器。
+- 根据真实运行状态展示的 VPN 启动/停止控件，以及不支持方案和清理失败时的明确反馈。
+- 专用 Android Debug 构建 CI 工作流。
 
-### Android configuration import path
+### Android 配置导入路径
 
-Implemented and tested:
+已实现并测试：
 
-- bounded UTF-8 reading with the 5 MiB input limit;
-- versioned Android import DTO and serialized envelope;
-- Android transport boundary that sends only the serialized envelope;
-- platform-neutral runtime receiver that validates envelope type, version, source, name and byte limit;
-- Core import runtime handoff into the existing kernel-neutral import pipeline;
-- regression coverage for valid envelopes and malformed/oversized input.
+- 限制 5 MiB 输入大小的 UTF-8 读取；
+- 版本化 Android 导入 DTO 和序列化 envelope；
+- 仅传递序列化 envelope 的 Android transport 边界；
+- 平台无关运行时接收端对 envelope 类型、版本、来源、名称和字节数的校验；
+- Core 导入结果接入现有的内核无关导入流程；
+- 对有效 envelope、格式错误和超限输入的回归测试；
+- 当前 Android 界面仅支持本地配置文件；订阅 URL 和单节点链接尚未接入。
 
-This milestone establishes the import path contract. It does **not** claim that a kernel has already started from the imported configuration.
+本阶段建立的是导入与 handoff 契约，不代表每一种有效的 Core 意图都能在 Android 上执行，也不代表导入的配置已能跨进程重启持久保存。
 
-### Android transparent/root networking baseline
+### Android 透明/root 网络基线
 
-Implemented and tested at the contract/integration level:
+已在契约/集成层实现并测试：
 
-- transparent mode selection;
-- guarded rooted backend capability checks;
-- atomic rule transaction boundaries;
-- self-loop protection;
-- cleanup and rollback handling;
-- live transparent runtime inspection and health checks.
+- 透明模式选择；
+- 带守卫的 Root 后端能力检查；
+- 原子化规则事务边界；
+- 防止自身流量回环；
+- 清理与回滚处理；
+- 透明运行时实时检查和健康检查。
 
-Real-device traffic interception remains a separate verification requirement and is not marked complete without reproducible device evidence.
+真机流量拦截仍是单独的验证要求；没有可复现的设备证据就不标记为完成。
 
-### Android execution-state bridge
+### Android 执行状态桥与启动门槛
 
-Implemented in source with regression coverage:
+已在代码中实现并有回归测试：
 
-- stable kernel-neutral execution phases from import receipt through start, running, stop and failure;
-- platform control-plane state object carrying the selected kernel identifier and failure detail;
-- listener-based state publication for UI/runtime integration;
-- explicit rejection of blank kernel identifiers and failure details.
+- 从收到导入结果到启动、运行、停止和失败的稳定内核无关阶段；
+- 进程级 `StateFlow`：VPN Service 发布生命周期事实，UI 观察该状态；
+- 完整 Core handoff 校验：必须同时提供选定内核、配置和规范路由执行意图；
+- 启动门槛仅允许当前 Android 已具备执行路径的 `proxy` 模式和已注册驱动（`mihomo`、`sing-box`、`xray`）；有效的 `direct`、`reject`、`chain` 和 `dns` 意图仍可供查看，但不可启动，也不会被静默改写成代理模式；
+- 一次性进程内 handoff token：大配置不会放进 Android Service Intent，也不会写入明文临时缓存；
+- 必须确认停止成功：原生清理失败时保持 fail-closed，禁止重连并向用户提供重试清理入口；
+- 覆盖生命周期转换、清理失败、支持/不支持的意图以及一次性 token 消费的回归测试。
 
-This is an executable control-plane milestone. It does **not** claim that a Mihomo/sing-box/Xray runtime is already embedded or running.
+Android CI 会运行 JVM 单元测试、构建 Debug APK，并在 Android 模拟器中安装和启动应用。模拟器冒烟测试只证明 APK 与启动 Activity 可以运行且进程仍存活；它**不能**证明真机 TUN 流量或端到端代理可用。当前实现和检查见 [PR #114](https://github.com/angelacoke/AngelaNexus/pull/114)。
 
-### Android Mihomo native runtime boundary
+### Android Mihomo 原生运行时边界
 
-Implemented and CI-verified:
+已实现并通过 CI 验证：
 
-- Mihomo source pinned to exact release `v1.19.32` commit `88dcbf7f1614a67c3b36b848ee3592dfa92ada36`;
-- Android native shared-library build verification for `arm64-v8a`, `armeabi-v7a` and `x86_64`;
-- Go 1.24.8 and Android NDK 28.0.13004108 pinned in the verification workflow;
-- reproducible `c-shared` build with version metadata pinned to `v1.19.32`;
-- SHA-256-pinned native artifacts for all three supported ABIs;
-- verified JNI loading boundary that refuses missing or hash-mismatched native artifacts;
-- dedicated Android packaging workflow that downloads only the verified artifacts, packages `libclash.so` plus the AngelaNexus JNI shim, and verifies the final APK contents and hashes;
-- signed Mihomo-enabled APK/AAB artifact successfully produced by CI.
+- Mihomo 源码精确固定到 `v1.19.32`，提交为 `88dcbf7f1614a67c3b36b848ee3592dfa92ada36`；
+- 对 `arm64-v8a`、`armeabi-v7a` 和 `x86_64` 三种 ABI 构建 Android 原生共享库并验证；
+- 验证工作流固定 Go 1.24.8 和 Android NDK 28.0.13004108；
+- 固定 `v1.19.32` 版本元数据的可复现 `c-shared` 构建；
+- 三种受支持 ABI 均固定 SHA-256 的原生构建产物；
+- JNI 加载边界会拒绝缺失或哈希不匹配的原生构建产物；
+- 专用 Android 打包工作流只下载已验证产物，将 `libclash.so` 与 AngelaNexus JNI shim 打包，并检查最终 APK 的内容与哈希；
+- CI 已成功产出启用 Mihomo 的已签名 APK/AAB 构建产物。
 
-The native core is now actually present in the dedicated Mihomo-enabled Android release artifact. This does **not** claim successful end-to-end TUN traffic on a physical Android device.
+专用 Mihomo Android 发布构建中已包含原生核心；这**不代表**已在 Android 真机上验证完整 TUN 流量。
 
-### Modern modular UI baseline
+### 现代模块化 UI 基线
 
-Implemented on Android as the first platform surface:
+Android 已实现第一版界面：
 
-- Jetpack Compose + Material 3 foundation.
-- System light/dark theme support and Android dynamic colors.
-- Five-module navigation: Home / Profiles / Proxies / Rules / Settings.
-- Compact card-based dashboard with AngelaNexus-specific information architecture.
-- Explicit Core, VPN, routing, anti-leak and GFW status surfaces.
-- Responsive semantic component structure intended for phone/tablet/desktop adaptation.
-- UI design specification in `docs/APP_UI_DESIGN.md`.
+- Jetpack Compose + Material 3 基础界面。
+- 跟随系统的浅色/深色主题及 Android 动态配色。
+- 五个模块：首页 / 配置 / 代理 / 规则 / 设置。
+- 首页连接控件和运行阶段由 Android Service 状态驱动，不虚构流量数值。
+- 配置页展示 Core 返回的导入结果；当前 Android 界面只导入本地文件。
+- 代理页展示 Core 检出的节点数量和内核绑定；实时节点列表与选择控件尚未接通。
+- 规则页只展示解析后的 Core 路由意图预览供检查；不会声称意图已经生效或运行时规则已回报。
+- 只有活动运行时提供证据时才显示流量、实际路由、防泄漏和 GFW 状态；否则明确标记为“未回报”或“未验证”。
+- 采用可适配手机/平板/桌面布局的语义化组件结构。
+- UI 设计规范见 `docs/APP_UI_DESIGN.md`。
 
-The long-term UI implementation will move common semantics and reusable UI into the shared multiplatform layer. Android-only APIs remain in the Android shell.
+长期计划是将通用语义与可复用 UI 迁移到共享多平台层；Android 专属 API 仍留在 Android 壳中。
 
-## Account / cloud / backup baseline
+## 账户 / 云端 / 备份基线
 
-Implemented at the Core contract level:
+已在 Core 契约层实现：
 
-- shared account-data classification;
-- platform-state separation;
-- device-only secret exclusion;
-- account snapshot model;
-- snapshot merge contract;
-- backup manifest format/version contract;
-- backup validation that rejects device credentials/secrets;
-- regression tests covering these boundaries;
-- full UI/architecture specifications in `docs/APP_ACCOUNT_SYNC.md`.
+- 共享账户数据分类；
+- 平台状态分离；
+- 排除仅存于设备上的秘密；
+- 账户快照模型；
+- 快照合并契约；
+- 备份 manifest 格式/版本契约；
+- 拒绝设备凭据/秘密的备份校验；
+- 覆盖这些边界的回归测试；
+- 完整 UI/架构规范见 `docs/APP_ACCOUNT_SYNC.md`。
 
-This is a data-contract milestone, **not** a claim that the cloud account service or production cloud storage is already deployed.
+这是数据契约阶段，**不代表**云端账户服务或生产级云存储已经部署。
 
-## Not yet claimed as production functionality
+## 尚未宣称为生产功能
 
-- The standard Android shell release is not yet the final Mihomo-enabled production release; the dedicated Mihomo-enabled release artifact is the current verified native packaging path.
-- The imported configuration is not yet automatically compiled, bound to the selected kernel, and launched through the Android VPN lifecycle.
-- Physical-device TUN establishment and end-to-end proxy traffic interception are not yet verified evidence.
-- The UI is not yet backed by the complete Core execution state stream.
-- No production Android background lifecycle, notification channel, secure storage, or battery policy integration is claimed yet.
-- Production cloud authentication/storage/sync service is not yet implemented.
-- iOS, Windows, macOS and Linux executable application shells are not yet claimed as implemented.
+- 尚未在真机验证 TUN 建立和端到端代理流量拦截。模拟器冒烟测试只启动应用，不会实际走 VPN 授权、TUN 建立或真实流量。
+- Android UI 尚未接入订阅 URL、单节点链接、实时代理选择、有效运行规则、实时流量统计或经验证的 DNS/IPv6/泄漏状态。
+- 尚未实现持久化配置档案，也尚未实现生产级的导入配置静态加密保护。
+- UI 能观察 Android VPN 生命周期阶段，但尚未接入完整的 Core 执行/遥测状态流。
+- 生产级进程重启/恢复、后台与电池行为尚未验证；已有前台服务通知渠道不等于生产生命周期能力已就绪。
+- 尚未实现生产级云端认证/存储/同步服务。
+- 尚未宣称已实现 iOS、Windows、macOS 或 Linux 的可执行应用壳。
 
-## Cross-platform APP milestones
+## 跨平台应用里程碑
 
-1. Establish shared UI/state contracts across all target platforms.
-2. Establish account/sync/backup contracts and security boundaries. **Done at Core contract level.**
-3. Extract reusable UI into the multiplatform UI layer without leaking platform APIs.
-4. Implement account authentication and cloud data service behind a platform-neutral service contract.
-5. Connect Android configuration import to the kernel-neutral import pipeline. **Done at contract + automated-test level.**
-6. Complete Android execution-state bridge and one verified kernel runtime. **Execution-state bridge implemented; Mihomo v1.19.32 native build, hash verification, JNI packaging and signed APK/AAB packaging are verified; physical-device runtime/traffic verification remains.**
-7. Establish Desktop JVM application shell shared by Windows/macOS/Linux.
-8. Establish iOS application entry point and Network Extension boundary.
-9. Add platform-specific secure storage, background lifecycle, notifications, network state and resource-policy adapters.
-10. Integrate Mihomo/sing-box/Xray per platform only after adapter-level verification.
-11. Add device/OS regression verification and release packaging for every target.
+1. 建立适用于所有目标平台的共享 UI/状态契约。
+2. 建立账户/同步/备份契约与安全边界。**Core 契约层已完成。**
+3. 将可复用 UI 提取到多平台 UI 层，并确保不泄漏平台 API。
+4. 在平台无关服务契约之后实现账户认证与云端数据服务。
+5. 将 Android 本地配置导入接入内核无关导入流程。**契约和自动化测试已完成。**
+6. 实现 Android 生命周期控件和经过校验的 Core-to-VPN handoff。**代码与回归覆盖见 PR #114；自动 CI 验证 Android 测试、Debug APK 启动及固定版本的原生内核构建。真机 TUN/流量验证仍未完成。**
+7. 建立 Windows/macOS/Linux 共用的 Desktop JVM 应用壳。
+8. 建立 iOS 应用入口和 Network Extension 边界。
+9. 添加平台专属安全存储、后台生命周期、通知、网络状态和资源策略适配器。
+10. 仅在适配器层验证后，按平台集成 Mihomo/sing-box/Xray。
+11. 为所有目标平台增加设备/OS 回归验证和发布打包。
 
-## Evidence rule
+## 证据规则
 
-A milestone is marked implemented only after source-level evidence plus reproducible build/test evidence exists. Platform placeholders remain explicitly labeled until exercised.
+只有同时具备源码证据和可复现的构建/测试证据，里程碑才标记为已实现。平台占位实现必须明确标示，直到真实执行并验证。
