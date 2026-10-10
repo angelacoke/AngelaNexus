@@ -83,16 +83,36 @@ private fun AngelaNexusRoot() {
     }
 
     fun startVpnService(kernelId: String) {
+        val handoff = importResult
+        if (handoff?.kernel != kernelId || !handoff.hasCompleteAndroidExecutionHandoff()) {
+            status = AndroidUiStatus.CONFIG_NOT_STARTABLE
+            return
+        }
+        val handoffToken = runCatching { AndroidRuntimeHandoffStore.publish(handoff) }
+            .getOrElse {
+                status = AndroidUiStatus.CONFIG_NOT_STARTABLE
+                return
+            }
         val intent = Intent(context, AngelaNexusVpnService::class.java)
             .setAction(AngelaNexusVpnService.ACTION_START)
-            .putExtra(AngelaNexusVpnService.EXTRA_KERNEL_ID, kernelId)
-            .putExtra(AngelaNexusVpnService.EXTRA_CONFIGURATION, importResult?.configuration)
-            .putExtra(AngelaNexusVpnService.EXTRA_EXECUTION_INTENT_JSON, importResult?.executionIntentJson)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(intent)
-        } else {
-            context.startService(intent)
+            .putExtra(AngelaNexusVpnService.EXTRA_HANDOFF_TOKEN, handoffToken)
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        }.onFailure {
+            AndroidRuntimeHandoffStore.discard(handoffToken)
+            status = AndroidUiStatus.VPN_RUNTIME_NOT_READY
         }
+    }
+
+    fun stopVpnService() {
+        context.startService(
+            Intent(context, AngelaNexusVpnService::class.java)
+                .setAction(AngelaNexusVpnService.ACTION_STOP),
+        )
     }
 
     val vpnLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -109,6 +129,10 @@ private fun AngelaNexusRoot() {
     }
 
     fun startSelectedMode() {
+        if (!importResult.hasCompleteAndroidExecutionHandoff()) {
+            status = AndroidUiStatus.CONFIG_NOT_STARTABLE
+            return
+        }
         val mode = selectAndroidTransparentMode(selectedMode, rootCapabilities)
         if (mode == null) {
             status = AndroidUiStatus.TRANSPARENT_MODE_UNAVAILABLE
@@ -159,6 +183,7 @@ private fun AngelaNexusRoot() {
             documentLauncher.launch(arrayOf("*/*"))
         },
         onStartVpn = ::startSelectedMode,
+        onStopVpn = ::stopVpnService,
         currentLocaleTag = currentLocaleTag,
         onLocaleSelected = { tag ->
             if (tag == null) {
@@ -189,6 +214,7 @@ private fun AngelaNexusPreview() {
             onTransparentModeChange = {},
             onImportConfig = {},
             onStartVpn = {},
+            onStopVpn = {},
             currentLocaleTag = "en",
             onLocaleSelected = {}
         )

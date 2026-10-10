@@ -72,6 +72,12 @@ The home screen remains compact:
 
 The connection card must never claim active proxy traffic until the Core reports an active execution state.
 
+The connection workflow must preserve the same evidence boundary:
+- Start is an explicit user action and is enabled only when Core returns a complete, valid platform handoff.
+- Stop remains available while the runtime is starting or running; if cleanup cannot be verified, reconnect stays blocked until cleanup succeeds.
+- A measured zero is different from unavailable telemetry. Never display hard-coded zero traffic as a live measurement.
+- Routing, anti-leak, DNS and GFW status must be labeled unreported or unverified until the runtime exposes evidence for them.
+
 ## Configuration UX
 
 The user can provide:
