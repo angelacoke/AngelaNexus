@@ -128,14 +128,6 @@ jobs:
           JSON
           cat "$RUNNER_TEMP/singbox/provenance/libbox-provenance.json"
 
-      - name: Upload verified sing-box runtime artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: singbox-native-runtime
-          path: |
-            ${{ runner.temp }}/singbox/libbox.aar
-            ${{ runner.temp }}/singbox/libbox-legacy.aar
-            ${{ runner.temp }}/singbox/provenance/libbox-provenance.json
-            ${{ runner.temp }}/singbox/api/classes.txt
-          if-no-files-found: error
-          retention-days: 14
+      - name: Keep native outputs runner-local
+        run: |
+          echo "AARs, provenance, and API inventory were verified on this ephemeral runner; native binaries are not published as Actions artifacts." >> "$GITHUB_STEP_SUMMARY"
