@@ -26,7 +26,7 @@ class AndroidSubscriptionFetcherTest {
         assertEquals(AndroidSubscriptionFetcher.DEFAULT_CONNECT_TIMEOUT_MS, connection.connectTimeout)
         assertEquals(AndroidSubscriptionFetcher.DEFAULT_READ_TIMEOUT_MS, connection.readTimeout)
         assertFalse(connection.instanceFollowRedirects)
-        assertEquals("identity", connection.requestProperties["Accept-Encoding"])
+        assertEquals("identity", connection.recordedHeaders["Accept-Encoding"])
         assertTrue(connection.disconnected)
     }
 
@@ -144,7 +144,7 @@ class AndroidSubscriptionFetcherTest {
     ) : HttpURLConnection(url) {
         var disconnected = false
             private set
-        val requestProperties = mutableMapOf<String, String>()
+        val recordedHeaders = mutableMapOf<String, String>()
 
         override fun connect() = Unit
         override fun disconnect() { disconnected = true }
@@ -154,7 +154,7 @@ class AndroidSubscriptionFetcherTest {
             headers.entries.firstOrNull { it.key.equals(name, ignoreCase = true) }?.value
         override fun getInputStream(): InputStream = ByteArrayInputStream(body)
         override fun setRequestProperty(key: String, value: String) {
-            requestProperties[key] = value
+            recordedHeaders[key] = value
         }
     }
 }
