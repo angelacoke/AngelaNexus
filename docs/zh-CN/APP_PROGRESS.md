@@ -113,6 +113,19 @@ Implemented at the Core contract level:
 
 This is a data-contract milestone, **not** a claim that the cloud account service or production cloud storage is already deployed.
 
+## Windows / macOS / iOS platform bridge baseline (contract level)
+
+Implemented and tested at the Core contract level, following the established Android/Linux bridge pattern:
+
+- Windows capability registry (`wintun-tun`, `wfp`, `elevated-install`, `system-proxy`, `process-exclusion`, `dns-observation`), grounded in `native/windows/AngelaNexusTun.cpp` (wintun driver loading) and `docs/PLATFORM_ARCHITECTURE.md` (WFP/TUN integration, elevated installation/service capabilities);
+- Windows wintun TUN path adapter syncing probe evidence into the capability and path registries with fail-closed admission: unverified probes quarantine the path, and required elevation or process-exclusion without evidence blocks admission instead of silently widening scope;
+- macOS capability registry (`packet-tunnel`, `system-extension`, `app-proxy`, `pf-transparent`, `elevated`, `process-exclusion`, `dns-observation`) and packet-tunnel path adapter with the same fail-closed contract, grounded in `native/apple/AngelaNexusPacketTunnelProvider.swift`;
+- iOS capability registry (`packet-tunnel`, `app-proxy`, `dns-observation`) with documented platform constraints (no root assumption, no privileged transparent proxying outside NetworkExtension, default route requires explicit user policy) and packet-tunnel path adapter;
+- all six modules exported from `src/platform/index.js`;
+- 39 new regression tests covering registry semantics, probe verification, quarantine on unverified probes, fail-closed process-exclusion/elevation handling, and explicit user denial.
+
+This milestone completes the contract-level bridge for all five target platforms (Android/Linux existed; Windows/macOS/iOS are new). It does **not** claim native probing on real devices, driver installation, or production readiness.
+
 ## Not yet claimed as production functionality
 
 - The standard Android shell release is not yet the final Mihomo-enabled production release; the dedicated Mihomo-enabled release artifact is the current verified native packaging path.
