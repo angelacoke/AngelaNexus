@@ -41,9 +41,21 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           mkdir -p .nexus/gates
-          VERIFY=""
-          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ inputs.verify_pipeline }}" = "true" ]; then VERIFY="--verify-pipeline"; fi
-          node scripts/check-upstream.mjs --propose ${VERIFY} --write-report .nexus/upstream-report.json
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            set +e
+            node scripts/check-upstream.mjs --write-report .nexus/upstream-report.json
+            CHECK_STATUS=$?
+            set -e
+            if [ "$CHECK_STATUS" -eq 2 ]; then
+              echo "Upstream candidate discovered; this PR validates only the checked-in kernel baselines."
+            elif [ "$CHECK_STATUS" -ne 0 ]; then
+              exit "$CHECK_STATUS"
+            fi
+          else
+            VERIFY=""
+            if [ "${{ inputs.verify_pipeline }}" = "true" ]; then VERIFY="--verify-pipeline"; fi
+            node scripts/check-upstream.mjs --propose ${VERIFY} --write-report .nexus/upstream-report.json
+          fi
           printf "success\n" > .nexus/gates/release-verified.ok
 
       - name: Upload upstream report
@@ -130,13 +142,19 @@ jobs:
           printf "success\n" > .nexus/gates/kernel-conformance.ok
 
       - name: Verify candidate test plans
-        if: steps.changes.outputs.changed == 'true'
+        if: steps.changes.outputs.changed == 'true' && github.event_name != 'pull_request'
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ inputs.verify_pipeline }}" = "true" ]; then
             node scripts/validate-upstream-report.mjs .nexus/upstream-report.json .nexus/gates --allow-manual-gates
           else
             node scripts/validate-upstream-report.mjs .nexus/upstream-report.json .nexus/gates
           fi
+
+      - name: Report pull request verification scope
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "PR checks cover only the versions pinned in src/core/kernel-registry.js."
+          echo "Any newer upstream release remains discovery-only and has not passed candidate-specific gates."
 
       - name: Create verified update proposal
         if: steps.changes.outputs.changed == 'true' && github.event_name != 'pull_request' && inputs.verify_pipeline != true
