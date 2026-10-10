@@ -17,12 +17,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.tooling.preview.Preview
@@ -72,7 +72,7 @@ private fun AngelaNexusRoot() {
     var profilesLoading by remember { mutableStateOf(true) }
     var profileOperationPending by remember { mutableStateOf(false) }
     var vpnAuthorizationPending by remember { mutableStateOf(false) }
-    val executionState by AndroidKernelExecutionStateStore.state.collectAsState()
+    val executionState by AndroidKernelExecutionStateStore.state.collectAsStateWithLifecycle()
     val runtimeBusy = vpnAuthorizationPending || executionState.phase in setOf(
         KernelExecutionPhase.STARTING,
         KernelExecutionPhase.RUNNING,
