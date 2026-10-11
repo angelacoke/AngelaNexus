@@ -7,7 +7,7 @@ name: android-crash-repro
 #   2. the fixed build (provider removed by PR #121)
 # If (1) crashes and (2) launches, the startup-provider theory is proven.
 
-on:
+"on":
   workflow_dispatch:
     inputs:
       crashing_run_id:
