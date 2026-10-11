@@ -57,7 +57,7 @@ test("benchmark rejects invalid options", () => {
 
 test("calibration boosts iterations for fast workloads without reducing slow ones", () => {
   const report = runBenchmark({
-    seed: 1, iterations: 5, warmup: 1, nodeCount: 5, ruleCount: 5, flowCount: 5,
+    seed: 1, iterations: 5, warmup: 10, nodeCount: 5, ruleCount: 5, flowCount: 5,
     minDurationMs: 200, workloads: ["sniff"],
   });
   const sniff = report.workloads[0];
