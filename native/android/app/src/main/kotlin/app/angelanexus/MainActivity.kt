@@ -44,7 +44,8 @@ class MainActivity : ComponentActivity() {
         val default = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
-                val logFile = java.io.File(filesDir, "crash.log")
+                val extDir = getExternalFilesDir(null) ?: filesDir
+                val logFile = java.io.File(extDir, "crash.log")
                 val writer = java.io.PrintWriter(java.io.FileWriter(logFile, true))
                 writer.println("=== Crash at ${java.util.Date()} thread=${thread.name} ===")
                 throwable.printStackTrace(writer)
