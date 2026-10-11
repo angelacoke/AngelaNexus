@@ -12,6 +12,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,6 +69,38 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun AngelaNexusRoot() {
     val context = LocalContext.current
+    var previousCrashLog by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        try {
+            val extDir = context.getExternalFilesDir(null) ?: context.filesDir
+            val logFile = java.io.File(extDir, "crash.log")
+            if (logFile.exists() && logFile.length() > 0) {
+                previousCrashLog = logFile.readText().take(4000)
+            }
+        } catch (_: Exception) { }
+    }
+    if (previousCrashLog != null) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { previousCrashLog = null },
+            title = { androidx.compose.material3.Text("上次启动崩溃日志") },
+            text = {
+                androidx.compose.foundation.layout.Column(
+                    modifier = androidx.compose.ui.Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())
+                ) {
+                    androidx.compose.material3.Text(
+                        previousCrashLog ?: "",
+                        style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                    )
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { previousCrashLog = null }) {
+                    androidx.compose.material3.Text("关闭")
+                }
+            }
+        )
+    }
     val darkTheme = isSystemInDarkTheme()
     val scope = rememberCoroutineScope()
     val coreRuntimeTransport = remember {
