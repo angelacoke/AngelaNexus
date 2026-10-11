@@ -32,10 +32,35 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        installCrashLogger()
         setContent {
             AngelaNexusTheme(darkTheme = isSystemInDarkTheme()) {
                 Surface(color = MaterialTheme.colorScheme.background) { AngelaNexusRoot() }
             }
+        }
+    }
+}
+
+    private fun installCrashLogger() {
+        val default = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            try {
+                val logFile = java.io.File(filesDir, "crash.log")
+                val writer = java.io.PrintWriter(java.io.FileWriter(logFile, true))
+                writer.println("=== Crash at ${java.util.Date()} thread=${thread.name} ===")
+                throwable.printStackTrace(writer)
+                var cause = throwable.cause
+                while (cause != null) {
+                    writer.println("Caused by:")
+                    cause.printStackTrace(writer)
+                    cause = cause.cause
+                }
+                writer.println()
+                writer.flush()
+                writer.close()
+            } catch (_: Exception) {
+            }
+            default?.uncaughtException(thread, throwable)
         }
     }
 }
