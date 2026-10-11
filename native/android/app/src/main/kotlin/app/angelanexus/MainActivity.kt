@@ -39,7 +39,6 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-}
 
     private fun installCrashLogger() {
         val default = Thread.getDefaultUncaughtExceptionHandler()
