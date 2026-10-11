@@ -1,0 +1,169 @@
+name: android-crash-repro
+
+# Definitive startup-crash experiment (no physical device needed):
+# Boot an emulator WITHOUT Google APIs (no Play Services, mimicking devices
+# where GMS is absent/broken), then launch two APKs and capture logcat:
+#   1. the crashing build (has androidx.startup InitializationProvider)
+#   2. the fixed build (provider removed by PR #121)
+# If (1) crashes and (2) launches, the startup-provider theory is proven.
+
+on:
+  workflow_dispatch:
+    inputs:
+      crashing_run_id:
+        description: "android-build run ID of the APK that crashes on device"
+        required: true
+        default: "38121828675"
+      fixed_run_id:
+        description: "android-build run ID of the APK with provider removed"
+        required: true
+        default: "38135438715"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  repro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+    steps:
+      - name: Download crashing APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.crashing_run_id }}
+          pattern: "AngelaNexus-android-release-*"
+          path: apks/crashing
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          merge-multiple: true
+
+      - name: Download fixed APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.fixed_run_id }}
+          pattern: "AngelaNexus-android-release-*"
+          path: apks/fixed
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          merge-multiple: true
+
+      - name: Locate APKs
+        id: apks
+        shell: bash
+        run: |
+          set -euo pipefail
+          for d in apks/crashing apks/fixed; do
+            find "$d" -name '*.zip' | while read -r z; do
+              unzip -o -q "$z" -d "$d/unzipped" || true
+            done
+          done
+          CRASHING_APK=$(find apks/crashing -name '*.apk' | head -n 1)
+          FIXED_APK=$(find apks/fixed -name '*.apk' | head -n 1)
+          test -n "$CRASHING_APK" || { echo "ERROR: crashing APK not found"; exit 1; }
+          test -n "$FIXED_APK" || { echo "ERROR: fixed APK not found"; exit 1; }
+          echo "CRASHING_APK=$CRASHING_APK" >> "$GITHUB_OUTPUT"
+          echo "FIXED_APK=$FIXED_APK" >> "$GITHUB_OUTPUT"
+          ls -lh "$CRASHING_APK" "$FIXED_APK"
+
+      - name: Boot emulator WITHOUT Google APIs (no Play Services)
+        shell: bash
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install --yes -qq libpulse0
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort | tail -n 1)"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          # NOTE: default (AOSP) image on purpose: no Google APIs, no Play Services.
+          "$SDKMANAGER" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;default;x86_64"
+          AVDMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name avdmanager | sort | tail -n 1)"
+          EMULATOR="$ANDROID_HOME/emulator/emulator"
+          ADB="$ANDROID_HOME/platform-tools/adb"
+          export ANDROID_USER_HOME="$HOME/.android"
+          export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo "no" | "$AVDMANAGER" create avd --force --name nexus-nogms --package "system-images;android-35;default;x86_64" --device "pixel_2"
+          nohup "$EMULATOR" -avd nexus-nogms -no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -gpu swiftshader_indirect -accel on >"$RUNNER_TEMP/emulator.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/emulator.pid"
+          "$ADB" start-server
+          timeout 180 "$ADB" wait-for-device
+          for i in $(seq 1 180); do
+            if "$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' | grep -q '^1'; then break; fi
+            sleep 2
+          done
+          "$ADB" shell getprop sys.boot_completed | tr -d '\r' | grep -q '^1'
+          echo "=== Play Services presence check ==="
+          "$ADB" shell pm list packages | grep -i "gms\|google" || echo "(no GMS packages — as intended)"
+          "$ADB" shell settings put global window_animation_scale 0
+          "$ADB" shell settings put global transition_animation_scale 0
+          "$ADB" shell settings put global animator_duration_scale 0
+          echo "emulator ready without Play Services"
+
+      - name: Test crashing APK (with startup provider)
+        shell: bash
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          set -uo pipefail
+          ADB="$ANDROID_HOME/platform-tools/adb"
+          APK="${{ steps.apks.outputs.CRASHING_APK }}"
+          "$ADB" install -r "$APK"
+          "$ADB" logcat -c
+          "$ADB" shell am force-stop app.angelanexus || true
+          "$ADB" shell am start -W -n app.angelanexus/.MainActivity || true
+          sleep 45
+          if "$ADB" shell pidof app.angelanexus 2>/dev/null | tr -d '\r' | grep -q '[0-9]'; then
+            echo "RESULT_CRASHING_APK=ALIVE" | tee -a "$RUNNER_TEMP/results.txt"
+          else
+            echo "RESULT_CRASHING_APK=CRASHED" | tee -a "$RUNNER_TEMP/results.txt"
+          fi
+          "$ADB" logcat -d > "$RUNNER_TEMP/logcat-crashing.txt" || true
+          echo "=== crash lines (crashing APK) ==="
+          grep -a -i -E "FATAL EXCEPTION|AndroidRuntime|tombstone|UnsatisfiedLink|NoClassDef|startup|EmojiCompat|profileinstaller" "$RUNNER_TEMP/logcat-crashing.txt" | tail -n 60 || true
+          "$ADB" uninstall app.angelanexus || true
+
+      - name: Test fixed APK (provider removed)
+        shell: bash
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          set -uo pipefail
+          ADB="$ANDROID_HOME/platform-tools/adb"
+          APK="${{ steps.apks.outputs.FIXED_APK }}"
+          "$ADB" install -r "$APK"
+          "$ADB" logcat -c
+          "$ADB" shell am force-stop app.angelanexus || true
+          "$ADB" shell am start -W -n app.angelanexus/.MainActivity || true
+          sleep 45
+          if "$ADB" shell pidof app.angelanexus 2>/dev/null | tr -d '\r' | grep -q '[0-9]'; then
+            echo "RESULT_FIXED_APK=ALIVE" | tee -a "$RUNNER_TEMP/results.txt"
+          else
+            echo "RESULT_FIXED_APK=CRASHED" | tee -a "$RUNNER_TEMP/results.txt"
+          fi
+          "$ADB" logcat -d > "$RUNNER_TEMP/logcat-fixed.txt" || true
+          echo "=== crash lines (fixed APK) ==="
+          grep -a -i -E "FATAL EXCEPTION|AndroidRuntime|tombstone|UnsatisfiedLink|NoClassDef|startup|EmojiCompat|profileinstaller" "$RUNNER_TEMP/logcat-fixed.txt" | tail -n 60 || true
+          kill "$(cat "$RUNNER_TEMP/emulator.pid")" 2>/dev/null || true
+
+      - name: Verdict
+        if: always()
+        shell: bash
+        run: |
+          echo "================ VERDICT ================"
+          cat "$RUNNER_TEMP/results.txt" 2>/dev/null || echo "(no results)"
+          echo "========================================="
+
+      - name: Upload diagnosis artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crash-repro-diagnosis
+          path: |
+            ${{ runner.temp }}/results.txt
+            ${{ runner.temp }}/logcat-crashing.txt
+            ${{ runner.temp }}/logcat-fixed.txt
+            ${{ runner.temp }}/emulator.log
+          if-no-files-found: warn
+          retention-days: 14
