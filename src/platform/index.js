@@ -261,3 +261,26 @@ export {
 } from "./linux-native-dns-probe.js";
 
 export { ANDROID_ROUTING_EXECUTION_VERSION, createAndroidRoutingExecution, validateAndroidRoutingExecution } from "./android-routing-execution.js";
+
+export {
+  WINDOWS_CAPABILITY_VERSION,
+  WindowsCapabilities,
+  WindowsCapabilityStates,
+  createWindowsCapabilityRegistry,
+} from "./windows-capabilities.js";
+export { syncWindowsTunPath, WINDOWS_TUN_PATH_ADAPTER_VERSION, WindowsTunStates } from "./windows-tun-path-adapter.js";
+export {
+  MACOS_CAPABILITY_VERSION,
+  MacOSCapabilities,
+  MacOSCapabilityStates,
+  createMacOSCapabilityRegistry,
+} from "./macos-capabilities.js";
+export { syncMacOSTunPath, MACOS_TUN_PATH_ADAPTER_VERSION, MacOSTunStates } from "./macos-tun-path-adapter.js";
+export {
+  IOS_CAPABILITY_VERSION,
+  IOSCapabilities,
+  IOSCapabilityStates,
+  IOS_PLATFORM_CONSTRAINTS,
+  createIOSCapabilityRegistry,
+} from "./ios-capabilities.js";
+export { syncIOSTunPath, IOS_TUN_PATH_ADAPTER_VERSION, IOSTunStates } from "./ios-tun-path-adapter.js";

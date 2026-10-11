@@ -96,7 +96,9 @@ class AngelaNexusVpnService : VpnService() {
             driver = selectedDriver
             selectedDriver.preparePlatform(this)
             selectedDriver.initialize(File(filesDir, CORE_HOME).absolutePath)
-            configuration?.let { selectedDriver.applyConfiguration(it) }
+            val config = configuration
+                ?: error("kernel driver requires a compiled configuration; import did not produce one")
+            selectedDriver.applyConfiguration(config)
 
             val builder = Builder()
                 .setSession(getString(R.string.app_name))
