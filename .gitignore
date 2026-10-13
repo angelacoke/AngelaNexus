@@ -1,4 +1,7 @@
 # AngelaNexus
+# Node.js
+node_modules/
+
 # Android / Gradle
 .gradle/
 **/build/

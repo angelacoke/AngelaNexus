@@ -16,7 +16,7 @@ jobs:
         with:
           node-version: 24
       - name: Install dependencies without lifecycle scripts
-        run: npm install --ignore-scripts --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Dependency vulnerability gate
         run: npm audit --audit-level=high
       - name: Syntax validation
