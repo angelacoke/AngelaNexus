@@ -1,0 +1,53 @@
+name: sing-box-cross-platform-conformance
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+jobs:
+  sing-box:
+    name: sing-box conformance (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset: sing-box-1.14.3-windows-amd64.zip
+          - os: macos-latest
+            asset: sing-box-1.14.3-darwin-arm64.tar.gz
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install Node dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Download and locate sing-box (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $url = "https://github.com/SagerNet/sing-box/releases/download/v1.14.3/${{ matrix.asset }}"
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\sing-box.zip"
+          Expand-Archive -Path "$env:RUNNER_TEMP\sing-box.zip" -DestinationPath "$env:RUNNER_TEMP\sing-box" -Force
+          $binary = Get-ChildItem "$env:RUNNER_TEMP\sing-box" -Filter "sing-box.exe" -Recurse | Select-Object -First 1
+          if (-not $binary) { throw "sing-box.exe was not found in the official release archive" }
+          "NEXUS_SING_BOX_BIN=$($binary.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & $binary.FullName version
+          if ($LASTEXITCODE -ne 0) { throw "sing-box version command failed" }
+      - name: Download and locate sing-box (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://github.com/SagerNet/sing-box/releases/download/v1.14.3/${{ matrix.asset }}"
+          curl --fail --location --silent --show-error "$url" -o "$RUNNER_TEMP/sing-box.tar.gz"
+          mkdir -p "$RUNNER_TEMP/sing-box"
+          tar -xzf "$RUNNER_TEMP/sing-box.tar.gz" -C "$RUNNER_TEMP/sing-box"
+          binary="$(find "$RUNNER_TEMP/sing-box" -type f -name sing-box -print -quit)"
+          test -n "$binary"
+          chmod +x "$binary"
+          echo "NEXUS_SING_BOX_BIN=$binary" >> "$GITHUB_ENV"
+          "$binary" version
+      - name: Run sing-box config and capability conformance
+        run: npm run kernel:conformance
