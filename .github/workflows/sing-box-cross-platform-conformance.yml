@@ -70,3 +70,5 @@ jobs:
           "$binary" version
       - name: Run sing-box config and capability conformance
         run: npm run kernel:conformance
+      - name: Run sing-box loopback data-plane smoke test
+        run: node scripts/sing-box-loopback-dataplane.mjs
