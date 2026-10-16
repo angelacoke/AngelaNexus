@@ -55,7 +55,7 @@ jobs:
           fi
           archive="$RUNNER_TEMP/sing-box.tar.gz"
           url="https://github.com/SagerNet/sing-box/releases/download/v1.14.3/${{ matrix.asset }}"
-          curl --fail --location --silent --show-error "$url" -o "$archive"
+          curl --retry 4 --retry-all-errors --retry-delay 2 --fail --location --silent --show-error "$url" -o "$archive"
           actual="sha256:$(shasum -a 256 "$archive" | awk '{print $1}')"
           if [[ "$actual" != "$expected" ]]; then
             echo "Official sing-box archive SHA-256 mismatch" >&2
