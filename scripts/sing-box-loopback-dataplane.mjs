@@ -87,6 +87,9 @@ async function requestSocks5() {
   socket.setTimeout(5000, () => socket.destroy(new Error("SOCKS5 request timed out")));
   let buffered = Buffer.alloc(0);
   const waiters = [];
+  socket.on("error", error => {
+    while (waiters.length) waiters.shift().reject(error);
+  });
   socket.on("data", chunk => {
     buffered = Buffer.concat([buffered, chunk]);
     while (waiters.length && buffered.length >= waiters[0].length) {
