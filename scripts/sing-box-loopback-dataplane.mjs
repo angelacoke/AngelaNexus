@@ -137,9 +137,9 @@ function assertResponse(label, response, path) {
   }
 }
 
+let lastError;
 try {
   let httpResponse = "";
-  let lastError;
   const deadline = Date.now() + 15000;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
