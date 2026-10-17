@@ -12,7 +12,7 @@ name: android-auto-smoke
   workflow_dispatch:
     inputs:
       build_run_id:
-        description: "android-build 的 run ID（留空则自动取最新一次成功的构建）"
+        description: "android-build 的 run ID（留空则自动取 main 分支最新一次成功的构建）"
         required: false
         default: ""
 
@@ -41,7 +41,8 @@ jobs:
           elif [ -n "${{ inputs.build_run_id }}" ]; then
             RID="${{ inputs.build_run_id }}"
           else
-            RID=$(gh run list --workflow android-build.yml --status success --limit 1 \
+            # 只取 main 分支的构建：PR 事件触发的构建会跳过 android-release（无 release APK 产物）
+            RID=$(gh run list --workflow android-build.yml --status success --branch main --limit 1 \
               --json databaseId -q '.[0].databaseId' --repo "${{ github.repository }}")
           fi
           test -n "$RID" || { echo "ERROR: no build run ID resolved"; exit 1; }
