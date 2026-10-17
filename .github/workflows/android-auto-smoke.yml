@@ -1,0 +1,178 @@
+name: android-auto-smoke
+
+# 全自动冒烟测试（无需人工介入）：
+# android-build 构建成功后自动触发 → 在无 GMS 的模拟器上安装 APK →
+# 启动 → 截图 → 检查进程存活 → 抓 logcat → 上传产物。
+# 结果由 Angela 通过定时任务盯，构建失败/闪退会自动汇报，用户无需操作。
+
+"on":
+  workflow_run:
+    workflows: ["android-build"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: "android-build 的 run ID（留空则自动取最新一次成功的构建）"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  smoke:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      APP_PKG: app.angelanexus
+      APP_ACTIVITY: app.angelanexus/.MainActivity
+    steps:
+      - name: Resolve build run ID
+        id: runid
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            RID="${{ github.event.workflow_run.id }}"
+          elif [ -n "${{ inputs.build_run_id }}" ]; then
+            RID="${{ inputs.build_run_id }}"
+          else
+            RID=$(gh run list --workflow android-build.yml --status success --limit 1 \
+              --json databaseId -q '.[0].databaseId' --repo "${{ github.repository }}")
+          fi
+          test -n "$RID" || { echo "ERROR: no build run ID resolved"; exit 1; }
+          echo "id=$RID" >> "$GITHUB_OUTPUT"
+          echo "Using android-build run: $RID"
+
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ steps.runid.outputs.id }}
+          pattern: "AngelaNexus-android-release-*"
+          path: apks
+          github-token: ${{ github.token }}
+          merge-multiple: true
+
+      - name: Locate APK
+        id: apk
+        shell: bash
+        run: |
+          set -euo pipefail
+          find apks -name '*.zip' | while read -r z; do
+            unzip -o -q "$z" -d apks/unzipped || true
+          done
+          APK=$(find apks -name '*.apk' | head -n 1)
+          test -n "$APK" || { echo "ERROR: APK not found in artifacts"; exit 1; }
+          echo "path=$APK" >> "$GITHUB_OUTPUT"
+          ls -lh "$APK"
+
+      - name: Boot emulator (AOSP, no Google APIs / no Play Services)
+        shell: bash
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install --yes -qq libpulse0
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort | tail -n 1)"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          # NOTE: default (AOSP) image on purpose: no Google APIs, no Play Services,
+          # mimicking GMS-less devices like the user's Honor Magic4.
+          "$SDKMANAGER" "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;default;x86_64"
+          AVDMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name avdmanager | sort | tail -n 1)"
+          EMULATOR="$ANDROID_HOME/emulator/emulator"
+          ADB="$ANDROID_HOME/platform-tools/adb"
+          export ANDROID_USER_HOME="$HOME/.android"
+          export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo "no" | "$AVDMANAGER" create avd --force --name nexus-smoke \
+            --package "system-images;android-35;default;x86_64" --device "pixel_2"
+          nohup "$EMULATOR" -avd nexus-smoke -no-window -no-audio -no-boot-anim \
+            -no-snapshot -no-snapshot-save -gpu swiftshader_indirect -accel on \
+            >"$RUNNER_TEMP/emulator.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/emulator.pid"
+          "$ADB" start-server
+          timeout 180 "$ADB" wait-for-device
+          for i in $(seq 1 180); do
+            if "$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' | grep -q '^1'; then break; fi
+            sleep 2
+          done
+          "$ADB" shell getprop sys.boot_completed | tr -d '\r' | grep -q '^1'
+          "$ADB" shell settings put global window_animation_scale 0
+          "$ADB" shell settings put global transition_animation_scale 0
+          "$ADB" shell settings put global animator_duration_scale 0
+          echo "emulator ready"
+
+      - name: Smoke test (install -> launch -> screenshot -> logcat)
+        id: smoke
+        shell: bash
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          set -uo pipefail
+          ADB="$ANDROID_HOME/platform-tools/adb"
+          APK="${{ steps.apk.outputs.path }}"
+          PKG="$APP_PKG"
+          OUT="$RUNNER_TEMP/smoke"
+          mkdir -p "$OUT"
+
+          echo "--- install ---"
+          "$ADB" install -r "$APK"
+          "$ADB" logcat -c
+
+          echo "--- launch ---"
+          "$ADB" shell am force-stop "$PKG" || true
+          "$ADB" shell am start -W -n "$APP_ACTIVITY" || true
+          sleep 30
+
+          echo "--- screenshot ---"
+          "$ADB" exec-out screencap -p > "$OUT/screenshot.png" || true
+
+          echo "--- liveness check ---"
+          if "$ADB" shell pidof "$PKG" 2>/dev/null | tr -d '\r' | grep -q '[0-9]'; then
+            RESULT="ALIVE"
+          else
+            RESULT="CRASHED"
+          fi
+          echo "result=$RESULT" >> "$GITHUB_OUTPUT"
+          echo "RESULT=$RESULT"
+
+          echo "--- logcat ---"
+          "$ADB" logcat -d -v threadtime > "$OUT/logcat.txt" || true
+          grep -a -i -E "FATAL EXCEPTION|AndroidRuntime|tombstone|UnsatisfiedLink|NoClassDef" \
+            "$OUT/logcat.txt" | tail -n 80 > "$OUT/crash.txt" || true
+
+          {
+            echo "## 自动冒烟结论"
+            echo ""
+            echo "- 构建 run: ${{ steps.runid.outputs.id }}"
+            echo "- 安装: 成功"
+            echo "- 启动 30 秒后进程状态: **$RESULT**"
+            if [ -s "$OUT/crash.txt" ]; then
+              echo "- 崩溃堆栈: **有**（见产物 crash.txt）"
+            else
+              echo "- 崩溃堆栈: 无"
+            fi
+            echo ""
+            echo "截图与完整 logcat 见 Artifacts。"
+          } | tee "$OUT/verdict.md" >> "$GITHUB_STEP_SUMMARY"
+
+          kill "$(cat "$RUNNER_TEMP/emulator.pid")" 2>/dev/null || true
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auto-smoke-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/smoke/screenshot.png
+            ${{ runner.temp }}/smoke/logcat.txt
+            ${{ runner.temp }}/smoke/crash.txt
+            ${{ runner.temp }}/smoke/verdict.md
+            ${{ runner.temp }}/emulator.log
+          if-no-files-found: warn
+          retention-days: 14
