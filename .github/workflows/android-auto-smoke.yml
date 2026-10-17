@@ -91,12 +91,34 @@ jobs:
           mkdir -p "$ANDROID_AVD_HOME"
           echo "no" | "$AVDMANAGER" create avd --force --name nexus-smoke \
             --package "system-images;android-35;default;x86_64" --device "pixel_2"
+          # KVM 预检：无可用 KVM 时 -accel on 会让模拟器直接退出，自动降级并告警
+          ls -l /dev/kvm 2>/dev/null || echo "NOTE: /dev/kvm not present"
+          if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+            ACCEL=on
+          else
+            ACCEL=off
+            echo "WARNING: /dev/kvm not readable/writable; using -accel off (slow software emulation)"
+          fi
+          echo "Using -accel $ACCEL"
+          # 模拟器日志同时 tee 到 job 日志与文件：失败时直接可见，不再只藏在 artifact 里
+          EMULOG="$RUNNER_TEMP/emulator.log"
+          : > "$EMULOG"
           nohup "$EMULATOR" -avd nexus-smoke -no-window -no-audio -no-boot-anim \
-            -no-snapshot -no-snapshot-save -gpu swiftshader_indirect -accel on \
-            >"$RUNNER_TEMP/emulator.log" 2>&1 &
+            -no-snapshot -no-snapshot-save -gpu swiftshader_indirect -accel "$ACCEL" \
+            > >(tee -a "$EMULOG") 2>&1 &
           echo $! > "$RUNNER_TEMP/emulator.pid"
           "$ADB" start-server
-          timeout 180 "$ADB" wait-for-device
+          "$ADB" devices -l || true
+          if ! timeout 300 "$ADB" wait-for-device; then
+            echo "ERROR: no device online after 300s"
+            echo "--- emulator process ---"
+            ps aux | grep '[e]mulator' || echo "(no emulator process running)"
+            echo "--- adb devices ---"
+            "$ADB" devices -l || true
+            echo "--- emulator.log (tail 100) ---"
+            tail -n 100 "$EMULOG" || true
+            exit 1
+          fi
           for i in $(seq 1 180); do
             if "$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' | grep -q '^1'; then break; fi
             sleep 2
