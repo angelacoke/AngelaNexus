@@ -166,3 +166,39 @@ A feature is considered implemented only when one of the following exists:
 3. a platform implementation is present and exercised.
 
 Architectural placeholders must be explicitly marked as such and must not be presented as working features.
+
+## Application identity and precision routing
+
+Application/process identity is a first-class Platform Matcher input. Its purpose is routing precision and diagnosability, not backend-specific policy.
+
+The canonical flow is:
+
+Application / Process Identity
+        +
+Destination / Protocol / Port
+        +
+DNS / Network / Security Context
+        ↓
+Platform Matcher
+        ↓
+Match Set + Evidence
+        ↓
+Conflict Analysis
+        ↓
+Routing Policy
+        ↓
+Routing Intent
+        ↓
+Capability Registry
+        ↓
+Driver Scheduler
+        ↓
+Mihomo / sing-box / Xray
+
+Identity must carry evidence and confidence. Unknown, unsupported, conflicting, or failed identity resolution must remain explicit and must never be silently converted into a confirmed application identity.
+
+Process/application lookup is conditional: it should run when an active policy, diagnostic view, or verification operation requires it. Avoiding unnecessary high-frequency lookups is part of the resource-efficiency boundary.
+
+Routing diagnostics must explain the complete decision chain: application/process identity, evidence, matched and rejected rules, policy, Intent, capability requirements, selected Driver, and final result. Detailed tracing is bounded, privacy-aware, and user-controlled.
+
+See docs/APPLICATION_IDENTITY_ROUTING_AND_DIAGNOSTICS.md for the canonical model and verification requirements.
