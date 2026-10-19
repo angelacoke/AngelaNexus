@@ -12,7 +12,7 @@ export const UpstreamKernelRegistry = Object.freeze({
   "sing-box": Object.freeze({
     name: "sing-box",
     repository: "SagerNet/sing-box",
-    stable: "1.14.2",
+    stable: "1.14.3",
     channel: "stable",
     preview: "1.15.0-alpha.9",
     releases: "https://github.com/SagerNet/sing-box/releases",
