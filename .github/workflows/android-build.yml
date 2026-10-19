@@ -51,7 +51,7 @@ jobs:
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.0.13004108
-          SINGBOX_REF: "v1.14.0-beta.4"
+          SINGBOX_REF: "v1.14.3"
         run: |
           set -euo pipefail
           go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
