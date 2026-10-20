@@ -72,3 +72,15 @@ test("Mihomo stop and replacement close visible trackers even after listener fai
   assert.ok(start.indexOf("closeAndroidResources()") < start.indexOf("if fd < 0"));
   assert.match(start, /if err := closeAndroidResources\(\); err != nil \{/);
 });
+
+test("Mihomo hook captures its epoch before admission and invalidates it before draining", () => {
+  const lifecycle = read("native/android/mihomo-bridge/lifecycle.go");
+  const hook = lifecycle.split("func (l *androidTunLifecycle) socketHook(")[1].split("func (l *androidTunLifecycle) socketHookAtEpoch")[0];
+  assert.match(hook, /return l\.socketHookAtEpoch\(l\.epoch\.Load\(\), conn, protect\)/);
+  const admission = lifecycle.split("func (l *androidTunLifecycle) socketHookAtEpoch")[1].split("func (l *androidTunLifecycle) blockAndDrain")[0];
+  assert.equal((admission.match(/epoch != l\.epoch\.Load\(\)/g) ?? []).length, 2);
+  assert.ok(admission.indexOf("epoch != l.epoch.Load()") < admission.indexOf("conn.Control"));
+  const drain = lifecycle.split("func (l *androidTunLifecycle) blockAndDrain")[1].split("func (l *androidTunLifecycle) applyConfiguration")[0];
+  assert.ok(drain.indexOf("l.protected.Swap(false)") < drain.indexOf("l.epoch.Add(1)"));
+  assert.ok(drain.indexOf("l.epoch.Add(1)") < drain.indexOf("l.admission.Lock()"));
+});

@@ -20,18 +20,28 @@ type androidTunLifecycle struct {
 	listener  io.Closer
 	protected atomic.Bool
 	admission sync.RWMutex
+	// Invalidates callbacks which sampled admission before a transition but did
+	// not acquire the read lock until after a later configuration/start reopened it.
+	epoch atomic.Uint64
 	// Serialized by androidTunMu, not admission. Upstream trackers unregister
 	// before their underlying Close returns, even on failure; retain ownership.
 	pendingConnections map[string]io.Closer
 }
 
 func (l *androidTunLifecycle) socketHook(conn syscall.RawConn, protect func(int) bool) error {
+	return l.socketHookAtEpoch(l.epoch.Load(), conn, protect)
+}
+
+// Capture the epoch at hook entry, before any readiness check or lock wait.
+// Keeping the captured token explicit also permits deterministic stale-entry
+// regression tests without relying on goroutine scheduling or sleeps.
+func (l *androidTunLifecycle) socketHookAtEpoch(epoch uint64, conn syscall.RawConn, protect func(int) bool) error {
 	if !l.protected.Load() {
 		return errors.New("Android VpnService protection is not ready; dialing is blocked")
 	}
 	l.admission.RLock()
 	defer l.admission.RUnlock()
-	if !l.protected.Load() {
+	if !l.protected.Load() || epoch != l.epoch.Load() {
 		return errors.New("Android VpnService protection is not ready; dialing is blocked")
 	}
 	var protectErr error
@@ -47,7 +57,7 @@ func (l *androidTunLifecycle) socketHook(conn syscall.RawConn, protect func(int)
 	}
 	// A stop/configuration may have closed admission while protect was running.
 	// Reject that socket rather than report a stale successful admission.
-	if !l.protected.Load() {
+	if !l.protected.Load() || epoch != l.epoch.Load() {
 		return errors.New("Android socket admission closed during protection")
 	}
 	return nil
@@ -58,6 +68,7 @@ func (l *androidTunLifecycle) blockAndDrain() bool {
 	// write lock across listener.Close or executor.ApplyConfig: they can invoke
 	// the socket hook themselves, and must observe rejection, not deadlock.
 	wasProtected := l.protected.Swap(false)
+	l.epoch.Add(1)
 	l.admission.Lock()
 	l.admission.Unlock()
 	return wasProtected
@@ -74,7 +85,7 @@ func (l *androidTunLifecycle) applyConfiguration(apply func()) {
 func (l *androidTunLifecycle) closeTun() error {
 	l.blockAndDrain()
 	if l.listener != nil {
-		if err := l.listener.Close(); err != nil {
+		if err := l.listener.Close(); err != nil && !onlyClosedConnectionError(err) {
 			return err
 		}
 		l.listener = nil

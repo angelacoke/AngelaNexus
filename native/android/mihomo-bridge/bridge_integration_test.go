@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"syscall"
 	"testing"
 	"time"
 
@@ -13,6 +14,114 @@ import (
 	"github.com/metacubex/mihomo/tunnel"
 	"github.com/metacubex/mihomo/tunnel/statistic"
 )
+
+type bridgeEpochRawConn struct {
+	controls int
+}
+
+func (c *bridgeEpochRawConn) Control(f func(uintptr)) error {
+	c.controls++
+	f(42)
+	return nil
+}
+
+func (c *bridgeEpochRawConn) Read(func(uintptr) bool) error  { return nil }
+func (c *bridgeEpochRawConn) Write(func(uintptr) bool) error { return nil }
+
+var _ syscall.RawConn = (*bridgeEpochRawConn)(nil)
+
+func assertAndroidBridgeEpochAdmission(t *testing.T, oldEpoch uint64) {
+	t.Helper()
+	oldConn := &bridgeEpochRawConn{}
+	oldProtects := 0
+	if err := androidRuntime.socketHookAtEpoch(oldEpoch, oldConn, func(int) bool {
+		oldProtects++
+		return true
+	}); err == nil {
+		t.Fatal("stale epoch was admitted")
+	}
+	if oldConn.controls != 0 || oldProtects != 0 {
+		t.Fatalf("stale epoch touched socket: controls=%d protects=%d", oldConn.controls, oldProtects)
+	}
+
+	newConn := &bridgeEpochRawConn{}
+	newProtects := 0
+	if err := androidRuntime.socketHookAtEpoch(androidRuntime.epoch.Load(), newConn, func(fd int) bool {
+		if fd != 42 {
+			t.Fatalf("unexpected fake fd %d", fd)
+		}
+		newProtects++
+		return true
+	}); err != nil {
+		t.Fatalf("current epoch was rejected: %v", err)
+	}
+	if newConn.controls != 1 || newProtects != 1 {
+		t.Fatalf("current epoch did not protect once: controls=%d protects=%d", newConn.controls, newProtects)
+	}
+}
+
+func TestAndroidBridgeConfigurationInvalidatesOldEpoch(t *testing.T) {
+	constant.SetHomeDir(t.TempDir())
+	androidRuntime = androidTunLifecycle{}
+	androidRuntime.protected.Store(true)
+	oldEpoch := androidRuntime.epoch.Load()
+	cfg, err := config.Parse([]byte(`{"mode":"rule","log-level":"silent","geo-auto-update":false,"rules":["MATCH,DIRECT"],"dns":{"enable":false},"tun":{"enable":false},"ntp":{"enable":false}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyAndroidConfiguration(cfg)
+	// Model the newly configured runtime becoming ready after the transition.
+	androidRuntime.protected.Store(true)
+	assertAndroidBridgeEpochAdmission(t, oldEpoch)
+	if androidRuntime.epoch.Load() == oldEpoch {
+		t.Fatal("configuration did not advance the epoch")
+	}
+	if err := stopTunError(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAndroidBridgeFailedReplacementInvalidatesOldEpoch(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	failure := errors.New("replacement close failure")
+	androidRuntime.listener = &bridgeTestListener{err: failure}
+	androidRuntime.protected.Store(true)
+	tunnel.OnRunning()
+	oldEpoch := androidRuntime.epoch.Load()
+	if startTUN(-1, nil, nil, nil) != 0 {
+		t.Fatal("failed replacement was accepted")
+	}
+	if androidRuntime.listener == nil || androidRuntime.protected.Load() {
+		t.Fatal("failed replacement lost cleanup ownership or reopened admission")
+	}
+	// Model the replacement runtime becoming ready independently of failed cleanup.
+	androidRuntime.protected.Store(true)
+	assertAndroidBridgeEpochAdmission(t, oldEpoch)
+	androidRuntime.listener.(*bridgeTestListener).err = nil
+	if err := stopTunError(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAndroidBridgeFailedStopInvalidatesOldEpoch(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	failure := errors.New("stop close failure")
+	listener := &bridgeTestListener{err: failure}
+	androidRuntime.listener = listener
+	androidRuntime.protected.Store(true)
+	tunnel.OnRunning()
+	oldEpoch := androidRuntime.epoch.Load()
+	if err := stopTunError(); !errors.Is(err, failure) {
+		t.Fatalf("stop error = %v", err)
+	}
+	// Model a new runtime becoming ready even though the old listener needs retry.
+	androidRuntime.protected.Store(true)
+	assertAndroidBridgeEpochAdmission(t, oldEpoch)
+	listener.err = nil
+	if err := stopTunError(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // CI copies this file into the pinned upstream module alongside the exact bridge
 // (only its android build constraint is removed for the host cgo test). These
@@ -44,14 +153,61 @@ func TestAndroidBridgeConfigurationPreservesAdmissionState(t *testing.T) {
 }
 
 type bridgeTestListener struct {
-	err error
+	err    error
+	closes int
 }
 
 func (l *bridgeTestListener) Close() error {
+	l.closes++
 	if tunnel.Status() != tunnel.Suspend {
 		return errors.New("listener closed before tunnel admission was suspended")
 	}
 	return l.err
+}
+
+func TestAndroidBridgeStopTreatsClosedListenerAsReleased(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	listener := &bridgeTestListener{err: net.ErrClosed}
+	androidRuntime.listener = listener
+	androidRuntime.protected.Store(true)
+	tunnel.OnRunning()
+	if err := stopTunError(); err != nil {
+		t.Fatalf("already-closed listener stop failed: %v", err)
+	}
+	if androidRuntime.listener != nil || androidRuntime.protected.Load() || tunnel.Status() != tunnel.Suspend {
+		t.Fatal("already-closed listener ownership was not released")
+	}
+	if err := stopTunError(); err != nil {
+		t.Fatalf("idempotent stop failed: %v", err)
+	}
+	if listener.err != net.ErrClosed || listener.closes != 1 {
+		t.Fatal("already-closed listener was retried after successful release")
+	}
+}
+
+func TestAndroidBridgeStopRetainsMixedListenerCloseErrorForRetry(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	failure := errors.New("listener close failure")
+	listener := &bridgeTestListener{err: errors.Join(net.ErrClosed, failure)}
+	androidRuntime.listener = listener
+	androidRuntime.protected.Store(true)
+	tunnel.OnRunning()
+	if err := stopTunError(); !errors.Is(err, failure) {
+		t.Fatalf("mixed listener error was lost: %v", err)
+	}
+	if androidRuntime.listener != listener || androidRuntime.protected.Load() || tunnel.Status() != tunnel.Suspend {
+		t.Fatal("mixed listener failure was not retained for retry")
+	}
+	listener.err = nil
+	if err := stopTunError(); err != nil {
+		t.Fatalf("listener retry failed: %v", err)
+	}
+	if androidRuntime.listener != nil {
+		t.Fatal("successful listener retry retained ownership")
+	}
+	if err := stopTunError(); err != nil {
+		t.Fatalf("post-retry stop was not idempotent: %v", err)
+	}
 }
 
 func TestAndroidBridgeStopSuspendsAndRetainsRetryOwnership(t *testing.T) {

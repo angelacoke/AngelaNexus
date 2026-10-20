@@ -391,3 +391,94 @@ func TestCloseConnectionsAcceptsOnlyAlreadyClosedErrors(t *testing.T) {
 		})
 	}
 }
+
+// Model a hook paused immediately after sampling its entry token. A transition
+// can finish and reopen readiness before that hook obtains the admission lock.
+// A boolean alone would admit it into a different runtime/configuration epoch.
+func TestSocketGateRejectsStaleEpochAfterReopen(t *testing.T) {
+	for _, transition := range []string{"configuration", "stop and restart", "repeated stop"} {
+		t.Run(transition, func(t *testing.T) {
+			var lifecycle androidTunLifecycle
+			lifecycle.protected.Store(true)
+			stale := lifecycle.epoch.Load()
+			switch transition {
+			case "configuration":
+				lifecycle.applyConfiguration(func() {})
+			case "stop and restart", "repeated stop":
+				if err := lifecycle.closeTun(); err != nil {
+					t.Fatal(err)
+				}
+				if transition == "repeated stop" {
+					if err := lifecycle.closeTun(); err != nil {
+						t.Fatal(err)
+					}
+				}
+				// Simulate successful new listener construction, not Android TUN.
+				lifecycle.protected.Store(true)
+			}
+			if lifecycle.epoch.Load() == stale {
+				t.Fatal("transition did not invalidate the entry token")
+			}
+			conn := &testRawConn{}
+			protects := 0
+			protect := func(int) bool { protects++; return true }
+			if err := lifecycle.socketHookAtEpoch(stale, conn, protect); err == nil {
+				t.Fatal("stale hook borrowed reopened readiness")
+			}
+			if conn.controls != 0 || protects != 0 {
+				t.Fatal("stale hook touched the socket or called protect")
+			}
+			if err := lifecycle.socketHook(conn, protect); err != nil {
+				t.Fatalf("fresh hook was blocked: %v", err)
+			}
+			if conn.controls != 1 || protects != 1 {
+				t.Fatal("fresh hook did not protect exactly once")
+			}
+		})
+	}
+}
+
+func TestCloseTunAcceptsOnlyAlreadyClosedErrors(t *testing.T) {
+	failure := errors.New("another listener cleanup failure")
+	for _, tc := range []struct {
+		name        string
+		err         error
+		wantPending bool
+	}{
+		{"closed", net.ErrClosed, false},
+		{"wrapped closed", fmt.Errorf("listener: %w", net.ErrClosed), false},
+		{"joined closed", errors.Join(net.ErrClosed, fmt.Errorf("listener: %w", net.ErrClosed)), false},
+		{"mixed failure", errors.Join(net.ErrClosed, failure), true},
+		{"wrapped mixed failure", fmt.Errorf("listener: %w", errors.Join(net.ErrClosed, failure)), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var lifecycle androidTunLifecycle
+			listener := &testListener{err: tc.err}
+			lifecycle.listener = listener
+			lifecycle.protected.Store(true)
+			err := lifecycle.closeTun()
+			if (err != nil) != tc.wantPending || (lifecycle.listener != nil) != tc.wantPending {
+				t.Fatalf("unexpected cleanup result: err=%v listener=%v", err, lifecycle.listener)
+			}
+			if lifecycle.protected.Load() {
+				t.Fatal("listener cleanup reopened admission")
+			}
+			if tc.wantPending {
+				if !errors.Is(err, failure) || lifecycle.listener != listener {
+					t.Fatal("mixed failure lost cause or ownership")
+				}
+				listener.err = net.ErrClosed
+			}
+			if err := lifecycle.closeTun(); err != nil || lifecycle.listener != nil {
+				t.Fatalf("repeat cleanup failed: %v", err)
+			}
+			wantCloses := 1
+			if tc.wantPending {
+				wantCloses = 2
+			}
+			if listener.closes != wantCloses {
+				t.Fatalf("close count = %d, want %d", listener.closes, wantCloses)
+			}
+		})
+	}
+}
