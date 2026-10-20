@@ -166,6 +166,8 @@ jobs:
           EMULATOR_PID=$!
           cleanup() {
             rc=$?
+            "$ADB" logcat -d -v threadtime > "$RUNNER_TEMP/angelanexus-logcat.txt" 2>&1 || true
+            "$ADB" shell dumpsys activity activities > "$RUNNER_TEMP/angelanexus-activities.txt" 2>&1 || true
             if [ "$rc" -ne 0 ]; then
               echo "=== emulator diagnostics ==="
               "$ADB" devices -l || true
@@ -209,19 +211,21 @@ jobs:
           "$ADB" shell settings put global animator_duration_scale 0
           APK="native/android/app/build/outputs/apk/debug/app-debug.apk"
           test -s "$APK"
-          "$ADB" install -r "$APK"
-          "$ADB" shell am force-stop app.angelanexus
-          "$ADB" shell am start -W -n app.angelanexus/.MainActivity
-          for attempt in $(seq 1 20); do
-            if "$ADB" shell pidof app.angelanexus 2>/dev/null | tr -d '\r' | grep -q '[0-9]'; then
-              break
-            fi
-            sleep 1
-          done
-          "$ADB" shell pidof app.angelanexus | tr -d '\r' | grep -q '[0-9]'
-          "$ADB" shell dumpsys activity activities | grep -q "app.angelanexus/.MainActivity"
-          "$ADB" shell pm path app.angelanexus | grep -q '^package:'
-          echo "Android runtime smoke test passed: APK installed, launcher activity started, process alive."
+          ADB="$ADB" APK="$APK" node scripts/android-runtime-smoke.mjs
+
+      - name: Upload Android debug APK and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AngelaNexus-android-debug-${{ github.sha }}-${{ github.event_name }}
+          path: |
+            native/android/app/build/outputs/apk/debug/app-debug.apk
+            native/android/app/build/test-results/testDebugUnitTest/
+            ${{ runner.temp }}/angelanexus-emulator.log
+            ${{ runner.temp }}/angelanexus-logcat.txt
+            ${{ runner.temp }}/angelanexus-activities.txt
+          if-no-files-found: warn
+          retention-days: 14
 
   android-release:
     needs: prepare-xray

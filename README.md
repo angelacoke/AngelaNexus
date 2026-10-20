@@ -144,6 +144,16 @@ the repository, so `./gradlew` is not an available entry point. See the
 dependency preparation, unit tests, APK packaging and emulator verification.
 Core or emulator test success is not physical-device TUN, leak or battery evidence.
 
+With a booted, unlocked test device, run
+`ADB=/path/to/adb APK=/path/to/app.apk node scripts/android-runtime-smoke.mjs`.
+This installs/replaces the test package and force-stops its existing process;
+use a dedicated test device. It requires explicit installation/launch success,
+the same process alive for 30 seconds and a resumed MainActivity. Failures exit
+nonzero rather than accepting an old package or a background activity record.
+The build retains the debug APK, JUnit XML and available emulator/logcat/activity
+diagnostics. The standalone GMS-less smoke workflow also retains diagnostics and
+fails its check when verification fails.
+
 ## Documentation
 
 - [English documentation](docs/README.md)

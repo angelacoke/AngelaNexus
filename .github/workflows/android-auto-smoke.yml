@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   smoke:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event != 'pull_request') }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -30,6 +30,14 @@ jobs:
       APP_PKG: app.angelanexus
       APP_ACTIVITY: app.angelanexus/.MainActivity
     steps:
+      # Execute the verifier from this workflow's revision, never the downloaded build's source.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - name: Resolve build run ID
         id: runid
         env:
@@ -135,46 +143,30 @@ jobs:
         shell: bash
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
+          APK: ${{ steps.apk.outputs.path }}
         run: |
-          set -uo pipefail
-          ADB="$ANDROID_HOME/platform-tools/adb"
-          APK="${{ steps.apk.outputs.path }}"
-          PKG="$APP_PKG"
+          set -euo pipefail
+          export ADB="$ANDROID_HOME/platform-tools/adb"
           OUT="$RUNNER_TEMP/smoke"
           mkdir -p "$OUT"
-
-          echo "--- install ---"
-          "$ADB" install -r "$APK"
-          "$ADB" logcat -c
-
-          echo "--- launch ---"
-          "$ADB" shell am force-stop "$PKG" || true
-          "$ADB" shell am start -W -n "$APP_ACTIVITY" || true
-          sleep 30
-
+          RESULT="FAILED"
+          if node scripts/android-runtime-smoke.mjs 2>&1 | tee "$OUT/runtime.txt"; then
+            RESULT="PASSED"
+          fi
           echo "--- screenshot ---"
           "$ADB" exec-out screencap -p > "$OUT/screenshot.png" || true
-
-          echo "--- liveness check ---"
-          if "$ADB" shell pidof "$PKG" 2>/dev/null | tr -d '\r' | grep -q '[0-9]'; then
-            RESULT="ALIVE"
-          else
-            RESULT="CRASHED"
-          fi
           echo "result=$RESULT" >> "$GITHUB_OUTPUT"
           echo "RESULT=$RESULT"
-
           echo "--- logcat ---"
           "$ADB" logcat -d -v threadtime > "$OUT/logcat.txt" || true
           grep -a -i -E "FATAL EXCEPTION|AndroidRuntime|tombstone|UnsatisfiedLink|NoClassDef" \
             "$OUT/logcat.txt" | tail -n 80 > "$OUT/crash.txt" || true
-
           {
             echo "## 自动冒烟结论"
             echo ""
             echo "- 构建 run: ${{ steps.runid.outputs.id }}"
-            echo "- 安装: 成功"
-            echo "- 启动 30 秒后进程状态: **$RESULT**"
+            echo "- 安装、启动、30 秒进程持续存活及前台 Activity 验证: **$RESULT**"
+            echo "- 仅应用启动验收，不代表 VPN/TUN、转发、防泄漏或耗电通过。"
             if [ -s "$OUT/crash.txt" ]; then
               echo "- 崩溃堆栈: **有**（见产物 crash.txt）"
             else
@@ -183,8 +175,15 @@ jobs:
             echo ""
             echo "截图与完整 logcat 见 Artifacts。"
           } | tee "$OUT/verdict.md" >> "$GITHUB_STEP_SUMMARY"
+          test "$RESULT" = "PASSED"
 
-          kill "$(cat "$RUNNER_TEMP/emulator.pid")" 2>/dev/null || true
+      - name: Stop emulator
+        if: always()
+        shell: bash
+        run: |
+          if [ -s "$RUNNER_TEMP/emulator.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/emulator.pid")" 2>/dev/null || true
+          fi
 
       - name: Upload smoke artifacts
         if: always()
@@ -196,6 +195,7 @@ jobs:
             ${{ runner.temp }}/smoke/logcat.txt
             ${{ runner.temp }}/smoke/crash.txt
             ${{ runner.temp }}/smoke/verdict.md
+            ${{ runner.temp }}/smoke/runtime.txt
             ${{ runner.temp }}/emulator.log
           if-no-files-found: warn
           retention-days: 14

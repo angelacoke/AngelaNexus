@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import net from "node:net";
-import { buildTrafficConfig, createSocks5Probe, DEFAULT_BINARIES, runKernelTrafficSmoke } from "../scripts/kernel-traffic-smoke.mjs";
+import { assertTargetResponse, buildTrafficConfig, createSocks5Probe, DEFAULT_BINARIES, runKernelTrafficSmoke } from "../scripts/kernel-traffic-smoke.mjs";
 import { Kernels } from "../src/core/model.js";
 
 async function listen(server) {
@@ -13,6 +13,13 @@ test("traffic smoke defaults only to NEXUS_*_BIN and reports missing values", ()
   assert.equal(DEFAULT_BINARIES[Kernels.MIHOMO], process.env.NEXUS_MIHOMO_BIN);
   assert.equal(DEFAULT_BINARIES[Kernels.SING_BOX], process.env.NEXUS_SING_BOX_BIN);
   assert.equal(DEFAULT_BINARIES[Kernels.XRAY], process.env.NEXUS_XRAY_BIN);
+});
+
+test("traffic smoke does not accept a marker from a non-success or altered response", () => {
+  const response = body => `HTTP/1.1 200 OK\r\ncontent-length: ${Buffer.byteLength(body)}\r\n\r\n${body}`;
+  assert.doesNotThrow(() => assertTargetResponse(response("ANGELANEXUS_LOOPBACK_OK")));
+  assert.throws(() => assertTargetResponse(response("prefix ANGELANEXUS_LOOPBACK_OK")), /unexpected target response body/);
+  assert.throws(() => assertTargetResponse(response("ANGELANEXUS_LOOPBACK_OK").replace("200 OK", "404 Not Found")), /unexpected target status/);
 });
 
 test("traffic smoke rejects missing binaries and cleans up local fixtures", { timeout: 5000 }, async () => {

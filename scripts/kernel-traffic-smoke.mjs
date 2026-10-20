@@ -12,6 +12,7 @@ const LOG_LIMIT = 64 * 1024;
 const START_TIMEOUT = 12_000;
 const REQUEST_TIMEOUT = 8_000;
 const CLEANUP_TIMEOUT = 4_000;
+const TARGET_BODY = "ANGELANEXUS_LOOPBACK_OK";
 
 export const DEFAULT_BINARIES = Object.freeze({
   [Kernels.MIHOMO]: process.env.NEXUS_MIHOMO_BIN,
@@ -150,6 +151,14 @@ async function httpViaProxy(port, targetPort) {
   }
 }
 
+export function assertTargetResponse(response, kernel = "kernel") {
+  const separator = response.indexOf("\r\n\r\n");
+  if (separator < 0) throw new Error(`${kernel}: incomplete HTTP response headers`);
+  const status = response.slice(0, separator).split("\r\n", 1)[0];
+  if (status !== "HTTP/1.1 200 OK") throw new Error(`${kernel}: unexpected target status ${status || "missing"}`);
+  if (response.slice(separator + 4) !== TARGET_BODY) throw new Error(`${kernel}: unexpected target response body`);
+}
+
 function startProcess(bin, args) {
   const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
   let stdout = "";
@@ -195,7 +204,16 @@ async function stopProcess(process) {
 
 export async function runKernelTrafficSmoke({ binaries = DEFAULT_BINARIES, kernels = Object.values(Kernels) } = {}) {
   const targetRequests = { count: 0 };
-  const target = createServer((req, res) => { targetRequests.count += 1; res.writeHead(200, { "content-type": "text/plain" }); res.end("ANGELANEXUS_LOOPBACK_OK"); });
+  const target = createServer((req, res) => {
+    targetRequests.count += 1;
+    if (req.method !== "GET" || req.url !== "/traffic-smoke") {
+      res.writeHead(404, { "content-type": "text/plain" });
+      res.end("unexpected target request");
+      return;
+    }
+    res.writeHead(200, { "content-type": "text/plain", "content-length": String(Buffer.byteLength(TARGET_BODY)) });
+    res.end(TARGET_BODY);
+  });
   const socks = createSocks5Probe();
   const directory = await mkdtemp(join(tmpdir(), "nexus-kernel-traffic-"));
   const report = [];
@@ -216,7 +234,7 @@ export async function runKernelTrafficSmoke({ binaries = DEFAULT_BINARIES, kerne
       try {
         await waitForPort(inboundPort, process);
         const response = await httpViaProxy(inboundPort, targetPort);
-        if (!response.includes("ANGELANEXUS_LOOPBACK_OK")) throw new Error(`${kernel}: target marker missing`);
+        assertTargetResponse(response, kernel);
         if (socks.connections.length <= beforeConnections || targetRequests.count <= beforeRequests) throw new Error(`${kernel}: no independent upstream/target evidence`);
         const beforeRejectedConnections = socks.connections.length;
         const beforeRejectedRequests = targetRequests.count;

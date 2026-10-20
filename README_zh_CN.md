@@ -139,6 +139,14 @@ AAR / 库。仓库当前没有 Gradle Wrapper，不能直接运行 `./gradlew`�
 [Android 构建工作流](.github/workflows/android-build.yml)。
 通过 Core 测试或模拟器测试，不代表已完成真机 TUN、泄漏防护或电池验证。
 
+已启动并解锁的测试设备可运行
+`ADB=/path/to/adb APK=/path/to/app.apk node scripts/android-runtime-smoke.mjs`。
+此命令会安装/替换测试包并强制停止现有进程；仅在专用测试设备执行。
+验收要求安装与启动明确成功、同一进程持续存活 30 秒且 MainActivity 位于前台；
+失败时返回非零退出码，不以旧包仍在运行或后台 Activity 记录作为成功证据。
+构建流程保留调试 APK、JUnit XML 和可用的模拟器/logcat/Activity 日志，
+独立无 GMS 冒烟流程也会在失败时保留诊断并将检查标红。
+
 ## 文档
 
 - [English README](README.md)
