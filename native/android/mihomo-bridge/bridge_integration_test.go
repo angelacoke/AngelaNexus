@@ -17,6 +17,7 @@ import (
 	"github.com/metacubex/mihomo/config"
 	"github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/hub/executor"
+	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/tunnel"
 	"github.com/metacubex/mihomo/tunnel/statistic"
 )
@@ -959,5 +960,177 @@ func TestAndroidBridgeCompletedStopRejectsStaleStartBeforeCleanup(t *testing.T) 
 				t.Fatal("fresh start was rejected before normal replacement cleanup")
 			}
 		})
+	}
+}
+
+// The constructor owns only the duplicate, like sing_tun.New. A failed Close
+// deliberately retains it so both the bridge and queued stop must keep ownership.
+type bridgeConstructedListener struct {
+	fd     int
+	closes int
+	err    error
+}
+
+func (l *bridgeConstructedListener) Close() error {
+	l.closes++
+	if l.err != nil {
+		return l.err
+	}
+	return syscall.Close(l.fd)
+}
+
+func TestAndroidBridgeStopDuringConstructionPreservesCallerFD(t *testing.T) {
+	for _, closeFails := range []bool{false, true} {
+		t.Run(fmt.Sprintf("closeFails=%t", closeFails), func(t *testing.T) {
+			androidRuntime = androidTunLifecycle{}
+			androidRuntime.setSuspended(true)
+			tunnel.OnSuspend()
+			var fds [2]int
+			if err := syscall.Pipe(fds[:]); err != nil {
+				t.Fatal(err)
+			}
+			defer syscall.Close(fds[0])
+			defer syscall.Close(fds[1])
+			failure := errors.New("constructed listener close failed")
+			listener := &bridgeConstructedListener{fd: -1}
+			if closeFails {
+				listener.err = failure
+			}
+			entered := make(chan struct{})
+			release := make(chan struct{})
+			startDone := make(chan bool, 1)
+			stopDone := make(chan error, 1)
+			var releaseOnce sync.Once
+			startJoined, stopStarted, stopJoined := false, false, false
+			defer func() {
+				releaseOnce.Do(func() { close(release) })
+				if !startJoined {
+					<-startDone
+				}
+				if stopStarted && !stopJoined {
+					<-stopDone
+				}
+				listener.err = nil
+				_ = stopTunError()
+			}()
+			generation := androidRuntime.stopGeneration.Load()
+			go func() {
+				startDone <- startAndroidTUNWithConstructor(fds[0], "system", "172.19.0.1/30", "", generation, func(options LC.Tun) (io.Closer, error) {
+					listener.fd = options.FileDescriptor
+					close(entered)
+					<-release
+					return listener, nil
+				})
+			}()
+			select {
+			case <-entered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("constructor was not reached")
+			}
+			stopStarted = true
+			go func() { stopDone <- stopTunError() }()
+			deadline := time.Now().Add(5 * time.Second)
+			for androidRuntime.pendingStops.Load() != 1 {
+				if time.Now().After(deadline) {
+					t.Fatal("stop did not announce during construction")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			conn := &bridgeEpochRawConn{}
+			if err := androidRuntime.socketHook(conn, func(int) bool { t.Error("protection called during stop"); return true }); err == nil || conn.controls != 0 {
+				t.Fatal("construction admitted a socket over stop")
+			}
+			releaseOnce.Do(func() { close(release) })
+			accepted := <-startDone
+			startJoined = true
+			stopErr := <-stopDone
+			stopJoined = true
+			if accepted {
+				t.Fatal("construction superseded by stop reported startup success")
+			}
+			if closeFails && !errors.Is(stopErr, failure) || !closeFails && stopErr != nil {
+				t.Fatalf("stop result: %v", stopErr)
+			}
+			if androidRuntime.ready() || androidRuntime.protected.Load() || !androidRuntime.suspended.Load() || tunnel.Status() != tunnel.Suspend {
+				t.Fatal("rejected construction changed pause or reopened admission")
+			}
+			if _, err := syscall.Write(fds[1], []byte{42}); err != nil {
+				t.Fatal(err)
+			}
+			var data [1]byte
+			if n, err := syscall.Read(fds[0], data[:]); err != nil || n != 1 || data[0] != 42 {
+				t.Fatalf("rejected construction consumed caller descriptor: n=%d err=%v", n, err)
+			}
+			var stat syscall.Stat_t
+			if closeFails {
+				if androidRuntime.listener != listener || listener.closes != 2 {
+					t.Fatal("failed construction cleanup was not retained and retried by queued stop")
+				}
+				if err := syscall.Fstat(listener.fd, &stat); err != nil {
+					t.Fatalf("failed cleanup discarded duplicate: %v", err)
+				}
+				listener.err = nil
+				if err := stopTunError(); err != nil {
+					t.Fatal(err)
+				}
+				if listener.closes != 3 {
+					t.Fatal("fresh stop did not retry retained listener")
+				}
+			} else if listener.closes != 1 {
+				t.Fatalf("listener closed %d times", listener.closes)
+			}
+			if androidRuntime.listener != nil {
+				t.Fatal("successful cleanup retained listener")
+			}
+			if err := syscall.Fstat(listener.fd, &stat); !errors.Is(err, syscall.EBADF) {
+				t.Fatalf("duplicate survived successful cleanup: %v", err)
+			}
+		})
+	}
+}
+
+func TestAndroidBridgeFreshConstructionCommitsCallerFD(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	androidRuntime.setSuspended(true)
+	tunnel.OnSuspend()
+	var fds [2]int
+	if err := syscall.Pipe(fds[:]); err != nil {
+		t.Fatal(err)
+	}
+	callerOwned := true
+	defer func() {
+		if callerOwned {
+			_ = syscall.Close(fds[0])
+		}
+		_ = syscall.Close(fds[1])
+		_ = stopTunError()
+	}()
+	listener := &bridgeConstructedListener{fd: -1}
+	accepted := startAndroidTUNWithConstructor(fds[0], "system", "172.19.0.1/30", "", androidRuntime.stopGeneration.Load(), func(options LC.Tun) (io.Closer, error) {
+		listener.fd = options.FileDescriptor
+		return listener, nil
+	})
+	if !accepted {
+		t.Fatal("fresh construction was rejected")
+	}
+	callerOwned = false
+	var stat syscall.Stat_t
+	if err := syscall.Fstat(fds[0], &stat); !errors.Is(err, syscall.EBADF) {
+		t.Fatalf("committed caller descriptor not released: %v", err)
+	}
+	if err := syscall.Fstat(listener.fd, &stat); err != nil {
+		t.Fatalf("committed duplicate not retained: %v", err)
+	}
+	if androidRuntime.listener != listener || !androidRuntime.ready() || androidRuntime.suspended.Load() || tunnel.Status() != tunnel.Running {
+		t.Fatal("fresh construction failed to commit listener and admission")
+	}
+	if err := stopTunError(); err != nil {
+		t.Fatal(err)
+	}
+	if listener.closes != 1 || androidRuntime.listener != nil {
+		t.Fatal("committed listener cleanup failed")
+	}
+	if err := syscall.Fstat(listener.fd, &stat); !errors.Is(err, syscall.EBADF) {
+		t.Fatalf("committed duplicate survived stop: %v", err)
 	}
 }

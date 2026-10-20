@@ -208,3 +208,22 @@ test("Mihomo TUN start retains its stop generation and rejects before touching n
   }
   assert.match(body, /defer androidTunMu\.Unlock\(\)/);
 });
+
+test("Mihomo rechecks stop after construction before consuming the caller descriptor", () => {
+  const bridge = read("native/android/mihomo-bridge/bridge.go");
+  const wrapper = bridge.split("func startAndroidTUNAtGeneration(")[1].split("func startAndroidTUNWithConstructor(")[0];
+  assert.match(wrapper, /return startAndroidTUNWithConstructor\(/);
+  assert.match(wrapper, /return sing_tun\.New\(options, tunnel\.Tunnel\)/);
+  const body = bridge.split("func startAndroidTUNWithConstructor(")[1].split("func closeAndroidResources()")[0];
+  const constructed = body.indexOf("listener, err := construct(options)");
+  const retained = body.indexOf("androidRuntime.listener = listener", constructed);
+  const recheck = body.indexOf("androidRuntime.checkConfigurationGeneration(generation)", retained);
+  const callerClose = body.indexOf("syscall.Close(fd)");
+  assert.ok(constructed >= 0 && retained > constructed && recheck > retained && callerClose > recheck);
+  assert.match(body.slice(recheck, callerClose), /_ = closeAndroidResources\(\)\s*return false/);
+  assert.ok(callerClose < body.indexOf("androidRuntime.setSuspended(false)"));
+  assert.ok(callerClose < body.indexOf("androidRuntime.restoreAdmission(true)"));
+  const checks = [...body.matchAll(/androidRuntime\.checkConfigurationGeneration\(generation\)/g)].map(match => match.index);
+  assert.equal(checks.length, 3);
+  assert.ok(checks[1] < body.indexOf("syscall.Dup(fd)"));
+});

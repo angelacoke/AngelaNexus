@@ -238,6 +238,14 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
 // Keep the request token across the control-lock wait, just like config/DNS.
 // Rejection retains the caller's descriptor and does not clean up a newer TUN.
 func startAndroidTUNAtGeneration(fd int, stack, address, dns string, generation uint64) bool {
+	return startAndroidTUNWithConstructor(fd, stack, address, dns, generation, func(options LC.Tun) (io.Closer, error) {
+		return sing_tun.New(options, tunnel.Tunnel)
+	})
+}
+
+// The per-call constructor keeps host regressions on the actual startup path
+// without mutating a global factory or pretending to attach an Android TUN.
+func startAndroidTUNWithConstructor(fd int, stack, address, dns string, generation uint64, construct func(LC.Tun) (io.Closer, error)) bool {
 	androidTunMu.Lock()
 	defer androidTunMu.Unlock()
 	// Reject before touching current ownership: a newer start may have won
@@ -280,6 +288,11 @@ func startAndroidTUNAtGeneration(fd int, stack, address, dns string, generation 
 		return false
 	}
 
+	// Cleanup and argument parsing may have overlapped a newly announced stop.
+	// Avoid starting a constructor at all when this request is already stale.
+	if err := androidRuntime.checkConfigurationGeneration(generation); err != nil {
+		return false
+	}
 	dupFd, err := syscall.Dup(fd)
 	if err != nil {
 		// The caller retains ownership until this function succeeds.
@@ -299,9 +312,18 @@ func startAndroidTUNAtGeneration(fd int, stack, address, dns string, generation 
 		Inet6Address:        prefix6,
 	}
 
-	listener, err := sing_tun.New(options, tunnel.Tunnel)
+	listener, err := construct(options)
 	if err != nil {
 		_ = syscall.Close(dupFd)
+		return false
+	}
+
+	// Construction may finish after stop was announced. First retain the new
+	// listener, including its duplicate fd, so a failed close remains retryable.
+	// Reject before consuming the caller fd, clearing pause or restoring admission.
+	androidRuntime.listener = listener
+	if err := androidRuntime.checkConfigurationGeneration(generation); err != nil {
+		_ = closeAndroidResources()
 		return false
 	}
 
@@ -309,12 +331,11 @@ func startAndroidTUNAtGeneration(fd int, stack, address, dns string, generation 
 	// is released only after successful construction so failure remains
 	// unambiguous at the JNI/service boundary.
 	_ = syscall.Close(fd)
-	androidRuntime.listener = listener
 	// A newly attached runtime starts unpaused; failed starts never clear pause.
 	androidRuntime.setSuspended(false)
 	androidRuntime.restoreAdmission(true)
-	// A stop may have been announced while constructing the listener. It owns
-	// the queued cleanup; do not resume tunnel admission before it gets the lock.
+	// A stop announced after the commit check owns queued cleanup. Do not resume
+	// tunnel admission before it gets the lock; this is not construction cancellation.
 	if androidRuntime.ready() {
 		tunnel.OnRunning()
 	}
