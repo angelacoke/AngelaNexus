@@ -63,7 +63,7 @@ func TestAndroidBridgeConcurrentConfigurationAndDNS(t *testing.T) {
 						err = stopTunError()
 					}
 				}
-				if err != nil {
+				if err != nil && !errors.Is(err, errAndroidConfigurationStopped) {
 					t.Errorf("worker %d iteration %d: %v", worker, iteration, err)
 					return
 				}
@@ -748,6 +748,113 @@ func TestAndroidBridgeQueuedSuspendBlocksBeforeControlLock(t *testing.T) {
 				t.Fatal("explicit resume after queued pause failed")
 			}
 			assertAndroidBridgeEpochAdmission(t, oldEpoch)
+		})
+	}
+}
+
+// Exercise both real entry bodies while stop is pending and the control mutex
+// is unavailable. The early rejection must not wait for the mutex or parse.
+func TestAndroidBridgePendingStopRejectsConfigurationBeforeControlLock(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	lastConfigJSON = nil
+	if err := initializeAndroid(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyAndroidConfigJSON(bridgeConfigJSON("direct")); err != nil {
+		t.Fatal(err)
+	}
+	saved := append([]byte(nil), lastConfigJSON...)
+	androidRuntime.beginStop()
+	androidTunMu.Lock()
+	locked := true
+	done := make(chan error, 2)
+	completed := 0
+	defer func() {
+		if locked {
+			androidTunMu.Unlock()
+		}
+		for completed < 2 {
+			<-done
+			completed++
+		}
+		androidRuntime.endStop()
+		_ = stopTunError()
+	}()
+	go func() { done <- applyAndroidConfigJSON(bridgeConfigJSON("rule")) }()
+	go func() { done <- updateAndroidDNS("127.0.0.1") }()
+	for completed < 2 {
+		select {
+		case err := <-done:
+			completed++
+			if !errors.Is(err, errAndroidConfigurationStopped) {
+				t.Fatalf("configuration result: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("configuration waited for control despite pending stop")
+		}
+	}
+	androidTunMu.Unlock()
+	locked = false
+	if !bytes.Equal(lastConfigJSON, saved) || !strings.EqualFold(executor.GetGeneral().Mode.String(), "direct") {
+		t.Fatal("pending stop changed committed configuration")
+	}
+	if androidRuntime.ready() || tunnel.Status() != tunnel.Suspend {
+		t.Fatal("rejected updates reopened admission")
+	}
+}
+
+// Explicit captured tokens model requests paused before lock acquisition without
+// scheduler sleeps. Once stop returns its count is zero, but these requests must
+// not parse/apply or replace saved JSON. A genuinely fresh request remains valid.
+func TestAndroidBridgeCompletedStopRejectsStaleConfigurationGeneration(t *testing.T) {
+	for _, operation := range []string{"config", "dns"} {
+		t.Run(operation, func(t *testing.T) {
+			androidRuntime = androidTunLifecycle{}
+			lastConfigJSON = nil
+			if err := initializeAndroid(t.TempDir()); err != nil {
+				t.Fatal(err)
+			}
+			defer stopTunError()
+			if err := applyAndroidConfigJSON(bridgeConfigJSON("direct")); err != nil {
+				t.Fatal(err)
+			}
+			saved := append([]byte(nil), lastConfigJSON...)
+			generation := androidRuntime.stopGeneration.Load()
+			if err := stopTunError(); err != nil {
+				t.Fatal(err)
+			}
+			if androidRuntime.pendingStops.Load() != 0 {
+				t.Fatal("stop did not complete")
+			}
+			var err error
+			if operation == "config" {
+				err = applyAndroidConfigJSONAtGeneration(bridgeConfigJSON("rule"), generation)
+			} else {
+				err = updateAndroidDNSAtGeneration("127.0.0.1", generation)
+			}
+			if !errors.Is(err, errAndroidConfigurationStopped) {
+				t.Fatalf("stale request result: %v", err)
+			}
+			if !bytes.Equal(lastConfigJSON, saved) || !strings.EqualFold(executor.GetGeneral().Mode.String(), "direct") {
+				t.Fatal("stale update changed committed configuration")
+			}
+			if androidRuntime.ready() || tunnel.Status() != tunnel.Suspend {
+				t.Fatal("stale update reopened stopped runtime")
+			}
+			if operation == "config" {
+				err = applyAndroidConfigJSON(bridgeConfigJSON("rule"))
+			} else {
+				err = updateAndroidDNS("127.0.0.1")
+			}
+			if err != nil {
+				t.Fatalf("fresh request rejected: %v", err)
+			}
+			if bytes.Equal(lastConfigJSON, saved) {
+				t.Fatal("fresh request failed to commit")
+			}
+			if androidRuntime.ready() || tunnel.Status() != tunnel.Suspend {
+				t.Fatal("fresh configuration invented TUN readiness")
+			}
 		})
 	}
 }

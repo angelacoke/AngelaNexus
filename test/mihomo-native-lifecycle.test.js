@@ -154,3 +154,39 @@ test("Mihomo pause gates hooks before waiting for serialized control work", () =
   const begin = lifecycle.split("func (l *androidTunLifecycle) beginSuspend()")[1].split("func (l *androidTunLifecycle) endSuspend")[0];
   assert.ok(begin.indexOf("l.pendingSuspends.Add(1)") < begin.indexOf("l.setSuspended(true)"));
 });
+
+test("Mihomo queued config and DNS retain their request's stop generation across the control wait", () => {
+  const bridge = read("native/android/mihomo-bridge/bridge.go");
+  for (const [name, end] of [["applyAndroidConfigJSON", "//export updateDns"], ["updateAndroidDNS", "//export startTUN"]]) {
+    const body = bridge.split(`func ${name}(`)[1].split(end)[0];
+    assert.ok(body.indexOf("generation := androidRuntime.stopGeneration.Load()") < body.indexOf("androidTunMu.Lock()"));
+    assert.match(body, new RegExp(`return ${name}AtGeneration\\([^\\n]*generation\\)`));
+    const checks = [...body.matchAll(/androidRuntime\.checkConfigurationGeneration\(generation\)/g)].map(match => match.index);
+    assert.equal(checks.length, 2);
+    const lock = body.indexOf("androidTunMu.Lock()");
+    assert.ok(checks[0] < lock && checks[1] > lock);
+    assert.ok(checks[1] < body.indexOf("config.Parse("));
+  }
+  const lifecycle = read("native/android/mihomo-bridge/lifecycle.go");
+  const begin = lifecycle.split("func (l *androidTunLifecycle) beginStop()")[1].split("func (l *androidTunLifecycle) endStop()")[0];
+  assert.ok(begin.indexOf("l.pendingStops.Add(1)") < begin.indexOf("l.stopGeneration.Add(1)"));
+  assert.ok(begin.indexOf("l.stopGeneration.Add(1)") < begin.indexOf("l.blockAndDrain()"));
+  const check = lifecycle.split("func (l *androidTunLifecycle) checkConfigurationGeneration")[1].split("// Serialize restoration")[0];
+  assert.match(check, /l\.pendingStops\.Load\(\) != 0 \|\| generation != l\.stopGeneration\.Load\(\)/);
+});
+
+test("Mihomo foreign-thread smoke only allows the exact stop rejection during concurrent updates", () => {
+  const smoke = read("scripts/smoke-mihomo-library.py");
+  const lifecycle = read("native/android/mihomo-bridge/lifecycle.go");
+  const message = "Android configuration request rejected by stop; retry after stop completes";
+  assert.ok(lifecycle.includes(message) && smoke.includes(`error == "${message}"`));
+  assert.match(smoke, /allow_stopped=False/);
+  assert.match(smoke, /allow_stopped and name in \("angelaApplyConfig", "updateDns"\)/);
+  assert.equal((smoke.match(/allow_stopped=True/g) ?? []).length, 2);
+  const concurrent = smoke.split("def concurrent_calls(worker):")[1].split("with ThreadPoolExecutor")[0];
+  assert.equal((concurrent.match(/allow_stopped=True/g) ?? []).length, 2);
+  const after = smoke.split("list(workers.map(concurrent_calls, range(5)))")[1];
+  assert.match(after, /call\("angelaApplyConfig", config\)/);
+  assert.match(after, /call\("updateDns", b"127\.0\.0\.1"\)/);
+  assert.doesNotMatch(after, /allow_stopped=True/);
+});

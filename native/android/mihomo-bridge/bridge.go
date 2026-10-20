@@ -137,11 +137,23 @@ func angelaApplyConfig(configJSON *C.char) *C.char {
 }
 
 func applyAndroidConfigJSON(data []byte) error {
+	generation := androidRuntime.stopGeneration.Load()
+	if err := androidRuntime.checkConfigurationGeneration(generation); err != nil {
+		return err
+	}
+	return applyAndroidConfigJSONAtGeneration(data, generation)
+}
+
+// The captured generation belongs to the request, not to lock acquisition.
+func applyAndroidConfigJSONAtGeneration(data []byte, generation uint64) error {
 	// config.Parse temporarily changes upstream globals and rolls them back.
 	// Serialize parsing with apply, DNS updates, home changes and stop/start;
 	// locking only ApplyConfig lets a late parse rollback undo another apply.
 	androidTunMu.Lock()
 	defer androidTunMu.Unlock()
+	if err := androidRuntime.checkConfigurationGeneration(generation); err != nil {
+		return err
+	}
 	if len(data) == 0 {
 		return errors.New("config is empty")
 	}
@@ -162,6 +174,15 @@ func updateDns(dns *C.char) *C.char {
 }
 
 func updateAndroidDNS(dns string) error {
+	generation := androidRuntime.stopGeneration.Load()
+	if err := androidRuntime.checkConfigurationGeneration(generation); err != nil {
+		return err
+	}
+	return updateAndroidDNSAtGeneration(dns, generation)
+}
+
+// The captured generation belongs to the request, not to lock acquisition.
+func updateAndroidDNSAtGeneration(dns string, generation uint64) error {
 	servers, err := parseDNS(dns)
 	if err != nil {
 		return err
@@ -169,6 +190,9 @@ func updateAndroidDNS(dns string) error {
 
 	androidTunMu.Lock()
 	defer androidTunMu.Unlock()
+	if err := androidRuntime.checkConfigurationGeneration(generation); err != nil {
+		return err
+	}
 
 	if len(lastConfigJSON) == 0 {
 		return errors.New("no configuration has been applied")

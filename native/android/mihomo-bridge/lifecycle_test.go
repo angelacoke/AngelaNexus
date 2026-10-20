@@ -780,3 +780,31 @@ func TestPendingSuspendCannotBeBypassed(t *testing.T) {
 		})
 	}
 }
+
+// A count alone is insufficient once the queued stop has completed.
+func TestConfigurationGenerationRejectsRequestsAcrossStop(t *testing.T) {
+	var lifecycle androidTunLifecycle
+	before := lifecycle.stopGeneration.Load()
+	if err := lifecycle.checkConfigurationGeneration(before); err != nil {
+		t.Fatal(err)
+	}
+	lifecycle.beginStop()
+	lifecycle.beginStop()
+	during := lifecycle.stopGeneration.Load()
+	for _, token := range []uint64{before, during} {
+		if !errors.Is(lifecycle.checkConfigurationGeneration(token), errAndroidConfigurationStopped) {
+			t.Fatal("pending stops admitted configuration")
+		}
+	}
+	lifecycle.endStop()
+	if !errors.Is(lifecycle.checkConfigurationGeneration(during), errAndroidConfigurationStopped) {
+		t.Fatal("one completed stop bypassed another pending stop")
+	}
+	lifecycle.endStop()
+	if !errors.Is(lifecycle.checkConfigurationGeneration(before), errAndroidConfigurationStopped) {
+		t.Fatal("completed stops admitted a stale request")
+	}
+	if err := lifecycle.checkConfigurationGeneration(lifecycle.stopGeneration.Load()); err != nil {
+		t.Fatalf("fresh configuration after stop was rejected: %v", err)
+	}
+}

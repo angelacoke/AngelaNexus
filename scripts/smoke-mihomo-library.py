@@ -31,7 +31,7 @@ def main() -> None:
     resume.argtypes = [ctypes.c_ubyte]
     resume.restype = None
 
-    def call(name, *args, expect_error=False):
+    def call(name, *args, expect_error=False, allow_stopped=False):
         pointer = getattr(library, name)(*args)
         if not pointer:
             raise AssertionError(f"{name} returned a null result")
@@ -39,6 +39,9 @@ def main() -> None:
             error = ctypes.string_at(pointer).decode("utf-8")
         finally:
             library.freeCString(pointer)
+        if (allow_stopped and name in ("angelaApplyConfig", "updateDns")
+                and error == "Android configuration request rejected by stop; retry after stop completes"):
+            return
         if bool(error) != expect_error:
             raise AssertionError(f"{name}: unexpected result {error!r}")
 
@@ -66,9 +69,9 @@ def main() -> None:
         def concurrent_calls(worker):
             for _ in range(4):
                 if worker == 0:
-                    call("angelaApplyConfig", config)
+                    call("angelaApplyConfig", config, allow_stopped=True)
                 elif worker == 1:
-                    call("updateDns", b"127.0.0.1")
+                    call("updateDns", b"127.0.0.1", allow_stopped=True)
                 elif worker == 2:
                     call("angelaInit", home.encode())
                 elif worker == 3:
@@ -79,6 +82,9 @@ def main() -> None:
 
         with ThreadPoolExecutor(max_workers=5) as workers:
             list(workers.map(concurrent_calls, range(5)))
+        # Only concurrent requests may be superseded; fresh retries must succeed.
+        call("angelaApplyConfig", config)
+        call("updateDns", b"127.0.0.1")
         call("angelaStopTun")
     print("Host c-shared load/exports/config/invalid-start/repeated-stop smoke passed", flush=True)
 

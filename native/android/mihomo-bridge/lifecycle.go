@@ -25,6 +25,8 @@ type androidTunLifecycle struct {
 	// Stop announces itself before waiting for the control mutex. Count requests
 	// so one completed stop cannot reopen admission while another is queued.
 	pendingStops atomic.Int64
+	// Reject queued configuration even after a stop finishes and its count is zero.
+	stopGeneration atomic.Uint64
 	// A pause also announces itself before waiting for parsing/configuration.
 	// A concurrent resume/start cannot bypass pauses still waiting for that lock.
 	pendingSuspends atomic.Int64
@@ -114,11 +116,25 @@ func (l *androidTunLifecycle) setSuspended(suspended bool) {
 // returns. A hook which completed earlier is still outside this contract.
 func (l *androidTunLifecycle) beginStop() {
 	l.pendingStops.Add(1)
+	l.stopGeneration.Add(1)
 	l.blockAndDrain()
 }
 
 func (l *androidTunLifecycle) endStop() {
 	l.pendingStops.Add(-1)
+}
+
+var errAndroidConfigurationStopped = errors.New("Android configuration request rejected by stop; retry after stop completes")
+
+// Sample before waiting for androidTunMu and recheck under that mutex before
+// parsing. The final successful check admits the operation for execution; a stop
+// announced afterwards does not cancel it, even if Parse has not been called yet.
+// Parsed configs may own resources and cannot safely be discarded here.
+func (l *androidTunLifecycle) checkConfigurationGeneration(generation uint64) error {
+	if l.pendingStops.Load() != 0 || generation != l.stopGeneration.Load() {
+		return errAndroidConfigurationStopped
+	}
+	return nil
 }
 
 // Serialize restoration with the callback drain. Without this write lock, a
