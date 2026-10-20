@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import yaml from "js-yaml";
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const workflow = yaml.load(read(".github/workflows/mihomo-android-native-build.yml"));
@@ -46,3 +50,49 @@ test("bridge closes registration before listener cleanup and reopens only on com
   assert.equal((bridge.match(/\.StartRegistrations\(/g) || []).length, 1);
   assert.equal((bridge.match(/\.StopRegistrations\(/g) || []).length, 2);
 });
+
+for (const matrix of workflow.jobs.build.strategy.matrix.include) {
+  test(`native provenance shell executes with exact final source hashes: ${matrix.abi}`, () => {
+    const root = mkdtempSync(join(tmpdir(), "angelanexus-provenance-shell-"));
+    const step = steps.find(s => s.name === "Generate native build provenance evidence");
+    const put = (path, content, mode) => {
+      mkdirSync(join(path, ".."), { recursive: true });
+      writeFileSync(path, content, { mode });
+    };
+    const hash = path => createHash("sha256").update(readFileSync(path)).digest("hex");
+    try {
+      const bin = join(root, "bin");
+      put(join(bin, "go"), "#!/bin/sh\nprintf 'go version go1.24.8 linux/amd64\\n'\n", 0o755);
+      put(join(bin, "git"), `#!/bin/sh\nprintf '${step.env.MIHOMO_COMMIT}\\n'\n`, 0o755);
+      const ndk = join(root, "ndk");
+      put(join(ndk, "toolchains/llvm/prebuilt/linux-x86_64/bin", matrix.cc), "#!/bin/sh\nprintf 'Android clang version fixture\\n'\n", 0o755);
+      const artifact = join(root, `libclash-${matrix.abi}.so`);
+      put(artifact, `fixture ELF ${matrix.abi}`);
+      const sources = {
+        server: "listener/sing_tun/server.go",
+        manager: "tunnel/statistic/manager.go",
+        tracker: "tunnel/statistic/tracker.go",
+        tunnel: "tunnel/tunnel.go",
+      };
+      for (const [name, path] of Object.entries(sources)) put(join(root, "mihomo", path), `reviewed final ${name} output\n`);
+      const run = step.run.replace(/\$\{\{ matrix\.(\w+) \}\}/g, (_, key) => matrix[key]);
+      assert.doesNotMatch(run, /\$\{\{/);
+      const result = spawnSync("bash", ["--noprofile", "--norc", "-e", "-o", "pipefail", "-c", run], {
+        encoding: "utf8", timeout: 15_000,
+        env: { ...process.env, ...step.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: root, ANDROID_NDK_ROOT: ndk, GITHUB_WORKSPACE: process.cwd() },
+      });
+      assert.equal(result.status, 0, result.stderr || result.error?.message);
+      const evidence = JSON.parse(readFileSync(join(root, `mihomo-provenance-${matrix.abi}.json`), "utf8"));
+      assert.equal(evidence.abi, matrix.abi);
+      assert.equal(evidence.toolchain.goarch, matrix.goarch);
+      assert.equal(evidence.toolchain.goarm, matrix.goarch === "arm" ? "7" : null);
+      assert.equal(evidence.artifact.sha256, hash(artifact));
+      assert.equal(evidence.ownershipAdapter.patchedSource.sha256, hash(join(root, "mihomo", sources.server)));
+      assert.equal(evidence.statisticsPatch.patchedSource.sha256, hash(join(root, "mihomo", sources.manager)));
+      for (const name of ["manager", "tracker", "tunnel"]) {
+        assert.deepEqual(evidence.lateConnectionsPatch.patchedSources[name], { path: sources[name], sha256: hash(join(root, "mihomo", sources[name])) });
+      }
+      assert.equal(evidence.lateConnectionsPatch.sha256, hash(join(process.cwd(), "native/android/mihomo-bridge/late-connections.patch")));
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+}

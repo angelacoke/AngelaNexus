@@ -20,7 +20,8 @@ test("native workflow stages the statistics integration test and runs the race t
 test("provenance workflow records the statistics patch and patched manager source", () => {
   const provenance = steps.find(step => step.name === "Generate native build provenance evidence");
   assert.match(provenance.run, /STATISTICS_PATCH_SHA256=.*sha256sum .*statistics\.patch/);
-  assert.match(provenance.run, /PATCHED_STATISTICS_SHA256=.*sha256sum .*tunnel\/statistic\/manager\.go/);
+  assert.match(provenance.run, /PATCHED_LATE_MANAGER_SHA256=.*sha256sum .*tunnel\/statistic\/manager\.go/);
+  assert.match(provenance.run, /"statisticsPatch".*"sha256": "\$PATCHED_LATE_MANAGER_SHA256"/);
   assert.match(provenance.run, /statisticsPatch/);
   assert.match(provenance.run, /native\/android\/mihomo-bridge\/statistics\.patch/);
   assert.match(provenance.run, /tunnel\/statistic\/manager\.go/);
