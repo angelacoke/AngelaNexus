@@ -21,18 +21,24 @@ function fixture() {
   const patchedSource = Buffer.from("fixture patched server\n");
   const statisticsPatch = Buffer.from("fixture statistics patch\n");
   const patchedStatistics = Buffer.from("fixture patched statistics manager\n");
+  const patchedTracker = Buffer.from("fixture patched tracker\n");
+  const patchedTunnel = Buffer.from("fixture patched tunnel\n");
+  const lateConnectionsPatch = Buffer.from("fixture late connections patch\n");
   const sourceDir = join(root, "native/android/mihomo-bridge");
   mkdirSync(sourceDir, { recursive: true });
   mkdirSync(join(root, "tunnel/statistic"), { recursive: true });
   mkdirSync(join(root, "listener/sing_tun"), { recursive: true });
   writeFileSync(join(root, "listener/sing_tun/server.go"), patchedSource);
   writeFileSync(join(root, "tunnel/statistic/manager.go"), patchedStatistics);
+  writeFileSync(join(root, "tunnel/statistic/tracker.go"), patchedTracker);
+  writeFileSync(join(root, "tunnel/tunnel.go"), patchedTunnel);
   writeFileSync(join(sourceDir, "statistics.patch"), statisticsPatch);
+  writeFileSync(join(sourceDir, "late-connections.patch"), lateConnectionsPatch);
   mkdirSync(sourceDir, { recursive: true });
   writeFileSync(join(sourceDir, "bridge.go"), bridge);
   writeFileSync(join(sourceDir, "lifecycle.go"), lifecycle);
   writeFileSync(join(sourceDir, "library.go"), libraryEntry);
-  const adapterSource = `PATCHED_SERVER_SHA256 = "${digest(patchedSource)}"\nPATCHED_STATISTICS_SHA256 = "${digest(patchedStatistics)}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\n`;
+  const adapterSource = `PATCHED_SERVER_SHA256 = "${digest(patchedSource)}"\nPATCHED_STATISTICS_SHA256 = "${digest(patchedStatistics)}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${digest(patchedStatistics)}"\nPATCHED_TRACKER_SHA256 = "${digest(patchedTracker)}"\nPATCHED_TUNNEL_SHA256 = "${digest(patchedTunnel)}"\n`;
   writeFileSync(join(sourceDir, "prepare-upstream.py"), adapterSource);
   const adapterSha = digest(adapterSource);
   const records = {};
@@ -77,6 +83,15 @@ ${ABIS.map((abi) => ` val ${abi.replaceAll("-", "_")} = MihomoNativeLibrarySpec(
         path: "native/android/mihomo-bridge/statistics.patch",
         sha256: digest(statisticsPatch),
         patchedSource: { path: "tunnel/statistic/manager.go", sha256: digest(patchedStatistics) },
+      },
+      lateConnectionsPatch: {
+        path: "native/android/mihomo-bridge/late-connections.patch",
+        sha256: digest(lateConnectionsPatch),
+        patchedSources: {
+          manager: { path: "tunnel/statistic/manager.go", sha256: digest(patchedStatistics) },
+          tracker: { path: "tunnel/statistic/tracker.go", sha256: digest(patchedTracker) },
+          tunnel: { path: "tunnel/tunnel.go", sha256: digest(patchedTunnel) },
+        },
       },
       artifact: { name: artifact, sha256: records[abi].sha256 },
     }));
@@ -313,6 +328,34 @@ test("rejects checkout statistics patch tampering", () => withFixture((fx) => {
   assert.match(result.stderr, /statistics patch SHA-256 mismatch/);
 }));
 
+test("rejects old provenance without late-connections evidence", () => withFixture((fx) => {
+  mutate(fx, "x86_64", (p) => { delete p.lateConnectionsPatch; });
+  const result = run(fx);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /missing required field 'lateConnectionsPatch'/);
+}));
+test("rejects late patch and each final source hash tampering", () => withFixture((fx) => {
+  writeFileSync(join(fx.root, "native/android/mihomo-bridge/late-connections.patch"), "tampered");
+  let result = run(fx);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /late connections patch SHA-256 mismatch/);
+  const cases = [["manager", "manager.go"], ["tracker", "tracker.go"], ["tunnel", "tunnel.go"]];
+  for (const [name, file] of cases) {
+    const fresh = fixture();
+    try {
+      mutate(fresh, "x86_64", (p) => { p.lateConnectionsPatch.patchedSources[name].sha256 = "0".repeat(64); });
+      result = run(fresh);
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, new RegExp(`lateConnectionsPatch ${name} SHA-256 mismatch`));
+    } finally { rmSync(fresh.root, { recursive: true, force: true }); }
+  }
+}));
+test("rejects late source path substitution", () => withFixture((fx) => {
+  mutate(fx, "arm64-v8a", (p) => { p.lateConnectionsPatch.patchedSources.tracker.path = "wrong.go"; });
+  const result = run(fx);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /lateConnectionsPatch tracker path mismatch/);
+}));
 test("rejects invalid or missing statistics adapter constants", () => withFixture((fx) => {
   const path = join(fx.root, "native/android/mihomo-bridge/prepare-upstream.py");
   const original = readFileSync(path, "utf8");
@@ -324,4 +367,18 @@ test("rejects invalid or missing statistics adapter constants", () => withFixtur
   result = run(fx);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /exactly one PATCHED_STATISTICS_SHA256/);
+  writeFileSync(path, original + "LATE_CONNECTIONS_PATCH_SHA256 = compute()\n");
+  result = run(fx);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /LATE_CONNECTIONS_PATCH_SHA256 must be a literal string/);
+}));
+
+// Packaging runs in the application checkout, while the reviewed upstream
+// source exists only in the native build job. Known output digests in the
+// adapter and the downloaded provenance are the bridge between those jobs.
+test("packaging does not require an upstream source checkout in the app repository", () => withFixture((fx) => {
+  rmSync(join(fx.root, "tunnel"), { recursive: true });
+  rmSync(join(fx.root, "listener"), { recursive: true });
+  const result = run(fx);
+  assert.equal(result.status, 0, result.stderr);
 }));

@@ -1415,3 +1415,128 @@ func TestAndroidBridgeStatisticsLifecycle(t *testing.T) {
 		})
 	}
 }
+
+// These tests use the actual bridge cleanup/start bodies and real pipe sockets,
+// but the consuming constructor is synthetic: no Android TUN is attached.
+func TestAndroidBridgeLateConnectionEpochLifecycle(t *testing.T) {
+	for _, mode := range []string{"stop", "failed-stop", "invalid-replacement"} {
+		t.Run(mode, func(t *testing.T) {
+			androidRuntime = androidTunLifecycle{}
+			manager := statistic.DefaultManager
+			manager.StartRegistrations()
+			oldEpoch := manager.RegistrationEpoch()
+			listener := &bridgeTestListener{}
+			androidRuntime.listener = listener
+			androidRuntime.protected.Store(true)
+			tunnel.OnRunning()
+			t.Cleanup(func() { listener.err = nil; _ = stopTunError() })
+			failure := errors.New("late-connection listener failure")
+			switch mode {
+			case "stop":
+				if err := stopTunError(); err != nil {
+					t.Fatal(err)
+				}
+			case "failed-stop":
+				listener.err = failure
+				if err := stopTunError(); !errors.Is(err, failure) {
+					t.Fatalf("lost listener failure: %v", err)
+				}
+			case "invalid-replacement":
+				if startAndroidTUNAtGeneration(-1, "system", "", "", androidRuntime.stopGeneration.Load()) {
+					t.Fatal("accepted invalid replacement")
+				}
+			}
+			if manager.RegistrationEpoch() == oldEpoch {
+				t.Fatal("cleanup did not invalidate the old tracker epoch")
+			}
+			probe := func(epoch uint64, admitted bool) {
+				t.Helper()
+				local, peer := net.Pipe()
+				defer local.Close()
+				defer peer.Close()
+				direct := outbound.NewDirectWithOption(outbound.DirectOption{Name: "epoch-bridge-test"})
+				tracker, err := statistic.NewTCPTrackerAtEpoch(outbound.NewConn(local, direct), manager, &constant.Metadata{NetWork: constant.TCP}, nil, 0, 0, true, epoch)
+				if admitted {
+					if err != nil || tracker == nil {
+						t.Fatalf("current epoch rejected: %v", err)
+					}
+					if manager.Get(tracker.ID()) != tracker {
+						t.Fatal("admitted tracker not registered")
+					}
+					if err := tracker.Close(); err != nil {
+						t.Fatal(err)
+					}
+					return
+				}
+				if err == nil || tracker != nil {
+					t.Fatalf("closed/stale registration was admitted: %v", err)
+				}
+				_ = peer.SetReadDeadline(time.Now().Add(time.Second))
+				var data [1]byte
+				if _, err := peer.Read(data[:]); err != io.EOF {
+					t.Fatalf("rejected connection was not closed: %v", err)
+				}
+			}
+			probe(oldEpoch, false)
+			// Even a freshly captured token cannot bypass the closed gate.
+			probe(manager.RegistrationEpoch(), false)
+			listener.err = nil
+			var fds [2]int
+			if err := syscall.Pipe(fds[:]); err != nil {
+				t.Fatal(err)
+			}
+			defer syscall.Close(fds[1])
+			if !startAndroidTUNWithConstructor(fds[0], "system", "172.19.0.1/30", "", androidRuntime.stopGeneration.Load(), func(options LC.Tun) (io.Closer, error) {
+				return os.NewFile(uintptr(options.FileDescriptor), "late-connection-listener"), nil
+			}) {
+				_ = syscall.Close(fds[0])
+				t.Fatal("synthetic restart rejected")
+			}
+			probe(oldEpoch, false)
+			probe(manager.RegistrationEpoch(), true)
+			epoch := manager.RegistrationEpoch()
+			suspend(1)
+			suspend(0)
+			if manager.RegistrationEpoch() != epoch {
+				t.Fatal("pause/resume changed the attachment generation")
+			}
+			if err := stopTunError(); err != nil {
+				t.Fatal(err)
+			}
+			probe(epoch, false)
+		})
+	}
+}
+
+func TestAndroidBridgeRetriesLateRejectedConnectionClose(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	manager := statistic.DefaultManager
+	manager.StartRegistrations()
+	epoch := manager.RegistrationEpoch()
+	if err := stopTunError(); err != nil {
+		t.Fatal(err)
+	}
+	local, peer := net.Pipe()
+	defer local.Close()
+	defer peer.Close()
+	failure := errors.New("late result close failed")
+	direct := outbound.NewDirectWithOption(outbound.DirectOption{Name: "late-retry-test"})
+	conn := &bridgeRetryConn{Conn: outbound.NewConn(local, direct), err: errors.Join(net.ErrClosed, failure)}
+	t.Cleanup(func() { conn.err = nil; _ = stopTunError() })
+	tracker, err := statistic.NewTCPTrackerAtEpoch(conn, manager, &constant.Metadata{NetWork: constant.TCP}, nil, 0, 0, true, epoch)
+	if tracker != nil || !errors.Is(err, failure) || conn.closes != 1 {
+		t.Fatalf("late rejection lost close failure: %v (closes=%d)", err, conn.closes)
+	}
+	// The initial stop already returned; this error belongs to late cleanup and
+	// must remain reachable by the next stop rather than disappear from ownership.
+	if err := stopTunError(); !errors.Is(err, failure) || conn.closes != 2 {
+		t.Fatalf("late failure not retried: %v (closes=%d)", err, conn.closes)
+	}
+	conn.err = nil
+	if err := stopTunError(); err != nil || conn.closes != 3 {
+		t.Fatalf("late cleanup retry failed: %v (closes=%d)", err, conn.closes)
+	}
+	if err := stopTunError(); err != nil || conn.closes != 3 {
+		t.Fatalf("released late result closed again: %v (closes=%d)", err, conn.closes)
+	}
+}

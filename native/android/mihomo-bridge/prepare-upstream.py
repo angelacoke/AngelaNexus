@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply reviewed owned-FD and statistics adapters to one pinned checkout.
+"""Apply reviewed owned-FD, statistics and late-result adapters to one checkout.
 
 This deliberately refuses unknown source trees.  It is the reproducible boundary
 between the Android bridge and sing-tun: only the pinned mihomo commit and
@@ -24,6 +24,8 @@ EXPECTED = {
     "listener/sing_tun/server.go": "8b0d766e346aa5a36ec40dc66c1fe7cd3466ead48a687cfb4a262342ca9a3335",
     "listener/sing_tun/server_notwindows.go": "b455a1c900fa94bde40c09b01183c28414b1bf45810ff79ba5eb58f7c34ee66c",
     "tunnel/statistic/manager.go": "508daa254d05b6414e899e4eb154cb3b83572d6223e5662da9463728cb588886",
+    "tunnel/statistic/tracker.go": "80e8cc0df115c35a62baea5aec4c3ad4a28c1cf9c47c52a78e76523520c83a6f",
+    "tunnel/tunnel.go": "bd0818dddd04779aad3f078819b3ca050bd8bdce29ba57e5a377770539278596",
 }
 # sing-tun is supplied by Go's module cache; verify the implementation that
 # accepts an already-open fd, not merely the version string in go.mod.
@@ -31,6 +33,10 @@ SING_TUN_TUN_LINUX_SHA256 = "34d3c504a859006bf2981709d86e104c9a2b7c9542ef5895201
 PATCHED_SERVER_SHA256 = "1a77f3a7416b8074bc5e91c4944079c059fe766991bccfaa921780ad0068b8e1"
 PATCHED_STATISTICS_SHA256 = "316e372b7de3735a9a44c8f2357092ee1023fb21c6bbb899ea6a5228cc1dbb09"
 STATISTICS_PATCH_SHA256 = "293330f8b4ba6ed0fb318ea43f5bb759b0946fa98f44c563131135441d4c124b"
+LATE_CONNECTIONS_PATCH_SHA256 = "ad92a77c88c951903d8fc0e2a37420202eb4fb62c0edeec6155011f0a76115ac"
+PATCHED_LATE_MANAGER_SHA256 = "0def9a0f17b675de99d35f9b50903741eb59e9fdd8c50c272a5212fc450f945a"
+PATCHED_TRACKER_SHA256 = "6d8ce15ad3053eb07b3d32a921c37fc41796db9602aace2449b12ef027a213bc"
+PATCHED_TUNNEL_SHA256 = "76f1642e8a8f5fb35d0adc9411fdd0784218896a62c5b7fb3a314c56d54ef9d0"
 
 
 def sha256(path: Path) -> str:
@@ -63,6 +69,10 @@ def verify_source(root: Path) -> None:
     patched_hash = sha256(patched_server) if patched_server.is_file() else None
     statistics = root / "tunnel/statistic/manager.go"
     statistics_hash = sha256(statistics) if statistics.is_file() else None
+    tracker = root / "tunnel/statistic/tracker.go"
+    tracker_hash = sha256(tracker) if tracker.is_file() else None
+    tunnel = root / "tunnel/tunnel.go"
+    tunnel_hash = sha256(tunnel) if tunnel.is_file() else None
     # Existing adapter output is allowed only when it is exactly our output.
     allowed = {
         "angelanexus_android/bridge.go",
@@ -71,12 +81,18 @@ def verify_source(root: Path) -> None:
         "angelanexus_android/bridge_integration_test.go",
         "angelanexus_android/library_integration_test.go",
         "tunnel/statistic/angelanexus_statistics_test.go",
+        "tunnel/statistic/angelanexus_late_connections_test.go",
+        "tunnel/angelanexus_late_tunnel_test.go",
     }
     for line in dirty.splitlines():
         path = line[3:] if len(line) >= 4 else ""
         if path == "listener/sing_tun/server.go" and patched_hash == PATCHED_SERVER_SHA256:
             continue
-        if path == "tunnel/statistic/manager.go" and statistics_hash == PATCHED_STATISTICS_SHA256:
+        if path == "tunnel/statistic/manager.go" and statistics_hash in (PATCHED_STATISTICS_SHA256, PATCHED_LATE_MANAGER_SHA256):
+            continue
+        if path == "tunnel/statistic/tracker.go" and tracker_hash == PATCHED_TRACKER_SHA256:
+            continue
+        if path == "tunnel/tunnel.go" and tunnel_hash == PATCHED_TUNNEL_SHA256:
             continue
         if path and path not in allowed:
             fail(f"dirty checkout has unexpected path: {path}")
@@ -90,7 +106,11 @@ def verify_source(root: Path) -> None:
             # remain pristine.  Idempotent reruns are checked by markers.
             if rel == "listener/sing_tun/server.go" and patched_hash == PATCHED_SERVER_SHA256:
                 continue
-            if rel == "tunnel/statistic/manager.go" and statistics_hash == PATCHED_STATISTICS_SHA256:
+            if rel == "tunnel/statistic/manager.go" and statistics_hash in (PATCHED_STATISTICS_SHA256, PATCHED_LATE_MANAGER_SHA256):
+                continue
+            if rel == "tunnel/statistic/tracker.go" and tracker_hash == PATCHED_TRACKER_SHA256:
+                continue
+            if rel == "tunnel/tunnel.go" and tunnel_hash == PATCHED_TUNNEL_SHA256:
                 continue
             fail(f"sha256 mismatch for {rel}: {actual_hash} != {expected}")
     mod = (root / "go.mod").read_text()
@@ -180,7 +200,7 @@ def apply_statistics(root: Path) -> None:
         fail("statistics.patch is missing or does not match the reviewed patch digest")
     path = root / "tunnel/statistic/manager.go"
     digest = sha256(path)
-    if digest == PATCHED_STATISTICS_SHA256:
+    if digest in (PATCHED_STATISTICS_SHA256, PATCHED_LATE_MANAGER_SHA256):
         return
     if digest != EXPECTED["tunnel/statistic/manager.go"]:
         fail("statistics manager does not match the pinned source")
@@ -198,6 +218,48 @@ def apply_statistics(root: Path) -> None:
         path.write_bytes(output.read_bytes())
 
 
+def apply_late(root: Path) -> None:
+    patch = Path(__file__).with_name("late-connections.patch")
+    if not patch.is_file() or sha256(patch) != LATE_CONNECTIONS_PATCH_SHA256:
+        fail("late-connections.patch is missing or does not match the reviewed patch digest")
+    paths = {"tunnel/statistic/manager.go": PATCHED_LATE_MANAGER_SHA256,
+             "tunnel/statistic/tracker.go": PATCHED_TRACKER_SHA256,
+             "tunnel/tunnel.go": PATCHED_TUNNEL_SHA256}
+    if all(sha256(root / rel) == digest for rel, digest in paths.items()):
+        return
+    inputs = {"tunnel/statistic/manager.go": PATCHED_STATISTICS_SHA256,
+              "tunnel/statistic/tracker.go": EXPECTED["tunnel/statistic/tracker.go"],
+              "tunnel/tunnel.go": EXPECTED["tunnel/tunnel.go"]}
+    for rel, digest in inputs.items():
+        if sha256(root / rel) != digest:
+            fail(f"late patch input {rel} does not match reviewed source")
+    # Parse only the exact three reviewed sections and patch into temporary
+    # outputs. Never let patch mutate the checkout before every digest matches.
+    import re
+    sections = re.split(r"(?m)(?=^--- )", patch.read_text())
+    sections = [section for section in sections if section]
+    if len(sections) != len(paths):
+        fail("late patch must contain exactly the reviewed source sections")
+    outputs = {}
+    with tempfile.TemporaryDirectory(prefix="angelanexus-late-") as tmp:
+        for index, (rel, digest) in enumerate(paths.items()):
+            section = sections[index]
+            if not section.startswith(f"--- {rel}\n+++ {rel}\n"):
+                fail(f"late patch section path mismatch: {rel}")
+            section_path = Path(tmp) / f"{index}.patch"
+            section_path.write_text(section)
+            output = Path(tmp) / f"{index}.go"
+            try:
+                subprocess.run(["patch", "--batch", "--silent", "--output", str(output),
+                                str(root / rel), str(section_path)], check=True, capture_output=True)
+            except (OSError, subprocess.CalledProcessError) as exc:
+                fail(f"late-connections patch failed before source replacement: {exc}")
+            if not output.is_file() or sha256(output) != digest:
+                fail(f"late patched {rel} digest mismatch before source replacement")
+            outputs[rel] = output.read_bytes()
+    for rel, content in outputs.items():
+        (root / rel).write_bytes(content)
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("source", type=Path, help="pinned mihomo checkout")
@@ -206,6 +268,7 @@ def main() -> None:
     verify_source(root)
     apply(root)
     apply_statistics(root)
+    apply_late(root)
     print(f"prepared {root} for sing-tun {SING_TUN_VERSION} owned FD and joinable statistics")
 
 

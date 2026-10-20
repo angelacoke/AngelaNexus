@@ -97,6 +97,9 @@ func protectSocket(fd int) bool {
 
 func init() {
 	tunnel.OnSuspend()
+	// Reject ordinary tunnel trackers until an attachment commits. Epochs live
+	// in the upstream manager and are never reset with androidRuntime.
+	statistic.DefaultManager.StopRegistrations()
 	// Upstream starts a process-wide sampler during package initialization.
 	// An unattached library must not retain that ticker worker.
 	statistic.DefaultManager.StopStatistics()
@@ -343,6 +346,9 @@ func startAndroidTUNWithConstructor(fd int, stack, address, dns string, generati
 	// A newly attached runtime starts unpaused; failed starts never clear pause.
 	androidRuntime.setSuspended(false)
 	androidRuntime.restoreAdmission(true)
+	// Cleanup invalidated the old generation before construction. Opening only
+	// the new generation cannot admit a late result from the replaced runtime.
+	statistic.DefaultManager.StartRegistrations()
 	// The sampler belongs to the attached runtime, including explicit pauses.
 	// A queued stop owns subsequent synchronous cleanup under androidTunMu.
 	statistic.DefaultManager.StartStatistics()
@@ -354,9 +360,11 @@ func startAndroidTUNWithConstructor(fd int, stack, address, dns string, generati
 	return true
 }
 
-// Caller holds androidTunMu and suspends tunnel admission. A snapshot closes
-// currently registered TCP/UDP trackers, not late dials, NAT or background tasks.
+// Caller holds androidTunMu and suspends tunnel admission. Closing registration
+// first invalidates ordinary tunnel TCP/UDP setup tokens before taking a snapshot.
+// Late results close themselves; this does not join dials, NAT or background work.
 func closeAndroidResources() error {
+	statistic.DefaultManager.StopRegistrations()
 	listenerErr := androidRuntime.closeTun()
 	// Join even if listener cleanup failed. This stops only the statistics
 	// sampler, not provider, dial, DNS or UDP/NAT background work.

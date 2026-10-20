@@ -1,0 +1,275 @@
+--- tunnel/statistic/manager.go
++++ tunnel/statistic/manager.go
+@@ -1,6 +1,8 @@
+ package statistic
+ 
+ import (
++	"errors"
++	"net"
+ 	"os"
+ 	"sync"
+ 	"time"
+@@ -14,32 +16,101 @@
+ 
+ func init() {
+ 	DefaultManager = &Manager{
+-		uploadTemp:    atomic.NewInt64(0),
+-		downloadTemp:  atomic.NewInt64(0),
+-		uploadBlip:    atomic.NewInt64(0),
+-		downloadBlip:  atomic.NewInt64(0),
+-		uploadTotal:   atomic.NewInt64(0),
+-		downloadTotal: atomic.NewInt64(0),
+-		pid:           int32(os.Getpid()),
++		uploadTemp:       atomic.NewInt64(0),
++		downloadTemp:     atomic.NewInt64(0),
++		uploadBlip:       atomic.NewInt64(0),
++		downloadBlip:     atomic.NewInt64(0),
++		uploadTotal:      atomic.NewInt64(0),
++		downloadTotal:    atomic.NewInt64(0),
++		pid:              int32(os.Getpid()),
++		registrationOpen: true,
+ 	}
+ 
+ 	DefaultManager.StartStatistics()
+ }
+ 
+ type Manager struct {
+-	connections   xsync.Map[string, Tracker]
+-	uploadTemp    atomic.Int64
+-	downloadTemp  atomic.Int64
+-	uploadBlip    atomic.Int64
+-	downloadBlip  atomic.Int64
+-	uploadTotal   atomic.Int64
+-	downloadTotal atomic.Int64
+-	pid           int32
+-	memory        uint64
+-	lifecycleMu   sync.Mutex
+-	stop          chan struct{}
+-	done          chan struct{}
+-	running       bool
++	registrationMu    sync.Mutex
++	registrationOpen  bool
++	registrationEpoch uint64
++	connections       xsync.Map[string, Tracker]
++	uploadTemp        atomic.Int64
++	downloadTemp      atomic.Int64
++	uploadBlip        atomic.Int64
++	downloadBlip      atomic.Int64
++	uploadTotal       atomic.Int64
++	downloadTotal     atomic.Int64
++	pid               int32
++	memory            uint64
++	lifecycleMu       sync.Mutex
++	stop              chan struct{}
++	done              chan struct{}
++	running           bool
++}
++
++// RegistrationEpoch must be captured at setup entry, not after dialing.
++func (m *Manager) RegistrationEpoch() uint64 {
++	m.registrationMu.Lock()
++	defer m.registrationMu.Unlock()
++	return m.registrationEpoch
++}
++
++// StopRegistrations invalidates old setup tokens, including across reopening.
++// It neither cancels nor joins the dials that still own those tokens.
++func (m *Manager) StopRegistrations() {
++	m.registrationMu.Lock()
++	m.registrationEpoch++
++	m.registrationOpen = false
++	m.registrationMu.Unlock()
++}
++
++func (m *Manager) StartRegistrations() {
++	m.registrationMu.Lock()
++	m.registrationOpen = true
++	m.registrationMu.Unlock()
++}
++
++var errRegistrationStopped = errors.New("statistics registration epoch closed")
++
++// JoinAtEpoch transfers ownership even on rejection. A rejected result is
++// closed outside the gate lock; genuine failures remain visible to Range for
++// the bridge's next cleanup. ID and Close can re-enter upstream code.
++func (m *Manager) JoinAtEpoch(epoch uint64, c Tracker) error {
++	id := c.ID()
++	m.registrationMu.Lock()
++	if m.registrationOpen && epoch == m.registrationEpoch {
++		m.connections.Store(id, c)
++		m.registrationMu.Unlock()
++		return nil
++	}
++	m.registrationMu.Unlock()
++	if err := c.Close(); err != nil && !registrationClosedOnly(err) {
++		m.connections.Store(id, c)
++		return errors.Join(errRegistrationStopped, err)
++	}
++	return errRegistrationStopped
++}
++
++func registrationClosedOnly(err error) bool {
++	if err == net.ErrClosed {
++		return true
++	}
++	if many, ok := err.(interface{ Unwrap() []error }); ok {
++		children := many.Unwrap()
++		if len(children) == 0 {
++			return false
++		}
++		for _, child := range children {
++			if !registrationClosedOnly(child) {
++				return false
++			}
++		}
++		return true
++	}
++	if one, ok := err.(interface{ Unwrap() error }); ok {
++		return registrationClosedOnly(one.Unwrap())
++	}
++	return false
+ }
+ 
+ func (m *Manager) Join(c Tracker) {
+--- tunnel/statistic/tracker.go
++++ tunnel/statistic/tracker.go
+@@ -116,7 +116,7 @@
+ 	return tt.Conn
+ }
+ 
+-func NewTCPTracker(conn C.Conn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool) *tcpTracker {
++func newTCPTracker(conn C.Conn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool, epoch *uint64) (*tcpTracker, error) {
+ 	metadata.RemoteDst = conn.RemoteDestination()
+ 
+ 	t := &tcpTracker{
+@@ -135,6 +135,16 @@
+ 		pushToManager: pushToManager,
+ 	}
+ 
++	if rule != nil {
++		t.TrackerInfo.Rule = rule.RuleType().String()
++		t.TrackerInfo.RulePayload = rule.Payload()
++	}
++
++	if epoch == nil {
++		manager.Join(t)
++	} else if err := manager.JoinAtEpoch(*epoch, t); err != nil {
++		return nil, err
++	}
+ 	if pushToManager {
+ 		if uploadTotal > 0 {
+ 			manager.PushUploaded(uploadTotal)
+@@ -143,14 +153,15 @@
+ 			manager.PushDownloaded(downloadTotal)
+ 		}
+ 	}
+-
+-	if rule != nil {
+-		t.TrackerInfo.Rule = rule.RuleType().String()
+-		t.TrackerInfo.RulePayload = rule.Payload()
+-	}
+-
+-	manager.Join(t)
++	return t, nil
++}
++
++func NewTCPTracker(conn C.Conn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool) *tcpTracker {
++	t, _ := newTCPTracker(conn, manager, metadata, rule, uploadTotal, downloadTotal, pushToManager, nil)
+ 	return t
++}
++func NewTCPTrackerAtEpoch(conn C.Conn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool, epoch uint64) (*tcpTracker, error) {
++	return newTCPTracker(conn, manager, metadata, rule, uploadTotal, downloadTotal, pushToManager, &epoch)
+ }
+ 
+ type udpTracker struct {
+@@ -208,7 +219,7 @@
+ 	return ut.PacketConn
+ }
+ 
+-func NewUDPTracker(conn C.PacketConn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool) *udpTracker {
++func newUDPTracker(conn C.PacketConn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool, epoch *uint64) (*udpTracker, error) {
+ 	metadata.RemoteDst = conn.RemoteDestination()
+ 
+ 	ut := &udpTracker{
+@@ -227,6 +238,16 @@
+ 		pushToManager: pushToManager,
+ 	}
+ 
++	if rule != nil {
++		ut.TrackerInfo.Rule = rule.RuleType().String()
++		ut.TrackerInfo.RulePayload = rule.Payload()
++	}
++
++	if epoch == nil {
++		manager.Join(ut)
++	} else if err := manager.JoinAtEpoch(*epoch, ut); err != nil {
++		return nil, err
++	}
+ 	if pushToManager {
+ 		if uploadTotal > 0 {
+ 			manager.PushUploaded(uploadTotal)
+@@ -235,12 +256,13 @@
+ 			manager.PushDownloaded(downloadTotal)
+ 		}
+ 	}
+-
+-	if rule != nil {
+-		ut.TrackerInfo.Rule = rule.RuleType().String()
+-		ut.TrackerInfo.RulePayload = rule.Payload()
+-	}
+-
+-	manager.Join(ut)
+-	return ut
+-}
++	return ut, nil
++}
++
++func NewUDPTracker(conn C.PacketConn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool) *udpTracker {
++	t, _ := newUDPTracker(conn, manager, metadata, rule, uploadTotal, downloadTotal, pushToManager, nil)
++	return t
++}
++func NewUDPTrackerAtEpoch(conn C.PacketConn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool, epoch uint64) (*udpTracker, error) {
++	return newUDPTracker(conn, manager, metadata, rule, uploadTotal, downloadTotal, pushToManager, &epoch)
++}
+--- tunnel/tunnel.go
++++ tunnel/tunnel.go
+@@ -418,6 +418,7 @@
+ }
+ 
+ func handleUDPConn(packet C.PacketAdapter) {
++	registrationEpoch := statistic.DefaultManager.RegistrationEpoch()
+ 	if !isHandle(packet.Metadata().Type) {
+ 		packet.Drop()
+ 		return
+@@ -476,7 +477,10 @@
+ 			}
+ 			logMetadata(metadata, rule, rawPc)
+ 
+-			pc := statistic.NewUDPTracker(rawPc, statistic.DefaultManager, metadata, rule, 0, 0, true)
++			pc, err := statistic.NewUDPTrackerAtEpoch(rawPc, statistic.DefaultManager, metadata, rule, 0, 0, true, registrationEpoch)
++			if err != nil {
++				return nil, nil, err
++			}
+ 
+ 			sender.AddMapping(originMetadata, dialMetadata)
+ 			oAddrPort := dialMetadata.AddrPort()
+@@ -500,6 +504,7 @@
+ }
+ 
+ func handleTCPConn(connCtx C.ConnContext) {
++	registrationEpoch := statistic.DefaultManager.RegistrationEpoch()
+ 	if !isHandle(connCtx.Metadata().Type) {
+ 		_ = connCtx.Conn().Close()
+ 		return
+@@ -612,7 +617,10 @@
+ 	}
+ 	logMetadata(metadata, rule, remoteConn)
+ 
+-	remoteConn = statistic.NewTCPTracker(remoteConn, statistic.DefaultManager, metadata, rule, int64(peekLen), 0, true)
++	remoteConn, err = statistic.NewTCPTrackerAtEpoch(remoteConn, statistic.DefaultManager, metadata, rule, int64(peekLen), 0, true, registrationEpoch)
++	if err != nil {
++		return
++	}
+ 	defer func(remoteConn C.Conn) {
+ 		_ = remoteConn.Close()
+ 	}(remoteConn)
