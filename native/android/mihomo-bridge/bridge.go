@@ -20,6 +20,8 @@ import "C"
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net"
 	"net/netip"
 	"os"
@@ -36,6 +38,7 @@ import (
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/listener/sing_tun"
 	"github.com/metacubex/mihomo/tunnel"
+	"github.com/metacubex/mihomo/tunnel/statistic"
 )
 
 var (
@@ -186,8 +189,8 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
 	defer androidTunMu.Unlock()
 
 	tunnel.OnSuspend()
-	if err := androidRuntime.closeTun(); err != nil {
-		// Keep the old listener and the caller's descriptor on cleanup failure.
+	if err := closeAndroidResources(); err != nil {
+		// Keep failed cleanup ownership and the caller's descriptor on failure.
 		return 0
 	}
 	if fd < 0 {
@@ -254,11 +257,25 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
 	return 1
 }
 
+// Caller holds androidTunMu and suspends tunnel admission. A snapshot closes
+// currently registered TCP/UDP trackers, not late dials, NAT or background tasks.
+func closeAndroidResources() error {
+	listenerErr := androidRuntime.closeTun()
+	connections := make(map[string]io.Closer)
+	statistic.DefaultManager.Range(func(connection statistic.Tracker) bool {
+		connections[connection.ID()] = connection
+		return true
+	})
+	// Do not short-circuit on a listener failure: still attempt every connection.
+	connectionErr := androidRuntime.closeConnections(connections)
+	return errors.Join(listenerErr, connectionErr)
+}
+
 func stopTunError() error {
 	androidTunMu.Lock()
 	defer androidTunMu.Unlock()
 	tunnel.OnSuspend()
-	return androidRuntime.closeTun()
+	return closeAndroidResources()
 }
 
 //export angelaStopTun

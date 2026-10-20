@@ -2,7 +2,9 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io"
+	"net"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -12,11 +14,15 @@ import (
 // hook runs concurrently. admission drains callbacks that already entered the
 // hook before configuration/stop proceeds. This is not a dial-completion barrier:
 // a connect can still finish after its hook returned, and existing connections
-// and upstream background tasks are not closed here.
+// are closed only if captured by the caller's tracker snapshot. Upstream
+// background tasks are not stopped here.
 type androidTunLifecycle struct {
 	listener  io.Closer
 	protected atomic.Bool
 	admission sync.RWMutex
+	// Serialized by androidTunMu, not admission. Upstream trackers unregister
+	// before their underlying Close returns, even on failure; retain ownership.
+	pendingConnections map[string]io.Closer
 }
 
 func (l *androidTunLifecycle) socketHook(conn syscall.RawConn, protect func(int) bool) error {
@@ -74,4 +80,53 @@ func (l *androidTunLifecycle) closeTun() error {
 		l.listener = nil
 	}
 	return nil
+}
+
+// closeConnections attempts every captured connection, even if another close
+// fails. The caller must serialize this with listener/configuration transitions
+// and close socket admission first. This is a snapshot, not a barrier against
+// late tracker registration or proof of complete core shutdown.
+func (l *androidTunLifecycle) closeConnections(connections map[string]io.Closer) error {
+	if l.pendingConnections == nil {
+		l.pendingConnections = make(map[string]io.Closer)
+	}
+	for id, connection := range connections {
+		if _, pending := l.pendingConnections[id]; !pending {
+			l.pendingConnections[id] = connection
+		}
+	}
+	var failures []error
+	for id, connection := range l.pendingConnections {
+		if err := connection.Close(); err != nil && !onlyClosedConnectionError(err) {
+			failures = append(failures, fmt.Errorf("close tracked connection %s: %w", id, err))
+			continue
+		}
+		delete(l.pendingConnections, id)
+	}
+	return errors.Join(failures...)
+}
+
+// A worker may close a captured socket before our Close runs. The standard
+// net.ErrClosed (possibly wrapped) means ownership is already released. Do not
+// discard a joined error that also contains an unrelated cleanup failure.
+func onlyClosedConnectionError(err error) bool {
+	if err == net.ErrClosed {
+		return true
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		causes := joined.Unwrap()
+		if len(causes) == 0 {
+			return false
+		}
+		for _, cause := range causes {
+			if !onlyClosedConnectionError(cause) {
+				return false
+			}
+		}
+		return true
+	}
+	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+		return onlyClosedConnectionError(wrapped.Unwrap())
+	}
+	return false
 }

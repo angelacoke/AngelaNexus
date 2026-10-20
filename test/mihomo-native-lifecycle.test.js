@@ -52,8 +52,23 @@ test("Mihomo bridge keeps stopped configuration and explicit resume from reopeni
   assert.match(apply, /defer func\(\) \{\s*if !androidRuntime\.protected\.Load\(\) \{\s*tunnel\.OnSuspend\(\)/);
   assert.equal((bridge.match(/applyAndroidConfiguration\(cfg\)/g) ?? []).length, 2);
   const stop = bridge.split("func stopTunError")[1].split("//export angelaStopTun")[0];
-  assert.ok(stop.indexOf("tunnel.OnSuspend()") < stop.indexOf("androidRuntime.closeTun()"));
+  assert.ok(stop.indexOf("tunnel.OnSuspend()") < stop.indexOf("closeAndroidResources()"));
   const resume = bridge.split("func suspend(")[1].split("//export forceGC")[0];
   assert.match(resume, /androidTunMu\.Lock\(\)/);
   assert.match(resume, /suspended != 0 \|\| !androidRuntime\.protected\.Load\(\)/);
+});
+
+test("Mihomo stop and replacement close visible trackers even after listener failure", () => {
+  const bridge = read("native/android/mihomo-bridge/bridge.go");
+  const cleanup = bridge.split("func closeAndroidResources()")[1].split("func stopTunError")[0];
+  assert.match(cleanup, /listenerErr := androidRuntime\.closeTun\(\)/);
+  assert.match(cleanup, /statistic\.DefaultManager\.Range/);
+  assert.match(cleanup, /connections\[connection\.ID\(\)\] = connection/);
+  assert.ok(cleanup.indexOf("androidRuntime.closeTun()") < cleanup.indexOf("statistic.DefaultManager.Range"));
+  assert.match(cleanup, /connectionErr := androidRuntime\.closeConnections\(connections\)/);
+  assert.match(cleanup, /return errors\.Join\(listenerErr, connectionErr\)/);
+  assert.doesNotMatch(cleanup, /if listenerErr/);
+  const start = bridge.split("func startTUN(")[1].split("func closeAndroidResources")[0];
+  assert.ok(start.indexOf("closeAndroidResources()") < start.indexOf("if fd < 0"));
+  assert.match(start, /if err := closeAndroidResources\(\); err != nil \{/);
 });

@@ -2,6 +2,9 @@ package main
 
 import (
 	"errors"
+	"fmt"
+	"io"
+	"net"
 	"sync"
 	"syscall"
 	"testing"
@@ -37,6 +40,16 @@ func (l *testListener) Close() error {
 		l.onClose()
 	}
 	return l.err
+}
+
+type lifecycleCloser struct {
+	closes int
+	err    error
+}
+
+func (c *lifecycleCloser) Close() error {
+	c.closes++
+	return c.err
 }
 
 func TestSocketGate(t *testing.T) {
@@ -247,5 +260,134 @@ func TestProtectionPanicReleasesAdmissionBarrier(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("panic leaked the admission read lock")
+	}
+}
+
+func TestCloseConnectionsJoinsErrorsAndContinues(t *testing.T) {
+	var lifecycle androidTunLifecycle
+	firstErr := errors.New("first connection close failed")
+	lastErr := errors.New("last connection close failed")
+	first := &lifecycleCloser{err: firstErr}
+	middle := &lifecycleCloser{}
+	last := &lifecycleCloser{err: lastErr}
+
+	err := lifecycle.closeConnections(map[string]io.Closer{
+		"first":  first,
+		"middle": middle,
+		"last":   last,
+	})
+	if !errors.Is(err, firstErr) || !errors.Is(err, lastErr) {
+		t.Fatalf("close error = %v, want both causes", err)
+	}
+	if first.closes != 1 || middle.closes != 1 || last.closes != 1 {
+		t.Fatalf("close counts = %d, %d, %d; want each closer called once", first.closes, middle.closes, last.closes)
+	}
+	if lifecycle.pendingConnections["first"] != first || lifecycle.pendingConnections["last"] != last {
+		t.Fatal("failed closers were not retained for retry")
+	}
+	if _, ok := lifecycle.pendingConnections["middle"]; ok {
+		t.Fatal("successful closer was retained")
+	}
+}
+
+func TestCloseConnectionsRetriesFailedOwnership(t *testing.T) {
+	var lifecycle androidTunLifecycle
+	failure := errors.New("retryable close failure")
+	closer := &lifecycleCloser{err: failure}
+
+	if err := lifecycle.closeConnections(map[string]io.Closer{"conn": closer}); !errors.Is(err, failure) {
+		t.Fatalf("initial close error = %v", err)
+	}
+	closer.err = nil
+	if err := lifecycle.closeConnections(nil); err != nil {
+		t.Fatalf("retry error = %v", err)
+	}
+	if closer.closes != 2 {
+		t.Fatalf("close count = %d, want 2", closer.closes)
+	}
+	if len(lifecycle.pendingConnections) != 0 {
+		t.Fatalf("pending connections = %v, want empty", lifecycle.pendingConnections)
+	}
+	if err := lifecycle.closeConnections(map[string]io.Closer{}); err != nil {
+		t.Fatalf("empty idempotent close error = %v", err)
+	}
+	if closer.closes != 2 {
+		t.Fatalf("successful closer was closed again: count %d", closer.closes)
+	}
+}
+
+func TestCloseConnectionsDoesNotRepeatSuccessfulCloser(t *testing.T) {
+	var lifecycle androidTunLifecycle
+	closer := &lifecycleCloser{}
+
+	if err := lifecycle.closeConnections(map[string]io.Closer{"conn": closer}); err != nil {
+		t.Fatal(err)
+	}
+	if err := lifecycle.closeConnections(nil); err != nil {
+		t.Fatal(err)
+	}
+	if closer.closes != 1 {
+		t.Fatalf("close count = %d, want 1", closer.closes)
+	}
+}
+
+func TestCloseConnectionsPreservesFailedPendingOwnerOnDuplicateID(t *testing.T) {
+	var lifecycle androidTunLifecycle
+	failure := errors.New("owner close failure")
+	owner := &lifecycleCloser{err: failure}
+	replacement := &lifecycleCloser{}
+	lifecycle.pendingConnections = map[string]io.Closer{"same": owner}
+
+	if err := lifecycle.closeConnections(map[string]io.Closer{"same": replacement}); !errors.Is(err, failure) {
+		t.Fatalf("duplicate close error = %v", err)
+	}
+	if owner.closes != 1 {
+		t.Fatalf("pending owner close count = %d, want 1", owner.closes)
+	}
+	if replacement.closes != 0 {
+		t.Fatalf("replacement was closed %d times, want 0", replacement.closes)
+	}
+	if lifecycle.pendingConnections["same"] != owner {
+		t.Fatal("duplicate snapshot replaced failed pending owner")
+	}
+
+	owner.err = nil
+	if err := lifecycle.closeConnections(nil); err != nil {
+		t.Fatal(err)
+	}
+	if owner.closes != 2 || len(lifecycle.pendingConnections) != 0 {
+		t.Fatalf("owner was not removed after successful retry: closes=%d pending=%v", owner.closes, lifecycle.pendingConnections)
+	}
+}
+
+func TestCloseConnectionsAcceptsOnlyAlreadyClosedErrors(t *testing.T) {
+	failure := errors.New("another cleanup failure")
+	for _, tc := range []struct {
+		name        string
+		err         error
+		wantPending bool
+	}{
+		{"closed", net.ErrClosed, false},
+		{"wrapped closed", fmt.Errorf("close: %w", net.ErrClosed), false},
+		{"joined closed", errors.Join(net.ErrClosed, fmt.Errorf("close: %w", net.ErrClosed)), false},
+		{"mixed failure", errors.Join(net.ErrClosed, failure), true},
+		{"wrapped mixed failure", fmt.Errorf("close: %w", errors.Join(net.ErrClosed, failure)), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var lifecycle androidTunLifecycle
+			closer := &lifecycleCloser{err: tc.err}
+			err := lifecycle.closeConnections(map[string]io.Closer{"conn": closer})
+			if (err != nil) != tc.wantPending || (len(lifecycle.pendingConnections) != 0) != tc.wantPending {
+				t.Fatalf("unexpected cleanup result: err=%v pending=%v", err, lifecycle.pendingConnections)
+			}
+			if tc.wantPending && !errors.Is(err, failure) {
+				t.Fatal("mixed error lost its real failure")
+			}
+			if !tc.wantPending {
+				if err := lifecycle.closeConnections(nil); err != nil || closer.closes != 1 {
+					t.Fatal("already-closed cleanup was not idempotent")
+				}
+			}
+		})
 	}
 }
