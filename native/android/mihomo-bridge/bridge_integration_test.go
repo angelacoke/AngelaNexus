@@ -123,9 +123,9 @@ func TestAndroidBridgeFailedStopInvalidatesOldEpoch(t *testing.T) {
 	}
 }
 
-// CI copies this file into the pinned upstream module alongside the exact bridge
-// (only its android build constraint is removed for the host cgo test). These
-// tests exercise actual executor.ApplyConfig/tunnel state, not an Android TUN,
+// CI copies this file into the dedicated library package in the pinned upstream
+// module (only the bridge's android build constraint is removed for host cgo).
+// Tests exercise actual executor.ApplyConfig/tunnel state, not an Android TUN,
 // VpnService, a packet data path, or full-core shutdown.
 func TestAndroidBridgeConfigurationPreservesAdmissionState(t *testing.T) {
 	constant.SetHomeDir(t.TempDir())

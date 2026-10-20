@@ -23,7 +23,7 @@ test("Mihomo native workflow tests and copies the same lifecycle helper it recor
   const unit = steps.find(step => step.name === "Test Android lifecycle ownership and dial admission");
   assert.match(unit.run, /go test -race -v native\/android\/mihomo-bridge\/lifecycle\.go native\/android\/mihomo-bridge\/lifecycle_test\.go/);
   const copy = steps.find(step => step.name === "Add AngelaNexus Android bridge");
-  assert.match(copy.run, /cp "\$GITHUB_WORKSPACE\/native\/android\/mihomo-bridge\/lifecycle\.go" \.\/angelanexus_android_lifecycle\.go/);
+  assert.match(copy.run, /cp "\$GITHUB_WORKSPACE\/native\/android\/mihomo-bridge\/lifecycle\.go" \.\/angelanexus_android\/lifecycle\.go/);
   const provenance = steps.find(step => step.name === "Generate native build provenance evidence");
   assert.match(provenance.run, /sha256sum "\$GITHUB_WORKSPACE\/native\/android\/mihomo-bridge\/lifecycle\.go"/);
   assert.match(provenance.run, /"lifecycle": \{"path": "native\/android\/mihomo-bridge\/lifecycle\.go", "sha256": "\$LIFECYCLE_SHA256"\}/);
@@ -40,9 +40,9 @@ test("Mihomo host bridge regression uses pinned source and restores the Android 
   assert.equal(host.if, "matrix.abi == 'x86_64'");
   assert.equal(host["working-directory"], "${{ runner.temp }}/mihomo");
   assert.match(host.run, /sed '1,2d' "\$GITHUB_WORKSPACE\/native\/android\/mihomo-bridge\/bridge\.go"/);
-  assert.match(host.run, /trap 'cp .*bridge\.go" \.\/angelanexus_android_bridge\.go' EXIT/);
-  assert.match(host.run, /cp .*bridge_integration_test\.go" \.\/angelanexus_bridge_integration_test\.go/);
-  assert.match(host.run, /go test -race -tags=with_gvisor,cmfa -run '\^TestAndroidBridge' -count=1 -timeout=90s -v \.\/angelanexus_android_bridge\.go \.\/angelanexus_android_lifecycle\.go \.\/angelanexus_bridge_integration_test\.go/);
+  assert.match(host.run, /trap 'cp .*bridge\.go" \.\/angelanexus_android\/bridge\.go' EXIT/);
+  assert.match(host.run, /cp .*bridge_integration_test\.go" \.\/angelanexus_android\/bridge_integration_test\.go/);
+  assert.match(host.run, /go test -race -tags=with_gvisor,cmfa -run '\^TestAndroidBridge' -count=1 -timeout=90s -v \.\/angelanexus_android\s*$/m);
   assert.ok(steps.indexOf(host) < steps.findIndex(step => step.name === "Build native shared object"));
 });
 

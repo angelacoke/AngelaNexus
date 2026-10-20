@@ -17,10 +17,12 @@ function fixture() {
   const artifacts = join(root, "artifacts");
   const bridge = Buffer.from("fixture bridge\n");
   const lifecycle = Buffer.from("fixture lifecycle\n");
+  const libraryEntry = Buffer.from("package main\nfunc main() {}\n");
   const sourceDir = join(root, "native/android/mihomo-bridge");
   mkdirSync(sourceDir, { recursive: true });
   writeFileSync(join(sourceDir, "bridge.go"), bridge);
   writeFileSync(join(sourceDir, "lifecycle.go"), lifecycle);
+  writeFileSync(join(sourceDir, "library.go"), libraryEntry);
   const records = {};
   for (const abi of ABIS) {
     const bytes = Buffer.from(`fixture native ${abi}\n`);
@@ -50,9 +52,10 @@ ${ABIS.map((abi) => ` val ${abi.replaceAll("-", "_")} = MihomoNativeLibrarySpec(
       version: 1, kernel: "mihomo", kernelVersion: "1.19.32", platform: "android", abi,
       source: { repository: REPOSITORY, commit: COMMIT },
       toolchain: { go: "go version go1.24.8 linux/amd64", androidNdk: "28.0.13004108", compiler: "Android clang", goos: "android", goarch: abi === "arm64-v8a" ? "arm64" : abi === "armeabi-v7a" ? "arm" : "amd64", goarm: abi === "armeabi-v7a" ? "7" : null, cgoEnabled: true },
-      build: { trimpath: true, buildmode: "c-shared", tags: ["with_gvisor", "cmfa"], versionLdflag: "github.com/metacubex/mihomo/constant.Version=v1.19.32" },
+      build: { trimpath: true, buildmode: "c-shared", package: "./angelanexus_android", tags: ["with_gvisor", "cmfa"], versionLdflag: "github.com/metacubex/mihomo/constant.Version=v1.19.32" },
       bridge: { path: "native/android/mihomo-bridge/bridge.go", sha256: digest(bridge) },
       lifecycle: { path: "native/android/mihomo-bridge/lifecycle.go", sha256: digest(lifecycle) },
+      libraryEntry: { path: "native/android/mihomo-bridge/library.go", sha256: digest(libraryEntry) },
       artifact: { name: artifact, sha256: records[abi].sha256 },
     }));
   }
@@ -190,4 +193,34 @@ test("rejects duplicate Kotlin ABI specs", () => withFixture((fx) => {
   const result = run(fx);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /Kotlin Mihomo manifest has duplicate ABI spec arm64-v8a/);
+}));
+
+for (const target of [".", "./other", undefined]) {
+  test(`rejects CLI, alternate or missing library package: ${target}`, () => withFixture((fx) => {
+    mutate(fx, "arm64-v8a", (p) => { p.build.package = target; });
+    const result = run(fx);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /library package mismatch|missing required field 'package'/);
+  }));
+}
+
+test("rejects missing library entry evidence from older native builds", () => withFixture((fx) => {
+  mutate(fx, "x86_64", (p) => { delete p.libraryEntry; });
+  const result = run(fx);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /missing required field 'libraryEntry'/);
+}));
+
+test("rejects changed library entry source", () => withFixture((fx) => {
+  writeFileSync(join(fx.root, "native/android/mihomo-bridge/library.go"), "changed");
+  const result = run(fx);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /libraryEntry source digest mismatch/);
+}));
+
+test("rejects alternate library entry evidence path", () => withFixture((fx) => {
+  mutate(fx, "armeabi-v7a", (p) => { p.libraryEntry.path = "main.go"; });
+  const result = run(fx);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /libraryEntry path mismatch/);
 }));

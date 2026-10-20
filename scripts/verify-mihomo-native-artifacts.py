@@ -14,6 +14,7 @@ REPOSITORY = "https://github.com/MetaCubeX/mihomo"
 EXPECTED_PLATFORM = "android"
 EXPECTED_BUILD_TAGS = {"with_gvisor", "cmfa"}
 EXPECTED_BUILDMODE = "c-shared"
+EXPECTED_PACKAGE = "./angelanexus_android"
 EXPECTED_VERSION_LDFLAG = "github.com/metacubex/mihomo/constant.Version=v1.19.32"
 EXPECTED_TOOLCHAIN = {"goos": "android", "androidNdk": "28.0.13004108", "cgoEnabled": True}
 EXPECTED_GOARCH = {"arm64-v8a": "arm64", "armeabi-v7a": "arm", "x86_64": "amd64"}
@@ -188,6 +189,8 @@ def verify(artifacts_root: Path, repo: Path) -> None:
         build = require_object(record, "build", f"provenance {abi}")
         if require(build, "trimpath", f"provenance.build {abi}") is not True or require(build, "buildmode", f"provenance.build {abi}") != EXPECTED_BUILDMODE:
             fail(f"provenance {abi} build mode/trimpath mismatch")
+        if require(build, "package", f"provenance.build {abi}") != EXPECTED_PACKAGE:
+            fail(f"provenance {abi} library package mismatch")
         tags = require(build, "tags", f"provenance {abi}")
         if not isinstance(tags, list) or not all(isinstance(tag, str) for tag in tags):
             fail(f"provenance {abi} build tags must be a list of strings")
@@ -195,7 +198,7 @@ def verify(artifacts_root: Path, repo: Path) -> None:
             fail(f"provenance {abi} build tags mismatch")
         if require(build, "versionLdflag", f"provenance.build {abi}") != EXPECTED_VERSION_LDFLAG:
             fail(f"provenance {abi} version ldflag mismatch")
-        for name, relative in (("bridge", "native/android/mihomo-bridge/bridge.go"), ("lifecycle", "native/android/mihomo-bridge/lifecycle.go")):
+        for name, relative in (("bridge", "native/android/mihomo-bridge/bridge.go"), ("lifecycle", "native/android/mihomo-bridge/lifecycle.go"), ("libraryEntry", "native/android/mihomo-bridge/library.go")):
             evidence = require_object(record, name, f"provenance {abi}")
             if require(evidence, "path", f"provenance.{name} {abi}") != relative:
                 fail(f"provenance {abi} {name} path mismatch")

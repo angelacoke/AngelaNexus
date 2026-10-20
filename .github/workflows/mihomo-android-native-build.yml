@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/mihomo-android-native-build.yml"
       - "native/android/**"
+      - "scripts/smoke-mihomo-library.py"
 
 permissions:
   contents: read
@@ -69,12 +70,14 @@ jobs:
         working-directory: ${{ runner.temp }}/mihomo
         run: |
           set -euo pipefail
-          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge.go" ./angelanexus_android_bridge.go
-          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/lifecycle.go" ./angelanexus_android_lifecycle.go
-          grep -q "func startTUN" ./angelanexus_android_bridge.go
-          grep -q "angelanexusProtectFd" ./angelanexus_android_bridge.go
-          gofmt -w ./angelanexus_android_bridge.go ./angelanexus_android_lifecycle.go
-          test -z "$(gofmt -d ./angelanexus_android_bridge.go ./angelanexus_android_lifecycle.go)"
+          # Never compile the upstream CLI main/init into the shared library.
+          mkdir ./angelanexus_android
+          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge.go" ./angelanexus_android/bridge.go
+          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/lifecycle.go" ./angelanexus_android/lifecycle.go
+          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/library.go" ./angelanexus_android/library.go
+          grep -q "func startTUN" ./angelanexus_android/bridge.go
+          grep -q "angelanexusProtectFd" ./angelanexus_android/bridge.go
+          test -z "$(gofmt -d ./angelanexus_android/*.go)"
 
       - name: Test bridge state against pinned Mihomo on host (not Android TUN)
         if: matrix.abi == 'x86_64'
@@ -84,12 +87,15 @@ jobs:
           set -euo pipefail
           # Remove only the platform build constraint for this host cgo test.
           # Always restore the exact Android source before the NDK build.
-          trap 'cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge.go" ./angelanexus_android_bridge.go' EXIT
-          sed '1,2d' "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge.go" > ./angelanexus_android_bridge.go
-          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge_integration_test.go" ./angelanexus_bridge_integration_test.go
-          # Exclude the standalone CLI main.go: its init parses flags before
-          # testing registers -test.*. All imported core packages remain real.
-          go test -race -tags=with_gvisor,cmfa -run '^TestAndroidBridge' -count=1 -timeout=90s -v ./angelanexus_android_bridge.go ./angelanexus_android_lifecycle.go ./angelanexus_bridge_integration_test.go
+          trap 'cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge.go" ./angelanexus_android/bridge.go' EXIT
+          sed '1,2d' "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge.go" > ./angelanexus_android/bridge.go
+          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge_integration_test.go" ./angelanexus_android/bridge_integration_test.go
+          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/library_integration_test.go" ./angelanexus_android/library_integration_test.go
+          # Test the entire dedicated package that the NDK build consumes.
+          go test -race -tags=with_gvisor,cmfa -run '^TestAndroidBridge' -count=1 -timeout=90s -v ./angelanexus_android
+          go build -trimpath -tags=with_gvisor,cmfa -buildmode=c-shared -o "$RUNNER_TEMP/libclash-host.so" ./angelanexus_android
+          # Foreign host flags must survive dlopen without CLI parsing/exit.
+          timeout 30s python3 "$GITHUB_WORKSPACE/scripts/smoke-mihomo-library.py" "$RUNNER_TEMP/libclash-host.so" --foreign-host-flag=library-smoke
 
       - name: Build native shared object
         shell: bash
@@ -114,7 +120,7 @@ jobs:
             -tags="with_gvisor,cmfa" \
             -buildmode=c-shared \
             -o "$RUNNER_TEMP/libclash-${{ matrix.abi }}.so" \
-            .
+            ./angelanexus_android
 
       - name: Verify native artifact and generate provenance
         shell: bash
@@ -141,6 +147,7 @@ jobs:
           ARTIFACT_SHA256="$(sha256sum "$ARTIFACT" | awk '{print $1}')"
           BRIDGE_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge.go" | awk '{print $1}')"
           LIFECYCLE_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/lifecycle.go" | awk '{print $1}')"
+          LIBRARY_ENTRY_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/library.go" | awk '{print $1}')"
           GO_VERSION="$(go version | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
           NDK_BIN="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
           CC_PATH="$NDK_BIN/${{ matrix.cc }}"
@@ -160,9 +167,10 @@ jobs:
               "platform": "android",
               "abi": "${{ matrix.abi }}",
               "toolchain": {"go": "$GO_VERSION", "androidNdk": "$NDK_VERSION", "compiler": "$COMPILER_VERSION", "goos": "android", "goarch": "${{ matrix.goarch }}", "goarm": "7" if "${{ matrix.goarch }}" == "arm" else None, "cgoEnabled": True},
-              "build": {"trimpath": True, "buildmode": "c-shared", "tags": ["with_gvisor", "cmfa"], "versionLdflag": "github.com/metacubex/mihomo/constant.Version=v1.19.32"},
+              "build": {"trimpath": True, "buildmode": "c-shared", "package": "./angelanexus_android", "tags": ["with_gvisor", "cmfa"], "versionLdflag": "github.com/metacubex/mihomo/constant.Version=v1.19.32"},
               "bridge": {"path": "native/android/mihomo-bridge/bridge.go", "sha256": "$BRIDGE_SHA256"},
               "lifecycle": {"path": "native/android/mihomo-bridge/lifecycle.go", "sha256": "$LIFECYCLE_SHA256"},
+              "libraryEntry": {"path": "native/android/mihomo-bridge/library.go", "sha256": "$LIBRARY_ENTRY_SHA256"},
               "artifact": {"name": "libclash-${{ matrix.abi }}.so", "sha256": "$ARTIFACT_SHA256"},
           }
           out.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
