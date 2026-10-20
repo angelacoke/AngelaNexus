@@ -17,7 +17,13 @@ export async function runAndroidSmoke({ adb, apk, samples = 30, intervalMs = 100
       !Number.isInteger(intervalMs) || intervalMs < 1 || intervalMs > 10_000) {
     throw new Error("Invalid bounded observation window");
   }
-  const invoke = (args, timeout = 20_000) => command(args, timeout);
+  const invoke = async (args, timeout = 20_000) => {
+    try {
+      return await command(args, timeout);
+    } catch (error) {
+      throw new Error(`adb ${args.slice(0, 3).join(" ")} failed: ${error.message}`, { cause: error });
+    }
+  };
   const installed = await invoke(["install", "-r", apk], 120_000);
   if (!/^Success\s*$/m.test(installed)) throw new Error("APK installation did not report Success");
   await invoke(["shell", "am", "force-stop", PACKAGE]);
@@ -47,7 +53,11 @@ export async function runAndroidSmoke({ adb, apk, samples = 30, intervalMs = 100
   // Liveness and a resumed Activity do not exclude an ANR. Logcat was cleared
   // immediately before launch, so reject app-scoped failures from this run,
   // including a crash/restart before the first PID observation.
-  const logs = await invoke(["logcat", "-d", "-v", "brief"]);
+  // Filter at the source, not by truncating output: a busy emulator's full
+  // system log can exceed maxBuffer even during a healthy launcher window.
+  const logs = await invoke(["logcat", "-d", "-v", "brief",
+    "-b", "main", "-b", "system", "-b", "crash",
+    "AndroidRuntime:E", "ActivityManager:E", "ActivityTaskManager:E", "DEBUG:F", "*:S"]);
   if (/^[EF]\/AndroidRuntime\s*\([^\n)]*\):\s*Process:\s*app\.angelanexus(?:,|\s*$)/m.test(logs) ||
       /(?:^|\n)[^\n]*\bANR in app\.angelanexus(?:\s|$)/m.test(logs) ||
       />>>\s*app\.angelanexus\s*<<</.test(logs)) {

@@ -110,3 +110,23 @@ test("Android smoke fails closed when post-launch failure logs cannot be read", 
   const f = fixture({ "logcat -d": new Error("logcat device disconnected") });
   await assert.rejects(runAndroidSmoke(f.options), /device disconnected/);
 });
+
+test("Android smoke reads relevant failure tags from all required buffers without truncation", async () => {
+  const f = fixture();
+  await runAndroidSmoke(f.options);
+  const logs = f.calls.find(call => call.args[0] === "logcat" && call.args[1] === "-d");
+  assert.deepEqual(logs.args, ["logcat", "-d", "-v", "brief",
+    "-b", "main", "-b", "system", "-b", "crash",
+    "AndroidRuntime:E", "ActivityManager:E", "ActivityTaskManager:E", "DEBUG:F", "*:S"]);
+  assert.equal(logs.timeout, 20_000);
+});
+
+test("Android smoke preserves filtered-log overflow failure with command context", async () => {
+  const failure = new Error("stdout maxBuffer length exceeded");
+  const f = fixture({ "logcat -d": failure });
+  await assert.rejects(runAndroidSmoke(f.options), error => {
+    assert.match(error.message, /adb logcat -d -v failed: stdout maxBuffer/);
+    assert.equal(error.cause, failure);
+    return true;
+  });
+});
