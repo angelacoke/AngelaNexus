@@ -19,12 +19,20 @@ function fixture() {
   const lifecycle = Buffer.from("fixture lifecycle\n");
   const libraryEntry = Buffer.from("package main\nfunc main() {}\n");
   const patchedSource = Buffer.from("fixture patched server\n");
+  const statisticsPatch = Buffer.from("fixture statistics patch\n");
+  const patchedStatistics = Buffer.from("fixture patched statistics manager\n");
   const sourceDir = join(root, "native/android/mihomo-bridge");
+  mkdirSync(sourceDir, { recursive: true });
+  mkdirSync(join(root, "tunnel/statistic"), { recursive: true });
+  mkdirSync(join(root, "listener/sing_tun"), { recursive: true });
+  writeFileSync(join(root, "listener/sing_tun/server.go"), patchedSource);
+  writeFileSync(join(root, "tunnel/statistic/manager.go"), patchedStatistics);
+  writeFileSync(join(sourceDir, "statistics.patch"), statisticsPatch);
   mkdirSync(sourceDir, { recursive: true });
   writeFileSync(join(sourceDir, "bridge.go"), bridge);
   writeFileSync(join(sourceDir, "lifecycle.go"), lifecycle);
   writeFileSync(join(sourceDir, "library.go"), libraryEntry);
-  const adapterSource = `PATCHED_SERVER_SHA256 = "${digest(patchedSource)}"\n`;
+  const adapterSource = `PATCHED_SERVER_SHA256 = "${digest(patchedSource)}"\nPATCHED_STATISTICS_SHA256 = "${digest(patchedStatistics)}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\n`;
   writeFileSync(join(sourceDir, "prepare-upstream.py"), adapterSource);
   const adapterSha = digest(adapterSource);
   const records = {};
@@ -64,6 +72,11 @@ ${ABIS.map((abi) => ` val ${abi.replaceAll("-", "_")} = MihomoNativeLibrarySpec(
         path: "native/android/mihomo-bridge/prepare-upstream.py",
         sha256: adapterSha,
         patchedSource: { path: "listener/sing_tun/server.go", sha256: digest(patchedSource) },
+      },
+      statisticsPatch: {
+        path: "native/android/mihomo-bridge/statistics.patch",
+        sha256: digest(statisticsPatch),
+        patchedSource: { path: "tunnel/statistic/manager.go", sha256: digest(patchedStatistics) },
       },
       artifact: { name: artifact, sha256: records[abi].sha256 },
     }));
@@ -269,4 +282,46 @@ test("rejects patched source path and hash tampering", () => withFixture((fx) =>
     assert.equal(hashMismatch.status, 1);
     assert.match(hashMismatch.stderr, /patchedSource SHA-256 mismatch/);
   } finally { rmSync(fresh.root, { recursive: true, force: true }); }
+}));
+
+
+test("rejects missing statistics provenance from older native builds", () => withFixture((fx) => {
+  mutate(fx, "arm64-v8a", (p) => { delete p.statisticsPatch; });
+  const result = run(fx);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /missing required field 'statisticsPatch'/);
+}));
+
+test("rejects statistics provenance path/hash tampering", () => withFixture((fx) => {
+  mutate(fx, "arm64-v8a", (p) => { p.statisticsPatch.path = "statistics.patch"; });
+  const pathResult = run(fx);
+  assert.equal(pathResult.status, 1);
+  assert.match(pathResult.stderr, /statisticsPatch path mismatch/);
+  const fresh = fixture();
+  try {
+    mutate(fresh, "x86_64", (p) => { p.statisticsPatch.patchedSource.sha256 = "0".repeat(64); });
+    const hashResult = run(fresh);
+    assert.equal(hashResult.status, 1);
+    assert.match(hashResult.stderr, /statistics patchedSource SHA-256 mismatch/);
+  } finally { rmSync(fresh.root, { recursive: true, force: true }); }
+}));
+
+test("rejects checkout statistics patch tampering", () => withFixture((fx) => {
+  writeFileSync(join(fx.root, "native/android/mihomo-bridge/statistics.patch"), "tampered");
+  const result = run(fx);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /statistics patch SHA-256 mismatch/);
+}));
+
+test("rejects invalid or missing statistics adapter constants", () => withFixture((fx) => {
+  const path = join(fx.root, "native/android/mihomo-bridge/prepare-upstream.py");
+  const original = readFileSync(path, "utf8");
+  writeFileSync(path, original.replace(/STATISTICS_PATCH_SHA256 = "[0-9a-f]+"/, "STATISTICS_PATCH_SHA256 = compute()"));
+  let result = run(fx);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /STATISTICS_PATCH_SHA256 must be a literal string/);
+  writeFileSync(path, original.replace(/\nPATCHED_STATISTICS_SHA256[^\n]*/, ""));
+  result = run(fx);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /exactly one PATCHED_STATISTICS_SHA256/);
 }));

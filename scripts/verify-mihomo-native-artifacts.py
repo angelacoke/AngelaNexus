@@ -22,6 +22,8 @@ EXPECTED_GOARCH = {"arm64-v8a": "arm64", "armeabi-v7a": "arm", "x86_64": "amd64"
 HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
 ADAPTER_PATH = "native/android/mihomo-bridge/prepare-upstream.py"
 PATCHED_SOURCE_PATH = "listener/sing_tun/server.go"
+STATISTICS_PATCH_PATH = "native/android/mihomo-bridge/statistics.patch"
+PATCHED_STATISTICS_PATH = "tunnel/statistic/manager.go"
 
 
 class VerificationError(Exception):
@@ -79,7 +81,7 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def adapter_values(repo: Path) -> tuple[str, str]:
+def adapter_values(repo: Path) -> tuple[str, str, str, str]:
     """Read adapter provenance metadata without importing or executing it."""
     path = repo / ADAPTER_PATH
     try:
@@ -90,7 +92,7 @@ def adapter_values(repo: Path) -> tuple[str, str]:
         tree = ast.parse(text, filename=str(path))
     except (SyntaxError, ValueError) as exc:
         fail(f"invalid upstream adapter script {path}: {exc}")
-    values = []
+    wanted = {"PATCHED_SERVER_SHA256": [], "PATCHED_STATISTICS_SHA256": [], "STATISTICS_PATCH_SHA256": []}
     for node in tree.body:
         if isinstance(node, ast.Assign):
             targets = node.targets
@@ -98,17 +100,21 @@ def adapter_values(repo: Path) -> tuple[str, str]:
             targets = [node.target]
         else:
             continue
-        if any(isinstance(target, ast.Name) and target.id == "PATCHED_SERVER_SHA256" for target in targets):
+        names = [target.id for target in targets if isinstance(target, ast.Name)]
+        for name in names:
+            if name not in wanted:
+                continue
             try:
                 value = ast.literal_eval(node.value)
             except (ValueError, TypeError, SyntaxError):
-                fail("upstream adapter PATCHED_SERVER_SHA256 must be a literal string")
+                fail(f"upstream adapter {name} must be a literal string")
             if not isinstance(value, str) or not HEX64.fullmatch(value):
-                fail("upstream adapter PATCHED_SERVER_SHA256 must be a 64-character SHA-256 hex string")
-            values.append(value.lower())
-    if len(values) != 1:
-        fail("upstream adapter must define exactly one PATCHED_SERVER_SHA256 constant")
-    return sha256(path), values[0]
+                fail(f"upstream adapter {name} must be a 64-character SHA-256 hex string")
+            wanted[name].append(value.lower())
+    for name, values in wanted.items():
+        if len(values) != 1:
+            fail(f"upstream adapter must define exactly one {name} constant")
+    return sha256(path), wanted["PATCHED_SERVER_SHA256"][0], wanted["STATISTICS_PATCH_SHA256"][0], wanted["PATCHED_STATISTICS_SHA256"][0]
 
 
 def manifest_values(repo: Path) -> tuple[str, str, dict[str, str]]:
@@ -144,7 +150,10 @@ def manifest_values(repo: Path) -> tuple[str, str, dict[str, str]]:
 
 def verify(artifacts_root: Path, repo: Path) -> None:
     version, commit, manifest_hashes = manifest_values(repo)
-    adapter_hash, patched_source_hash = adapter_values(repo)
+    adapter_hash, patched_source_hash, statistics_patch_hash, patched_statistics_hash = adapter_values(repo)
+    actual_statistics_patch_hash = sha256(repo / STATISTICS_PATCH_PATH)
+    if actual_statistics_patch_hash != statistics_patch_hash:
+        fail(f"statistics patch SHA-256 mismatch: checkout {actual_statistics_patch_hash}, adapter {statistics_patch_hash}")
     if version != "v1.19.32":
         fail(f"manifest version mismatch: expected v1.19.32, got {version}")
     compliance = load_json(repo / "docs/upstream/MIHOMO_ANDROID_RUNTIME_COMPLIANCE.json", "upstream compliance JSON")
@@ -212,6 +221,16 @@ def verify(artifacts_root: Path, repo: Path) -> None:
             fail(f"provenance {abi} patchedSource path mismatch")
         if require_hash(patched, "sha256", f"provenance.ownershipAdapter.patchedSource {abi}") != patched_source_hash:
             fail(f"provenance {abi} patchedSource SHA-256 mismatch")
+        statistics = require_object(record, "statisticsPatch", f"provenance {abi}")
+        if require(statistics, "path", f"provenance.statisticsPatch {abi}") != STATISTICS_PATCH_PATH:
+            fail(f"provenance {abi} statisticsPatch path mismatch")
+        if require_hash(statistics, "sha256", f"provenance.statisticsPatch {abi}") != statistics_patch_hash:
+            fail(f"provenance {abi} statisticsPatch SHA-256 mismatch")
+        patched_statistics = require_object(statistics, "patchedSource", f"provenance.statisticsPatch {abi}")
+        if require(patched_statistics, "path", f"provenance.statisticsPatch.patchedSource {abi}") != PATCHED_STATISTICS_PATH:
+            fail(f"provenance {abi} statistics patchedSource path mismatch")
+        if require_hash(patched_statistics, "sha256", f"provenance.statisticsPatch.patchedSource {abi}") != patched_statistics_hash:
+            fail(f"provenance {abi} statistics patchedSource SHA-256 mismatch")
         partifact = require_object(record, "artifact", f"provenance {abi}")
         if require(partifact, "name", f"provenance.artifact {abi}") != artifact.name:
             fail(f"provenance {abi} artifact name mismatch")

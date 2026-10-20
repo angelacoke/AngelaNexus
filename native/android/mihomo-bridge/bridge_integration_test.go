@@ -1329,3 +1329,89 @@ func TestAndroidBridgeConstructorFailureDoesNotCloseReusedFD(t *testing.T) {
 		}
 	}
 }
+
+// Observe the real upstream sampler across the bridge lifecycle. The tick wait
+// tests sampling, not goroutine synchronization; the upstream package tests
+// separately assert worker completion and serialization through its done channel.
+func TestAndroidBridgeStatisticsLifecycle(t *testing.T) {
+	for _, mode := range []string{"stop", "failed-stop", "invalid-replacement"} {
+		t.Run(mode, func(t *testing.T) {
+			androidRuntime = androidTunLifecycle{}
+			manager := statistic.DefaultManager
+			manager.StopStatistics()
+			manager.ResetStatistic()
+			listener := &bridgeTestListener{}
+			androidRuntime.listener = listener
+			t.Cleanup(func() {
+				listener.err = nil
+				_ = stopTunError()
+				manager.ResetStatistic()
+			})
+			waitSample := func(want int64) {
+				t.Helper()
+				deadline := time.NewTimer(4 * time.Second)
+				defer deadline.Stop()
+				poll := time.NewTicker(5 * time.Millisecond)
+				defer poll.Stop()
+				for {
+					if up, _ := manager.Now(); up == want {
+						return
+					}
+					select {
+					case <-deadline.C:
+						t.Fatalf("statistics did not sample %d uploaded bytes", want)
+					case <-poll.C:
+					}
+				}
+			}
+			manager.StartStatistics()
+			manager.PushUploaded(17)
+			waitSample(17)
+			switch mode {
+			case "stop":
+				if err := stopTunError(); err != nil {
+					t.Fatal(err)
+				}
+			case "failed-stop":
+				failure := errors.New("statistics listener close failure")
+				listener.err = failure
+				if err := stopTunError(); !errors.Is(err, failure) {
+					t.Fatalf("failed stop: %v", err)
+				}
+			case "invalid-replacement":
+				if startAndroidTUNAtGeneration(-1, "system", "", "", androidRuntime.stopGeneration.Load()) {
+					t.Fatal("invalid replacement was accepted")
+				}
+			}
+			if up, down := manager.Now(); up != 0 || down != 0 {
+				t.Fatalf("cleanup did not join and clear sampler: up=%d down=%d", up, down)
+			}
+			manager.PushUploaded(19)
+			if total, _ := manager.Total(); total != 36 {
+				t.Fatalf("stop lost accumulated statistics: %d", total)
+			}
+			listener.err = nil
+			if err := stopTunError(); err != nil {
+				t.Fatal(err)
+			}
+			// A consuming synthetic listener exercises the successful bridge path,
+			// not a physical Android TUN. Failed replacement must not restart it.
+			var fds [2]int
+			if err := syscall.Pipe(fds[:]); err != nil {
+				t.Fatal(err)
+			}
+			defer syscall.Close(fds[1])
+			accepted := startAndroidTUNWithConstructor(fds[0], "system", "172.19.0.1/30", "", androidRuntime.stopGeneration.Load(), func(options LC.Tun) (io.Closer, error) {
+				return os.NewFile(uintptr(options.FileDescriptor), "statistics-test-listener"), nil
+			})
+			if !accepted {
+				_ = syscall.Close(fds[0])
+				t.Fatal("synthetic attachment was rejected")
+			}
+			waitSample(19)
+			if total, _ := manager.Total(); total != 36 {
+				t.Fatalf("restart changed total statistics: %d", total)
+			}
+		})
+	}
+}

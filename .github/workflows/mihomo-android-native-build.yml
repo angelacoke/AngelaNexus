@@ -94,8 +94,10 @@ jobs:
           sed '1,2d' "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge.go" > ./angelanexus_android/bridge.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge_integration_test.go" ./angelanexus_android/bridge_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/library_integration_test.go" ./angelanexus_android/library_integration_test.go
+          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/statistics_integration_test.go" ./tunnel/statistic/angelanexus_statistics_test.go
           # Test the entire dedicated package that the NDK build consumes.
           go test -race -tags=with_gvisor,cmfa -run '^TestAndroidBridge' -count=1 -timeout=90s -v ./angelanexus_android
+          go test -race -run '^TestAngelaNexusStatistics' -count=1 -timeout=90s -v ./tunnel/statistic
           go build -trimpath -tags=with_gvisor,cmfa -buildmode=c-shared -o "$RUNNER_TEMP/libclash-host.so" ./angelanexus_android
           # Foreign host flags must survive dlopen without CLI parsing/exit.
           timeout 30s python3 "$GITHUB_WORKSPACE/scripts/smoke-mihomo-library.py" "$RUNNER_TEMP/libclash-host.so" --foreign-host-flag=library-smoke
@@ -153,6 +155,8 @@ jobs:
           LIBRARY_ENTRY_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/library.go" | awk '{print $1}')"
           ADAPTER_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/prepare-upstream.py" | awk '{print $1}')"
           PATCHED_SERVER_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/listener/sing_tun/server.go" | awk '{print $1}')"
+          STATISTICS_PATCH_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/statistics.patch" | awk '{print $1}')"
+          PATCHED_STATISTICS_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/tunnel/statistic/manager.go" | awk '{print $1}')"
           GO_VERSION="$(go version | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
           NDK_BIN="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
           CC_PATH="$NDK_BIN/${{ matrix.cc }}"
@@ -177,6 +181,7 @@ jobs:
               "lifecycle": {"path": "native/android/mihomo-bridge/lifecycle.go", "sha256": "$LIFECYCLE_SHA256"},
               "libraryEntry": {"path": "native/android/mihomo-bridge/library.go", "sha256": "$LIBRARY_ENTRY_SHA256"},
               "ownershipAdapter": {"path": "native/android/mihomo-bridge/prepare-upstream.py", "sha256": "$ADAPTER_SHA256", "patchedSource": {"path": "listener/sing_tun/server.go", "sha256": "$PATCHED_SERVER_SHA256"}},
+              "statisticsPatch": {"path": "native/android/mihomo-bridge/statistics.patch", "sha256": "$STATISTICS_PATCH_SHA256", "patchedSource": {"path": "tunnel/statistic/manager.go", "sha256": "$PATCHED_STATISTICS_SHA256"}},
               "artifact": {"name": "libclash-${{ matrix.abi }}.so", "sha256": "$ARTIFACT_SHA256"},
           }
           out.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")

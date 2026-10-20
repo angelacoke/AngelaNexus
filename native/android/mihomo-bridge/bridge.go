@@ -97,6 +97,9 @@ func protectSocket(fd int) bool {
 
 func init() {
 	tunnel.OnSuspend()
+	// Upstream starts a process-wide sampler during package initialization.
+	// An unattached library must not retain that ticker worker.
+	statistic.DefaultManager.StopStatistics()
 	dialer.DefaultSocketHook = func(network, address string, conn syscall.RawConn) error {
 		return androidRuntime.socketHook(conn, protectSocket)
 	}
@@ -340,6 +343,9 @@ func startAndroidTUNWithConstructor(fd int, stack, address, dns string, generati
 	// A newly attached runtime starts unpaused; failed starts never clear pause.
 	androidRuntime.setSuspended(false)
 	androidRuntime.restoreAdmission(true)
+	// The sampler belongs to the attached runtime, including explicit pauses.
+	// A queued stop owns subsequent synchronous cleanup under androidTunMu.
+	statistic.DefaultManager.StartStatistics()
 	// A stop announced after the commit check owns queued cleanup. Do not resume
 	// tunnel admission before it gets the lock; this is not construction cancellation.
 	if androidRuntime.ready() {
@@ -352,6 +358,9 @@ func startAndroidTUNWithConstructor(fd int, stack, address, dns string, generati
 // currently registered TCP/UDP trackers, not late dials, NAT or background tasks.
 func closeAndroidResources() error {
 	listenerErr := androidRuntime.closeTun()
+	// Join even if listener cleanup failed. This stops only the statistics
+	// sampler, not provider, dial, DNS or UDP/NAT background work.
+	statistic.DefaultManager.StopStatistics()
 	connections := make(map[string]io.Closer)
 	statistic.DefaultManager.Range(func(connection statistic.Tracker) bool {
 		connections[connection.ID()] = connection

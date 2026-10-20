@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply the narrowly scoped owned-FD adapter to one pinned mihomo checkout.
+"""Apply reviewed owned-FD and statistics adapters to one pinned checkout.
 
 This deliberately refuses unknown source trees.  It is the reproducible boundary
 between the Android bridge and sing-tun: only the pinned mihomo commit and
@@ -12,6 +12,7 @@ import hashlib
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 COMMIT = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36"
@@ -22,11 +23,14 @@ EXPECTED = {
     "go.sum": "8fa2b10fe8589a4a1118fd6819f59231f74a27e71c8154de9c3903a69c3735aa",
     "listener/sing_tun/server.go": "8b0d766e346aa5a36ec40dc66c1fe7cd3466ead48a687cfb4a262342ca9a3335",
     "listener/sing_tun/server_notwindows.go": "b455a1c900fa94bde40c09b01183c28414b1bf45810ff79ba5eb58f7c34ee66c",
+    "tunnel/statistic/manager.go": "508daa254d05b6414e899e4eb154cb3b83572d6223e5662da9463728cb588886",
 }
 # sing-tun is supplied by Go's module cache; verify the implementation that
 # accepts an already-open fd, not merely the version string in go.mod.
 SING_TUN_TUN_LINUX_SHA256 = "34d3c504a859006bf2981709d86e104c9a2b7c9542ef5895201ce2a723ecac54"
 PATCHED_SERVER_SHA256 = "1a77f3a7416b8074bc5e91c4944079c059fe766991bccfaa921780ad0068b8e1"
+PATCHED_STATISTICS_SHA256 = "316e372b7de3735a9a44c8f2357092ee1023fb21c6bbb899ea6a5228cc1dbb09"
+STATISTICS_PATCH_SHA256 = "293330f8b4ba6ed0fb318ea43f5bb759b0946fa98f44c563131135441d4c124b"
 
 
 def sha256(path: Path) -> str:
@@ -57,6 +61,8 @@ def verify_source(root: Path) -> None:
         fail(f"unexpected mihomo commit {actual!r}; expected {COMMIT}")
     patched_server = root / "listener/sing_tun/server.go"
     patched_hash = sha256(patched_server) if patched_server.is_file() else None
+    statistics = root / "tunnel/statistic/manager.go"
+    statistics_hash = sha256(statistics) if statistics.is_file() else None
     # Existing adapter output is allowed only when it is exactly our output.
     allowed = {
         "angelanexus_android/bridge.go",
@@ -64,10 +70,13 @@ def verify_source(root: Path) -> None:
         "angelanexus_android/library.go",
         "angelanexus_android/bridge_integration_test.go",
         "angelanexus_android/library_integration_test.go",
+        "tunnel/statistic/angelanexus_statistics_test.go",
     }
     for line in dirty.splitlines():
         path = line[3:] if len(line) >= 4 else ""
         if path == "listener/sing_tun/server.go" and patched_hash == PATCHED_SERVER_SHA256:
+            continue
+        if path == "tunnel/statistic/manager.go" and statistics_hash == PATCHED_STATISTICS_SHA256:
             continue
         if path and path not in allowed:
             fail(f"dirty checkout has unexpected path: {path}")
@@ -80,6 +89,8 @@ def verify_source(root: Path) -> None:
             # A patched server.go is handled below, but every other source must
             # remain pristine.  Idempotent reruns are checked by markers.
             if rel == "listener/sing_tun/server.go" and patched_hash == PATCHED_SERVER_SHA256:
+                continue
+            if rel == "tunnel/statistic/manager.go" and statistics_hash == PATCHED_STATISTICS_SHA256:
                 continue
             fail(f"sha256 mismatch for {rel}: {actual_hash} != {expected}")
     mod = (root / "go.mod").read_text()
@@ -163,6 +174,30 @@ _ = syscall.Close(ownedFD)
     path.write_bytes(formatted)
 
 
+def apply_statistics(root: Path) -> None:
+    patch = Path(__file__).with_name("statistics.patch")
+    if not patch.is_file() or sha256(patch) != STATISTICS_PATCH_SHA256:
+        fail("statistics.patch is missing or does not match the reviewed patch digest")
+    path = root / "tunnel/statistic/manager.go"
+    digest = sha256(path)
+    if digest == PATCHED_STATISTICS_SHA256:
+        return
+    if digest != EXPECTED["tunnel/statistic/manager.go"]:
+        fail("statistics manager does not match the pinned source")
+    # Compute and check the exact output before replacing upstream source. Never
+    # run arbitrary patch paths in the checkout, or accept marker-only patches.
+    with tempfile.TemporaryDirectory(prefix="angelanexus-statistics-") as tmp:
+        output = Path(tmp) / "manager.go"
+        try:
+            subprocess.run(["patch", "--batch", "--silent", "--output", str(output),
+                            str(path), str(patch)], check=True, capture_output=True)
+        except (OSError, subprocess.CalledProcessError) as exc:
+            fail(f"statistics patch failed before source replacement: {exc}")
+        if not output.is_file() or sha256(output) != PATCHED_STATISTICS_SHA256:
+            fail("adapted statistics manager does not match the reviewed output digest")
+        path.write_bytes(output.read_bytes())
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("source", type=Path, help="pinned mihomo checkout")
@@ -170,7 +205,8 @@ def main() -> None:
     root = args.source.resolve()
     verify_source(root)
     apply(root)
-    print(f"prepared {root} for sing-tun {SING_TUN_VERSION} owned FD")
+    apply_statistics(root)
+    print(f"prepared {root} for sing-tun {SING_TUN_VERSION} owned FD and joinable statistics")
 
 
 if __name__ == "__main__":
