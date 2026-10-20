@@ -30,6 +30,8 @@ function verifierFixture() {
   for (const name of ["bridge.go", "lifecycle.go", "library.go"]) {
     writeFileSync(join(sourceDir, name), readFileSync(join(root, bridgeDir, name)));
   }
+  const patchedSourceHash = digest("fixture patched source");
+  writeFileSync(join(sourceDir, "prepare-upstream.py"), `PATCHED_SERVER_SHA256 = "${patchedSourceHash}"\n`);
   const abis = ["arm64-v8a", "armeabi-v7a", "x86_64"];
   const commit = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36";
   const specs = abis.map(abi => `MihomoNativeLibrarySpec(abi = "${abi}", sha256 = "${"a".repeat(64)}")`).join(",\n");
@@ -52,6 +54,7 @@ function verifierFixture() {
       toolchain: { go: "go version go1.24.8 linux/amd64", androidNdk: "28.0.13004108", compiler: "Android clang", goos: "android", goarch, goarm: abi === "armeabi-v7a" ? "7" : null, cgoEnabled: true },
       build: { trimpath: true, buildmode: "c-shared", package: "./angelanexus_android", tags: ["with_gvisor", "cmfa"], versionLdflag: "github.com/metacubex/mihomo/constant.Version=v1.19.32" },
       bridge: evidence("bridge.go"), lifecycle: evidence("lifecycle.go"), libraryEntry: evidence("library.go"),
+      ownershipAdapter: { ...evidence("prepare-upstream.py"), patchedSource: { path: "listener/sing_tun/server.go", sha256: patchedSourceHash } },
     };
     writeFileSync(join(dir, `mihomo-provenance-${abi}.json`), JSON.stringify(provenance));
   }

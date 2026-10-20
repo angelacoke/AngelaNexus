@@ -18,11 +18,15 @@ function fixture() {
   const bridge = Buffer.from("fixture bridge\n");
   const lifecycle = Buffer.from("fixture lifecycle\n");
   const libraryEntry = Buffer.from("package main\nfunc main() {}\n");
+  const patchedSource = Buffer.from("fixture patched server\n");
   const sourceDir = join(root, "native/android/mihomo-bridge");
   mkdirSync(sourceDir, { recursive: true });
   writeFileSync(join(sourceDir, "bridge.go"), bridge);
   writeFileSync(join(sourceDir, "lifecycle.go"), lifecycle);
   writeFileSync(join(sourceDir, "library.go"), libraryEntry);
+  const adapterSource = `PATCHED_SERVER_SHA256 = "${digest(patchedSource)}"\n`;
+  writeFileSync(join(sourceDir, "prepare-upstream.py"), adapterSource);
+  const adapterSha = digest(adapterSource);
   const records = {};
   for (const abi of ABIS) {
     const bytes = Buffer.from(`fixture native ${abi}\n`);
@@ -56,6 +60,11 @@ ${ABIS.map((abi) => ` val ${abi.replaceAll("-", "_")} = MihomoNativeLibrarySpec(
       bridge: { path: "native/android/mihomo-bridge/bridge.go", sha256: digest(bridge) },
       lifecycle: { path: "native/android/mihomo-bridge/lifecycle.go", sha256: digest(lifecycle) },
       libraryEntry: { path: "native/android/mihomo-bridge/library.go", sha256: digest(libraryEntry) },
+      ownershipAdapter: {
+        path: "native/android/mihomo-bridge/prepare-upstream.py",
+        sha256: adapterSha,
+        patchedSource: { path: "listener/sing_tun/server.go", sha256: digest(patchedSource) },
+      },
       artifact: { name: artifact, sha256: records[abi].sha256 },
     }));
   }
@@ -223,4 +232,41 @@ test("rejects alternate library entry evidence path", () => withFixture((fx) => 
   const result = run(fx);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /libraryEntry path mismatch/);
+}));
+
+test("rejects missing ownership adapter provenance", () => withFixture((fx) => {
+  mutate(fx, "arm64-v8a", (p) => { delete p.ownershipAdapter; });
+  const result = run(fx);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /missing required field 'ownershipAdapter'/);
+}));
+
+test("rejects ownership adapter path and hash tampering", () => withFixture((fx) => {
+  mutate(fx, "armeabi-v7a", (p) => { p.ownershipAdapter.path = "prepare-upstream.py"; });
+  const pathMismatch = run(fx);
+  assert.equal(pathMismatch.status, 1);
+  assert.match(pathMismatch.stderr, /ownershipAdapter path mismatch/);
+
+  const fresh = fixture();
+  try {
+    mutate(fresh, "x86_64", (p) => { p.ownershipAdapter.sha256 = "0".repeat(64); });
+    const hashMismatch = run(fresh);
+    assert.equal(hashMismatch.status, 1);
+    assert.match(hashMismatch.stderr, /ownershipAdapter SHA-256 mismatch/);
+  } finally { rmSync(fresh.root, { recursive: true, force: true }); }
+}));
+
+test("rejects patched source path and hash tampering", () => withFixture((fx) => {
+  mutate(fx, "arm64-v8a", (p) => { p.ownershipAdapter.patchedSource.path = "listener/server.go"; });
+  const pathMismatch = run(fx);
+  assert.equal(pathMismatch.status, 1);
+  assert.match(pathMismatch.stderr, /patchedSource path mismatch/);
+
+  const fresh = fixture();
+  try {
+    mutate(fresh, "x86_64", (p) => { p.ownershipAdapter.patchedSource.sha256 = "f".repeat(64); });
+    const hashMismatch = run(fresh);
+    assert.equal(hashMismatch.status, 1);
+    assert.match(hashMismatch.stderr, /patchedSource SHA-256 mismatch/);
+  } finally { rmSync(fresh.root, { recursive: true, force: true }); }
 }));

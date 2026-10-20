@@ -20,8 +20,10 @@ import (
 	"github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/hub/executor"
 	LC "github.com/metacubex/mihomo/listener/config"
+	"github.com/metacubex/mihomo/listener/sing_tun"
 	"github.com/metacubex/mihomo/tunnel"
 	"github.com/metacubex/mihomo/tunnel/statistic"
+	"golang.org/x/sys/unix"
 )
 
 func bridgeConfigJSON(mode string) []byte {
@@ -1177,6 +1179,7 @@ func TestAndroidBridgeConstructionWithClosedStdin(t *testing.T) {
 		flags, _, errno := syscall.Syscall(syscall.SYS_FCNTL, uintptr(listener.fd), syscall.F_GETFD, 0)
 		closeOnExec = errno == 0 && flags&syscall.FD_CLOEXEC != 0
 		if mode == "failure" {
+			_ = syscall.Close(listener.fd)
 			return nil, errors.New("synthetic failure before fd adoption")
 		}
 		return listener, nil
@@ -1224,5 +1227,105 @@ func TestAndroidBridgeConstructionWithClosedStdin(t *testing.T) {
 	}
 	if err := syscall.Fstat(listener.fd, &stat); !errors.Is(err, syscall.EBADF) {
 		t.Fatalf("duplicate survived stop: %v", err)
+	}
+}
+
+// Each child owns its descriptor table: forcing reuse must not replace another
+// test's socket. The real upstream cases fail before and after tun.New adoption;
+// pipes stand in for supplied descriptors, not a working Android TUN device.
+func TestAndroidBridgeConstructorFailureDoesNotCloseReusedFD(t *testing.T) {
+	const childEnv = "ANGELANEXUS_TEST_OWNED_FD_FAILURE"
+	mode := os.Getenv(childEnv)
+	if mode == "" {
+		for _, childMode := range []string{"synthetic", "upstream-early", "upstream-late"} {
+			cmd := exec.Command(os.Args[0], "-test.run=^TestAndroidBridgeConstructorFailureDoesNotCloseReusedFD$", "-test.timeout=20s")
+			cmd.Env = append(os.Environ(), childEnv+"="+childMode)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("owned-fd %s child: %v\n%s", childMode, err, output)
+			}
+		}
+		return
+	}
+	androidRuntime = androidTunLifecycle{}
+	tunnel.OnSuspend()
+	var caller, replacement [2]int
+	if err := syscall.Pipe(caller[:]); err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Close(caller[0])
+	defer syscall.Close(caller[1])
+	if err := syscall.Pipe(replacement[:]); err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Close(replacement[0])
+	defer syscall.Close(replacement[1])
+	reusedFD := -1
+	defer func() {
+		if reusedFD >= 0 {
+			_ = syscall.Close(reusedFD)
+		}
+		_ = stopTunError()
+	}()
+	accepted := startAndroidTUNWithConstructor(caller[0], "system", "172.19.0.1/30", "", androidRuntime.stopGeneration.Load(), func(options LC.Tun) (io.Closer, error) {
+		reusedFD = options.FileDescriptor
+		var constructorErr error
+		switch mode {
+		case "synthetic":
+			constructorErr = syscall.Close(reusedFD)
+			if constructorErr != nil {
+				t.Fatal(constructorErr)
+			}
+			constructorErr = errors.New("synthetic consuming constructor failure")
+		case "upstream-early", "upstream-late":
+			if mode == "upstream-early" {
+				options.DNSHijack = []string{"invalid-dns-address"}
+			} else {
+				options.Stack = constant.TUNStack(-1)
+			}
+			listener, err := sing_tun.NewWithOwnedFD(options, tunnel.Tunnel)
+			if err == nil || listener != nil {
+				if listener != nil {
+					_ = listener.Close()
+				}
+				t.Fatalf("expected upstream constructor failure: listener=%v err=%v", listener, err)
+			}
+			constructorErr = err
+			if mode == "upstream-early" && !strings.Contains(err.Error(), "dns-hijack") {
+				t.Fatalf("did not reach early validation: %v", err)
+			}
+			if mode == "upstream-late" && !strings.Contains(err.Error(), "unknown stack") {
+				t.Fatalf("did not reach post-adoption stack failure: %v", err)
+			}
+		default:
+			t.Fatalf("unexpected child mode %q", mode)
+		}
+		var stat syscall.Stat_t
+		if err := syscall.Fstat(reusedFD, &stat); !errors.Is(err, syscall.EBADF) {
+			t.Fatalf("constructor failed without consuming duplicate: %v", err)
+		}
+		if err := unix.Dup3(replacement[0], reusedFD, unix.O_CLOEXEC); err != nil {
+			t.Fatal(err)
+		}
+		return nil, constructorErr
+	})
+	if accepted || androidRuntime.listener != nil || androidRuntime.ready() || tunnel.Status() != tunnel.Suspend {
+		t.Fatal("failed construction committed listener or reopened admission")
+	}
+	// Both the immediate failure return and a later stop must leave reusedFD alone.
+	for _, afterStop := range []bool{false, true} {
+		if afterStop {
+			if err := stopTunError(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, pair := range [][2]int{{caller[0], caller[1]}, {reusedFD, replacement[1]}} {
+			if _, err := syscall.Write(pair[1], []byte{42}); err != nil {
+				t.Fatal(err)
+			}
+			var data [1]byte
+			if n, err := syscall.Read(pair[0], data[:]); err != nil || n != 1 || data[0] != 42 {
+				t.Fatalf("constructor failure closed caller/reused descriptor (afterStop=%t fd=%d): n=%d err=%v", afterStop, pair[0], n, err)
+			}
+		}
 	}
 }

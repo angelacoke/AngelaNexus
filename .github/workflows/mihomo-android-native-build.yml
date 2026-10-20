@@ -70,6 +70,9 @@ jobs:
         working-directory: ${{ runner.temp }}/mihomo
         run: |
           set -euo pipefail
+          python3 "$GITHUB_WORKSPACE/native/android/mihomo-bridge/prepare-upstream.py" "$PWD"
+          test -s ./listener/sing_tun/server.go
+          grep -q "func NewWithOwnedFD" ./listener/sing_tun/server.go
           # Never compile the upstream CLI main/init into the shared library.
           mkdir ./angelanexus_android
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge.go" ./angelanexus_android/bridge.go
@@ -148,6 +151,8 @@ jobs:
           BRIDGE_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge.go" | awk '{print $1}')"
           LIFECYCLE_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/lifecycle.go" | awk '{print $1}')"
           LIBRARY_ENTRY_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/library.go" | awk '{print $1}')"
+          ADAPTER_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/prepare-upstream.py" | awk '{print $1}')"
+          PATCHED_SERVER_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/listener/sing_tun/server.go" | awk '{print $1}')"
           GO_VERSION="$(go version | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
           NDK_BIN="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
           CC_PATH="$NDK_BIN/${{ matrix.cc }}"
@@ -171,6 +176,7 @@ jobs:
               "bridge": {"path": "native/android/mihomo-bridge/bridge.go", "sha256": "$BRIDGE_SHA256"},
               "lifecycle": {"path": "native/android/mihomo-bridge/lifecycle.go", "sha256": "$LIFECYCLE_SHA256"},
               "libraryEntry": {"path": "native/android/mihomo-bridge/library.go", "sha256": "$LIBRARY_ENTRY_SHA256"},
+              "ownershipAdapter": {"path": "native/android/mihomo-bridge/prepare-upstream.py", "sha256": "$ADAPTER_SHA256", "patchedSource": {"path": "listener/sing_tun/server.go", "sha256": "$PATCHED_SERVER_SHA256"}},
               "artifact": {"name": "libclash-${{ matrix.abi }}.so", "sha256": "$ARTIFACT_SHA256"},
           }
           out.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")

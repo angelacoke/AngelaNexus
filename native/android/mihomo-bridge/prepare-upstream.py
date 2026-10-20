@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+"""Apply the narrowly scoped owned-FD adapter to one pinned mihomo checkout.
+
+This deliberately refuses unknown source trees.  It is the reproducible boundary
+between the Android bridge and sing-tun: only the pinned mihomo commit and
+sing-tun v0.4.27 implementation are accepted.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+COMMIT = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36"
+SING_TUN_VERSION = "v0.4.27"
+# Hashes are of the pristine pinned checkout/module files, before this adapter.
+EXPECTED = {
+    "go.mod": "72b10f80ec33e2e06dee425a75e499d5818039c99d4e25f745d0bca349c90af5",
+    "go.sum": "8fa2b10fe8589a4a1118fd6819f59231f74a27e71c8154de9c3903a69c3735aa",
+    "listener/sing_tun/server.go": "8b0d766e346aa5a36ec40dc66c1fe7cd3466ead48a687cfb4a262342ca9a3335",
+    "listener/sing_tun/server_notwindows.go": "b455a1c900fa94bde40c09b01183c28414b1bf45810ff79ba5eb58f7c34ee66c",
+}
+# sing-tun is supplied by Go's module cache; verify the implementation that
+# accepts an already-open fd, not merely the version string in go.mod.
+SING_TUN_TUN_LINUX_SHA256 = "34d3c504a859006bf2981709d86e104c9a2b7c9542ef5895201ce2a723ecac54"
+PATCHED_SERVER_SHA256 = "1a77f3a7416b8074bc5e91c4944079c059fe766991bccfaa921780ad0068b8e1"
+
+
+def sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def fail(message: str) -> "NoReturn":
+    raise SystemExit(f"prepare-upstream: {message}")
+
+
+def verify_source(root: Path) -> None:
+    if not (root / ".git").exists():
+        fail(f"not a git checkout: {root}")
+    try:
+        actual = subprocess.check_output(
+            ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
+        ).strip()
+        dirty = subprocess.check_output(
+            ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all"], text=True
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        fail(f"cannot inspect git checkout: {exc}")
+    if actual != COMMIT:
+        fail(f"unexpected mihomo commit {actual!r}; expected {COMMIT}")
+    patched_server = root / "listener/sing_tun/server.go"
+    patched_hash = sha256(patched_server) if patched_server.is_file() else None
+    # Existing adapter output is allowed only when it is exactly our output.
+    allowed = {
+        "angelanexus_android/bridge.go",
+        "angelanexus_android/lifecycle.go",
+        "angelanexus_android/library.go",
+        "angelanexus_android/bridge_integration_test.go",
+        "angelanexus_android/library_integration_test.go",
+    }
+    for line in dirty.splitlines():
+        path = line[3:] if len(line) >= 4 else ""
+        if path == "listener/sing_tun/server.go" and patched_hash == PATCHED_SERVER_SHA256:
+            continue
+        if path and path not in allowed:
+            fail(f"dirty checkout has unexpected path: {path}")
+    for rel, expected in EXPECTED.items():
+        path = root / rel
+        if not path.is_file():
+            fail(f"missing pinned source file: {rel}")
+        actual_hash = sha256(path)
+        if actual_hash != expected:
+            # A patched server.go is handled below, but every other source must
+            # remain pristine.  Idempotent reruns are checked by markers.
+            if rel == "listener/sing_tun/server.go" and patched_hash == PATCHED_SERVER_SHA256:
+                continue
+            fail(f"sha256 mismatch for {rel}: {actual_hash} != {expected}")
+    mod = (root / "go.mod").read_text()
+    if "github.com/metacubex/sing-tun v0.4.27" not in mod:
+        fail("go.mod does not pin github.com/metacubex/sing-tun v0.4.27")
+    try:
+        import json
+        module_data = json.loads(subprocess.check_output(["go", "mod", "download", "-json", "github.com/metacubex/sing-tun@v0.4.27"], cwd=root, text=True))
+    except (OSError, subprocess.CalledProcessError, ValueError) as exc:
+        fail(f"cannot resolve sing-tun v0.4.27 with go mod download: {exc}")
+    if module_data.get("Version") != "v0.4.27" or not module_data.get("Dir"):
+        fail("go resolved an unexpected sing-tun module")
+    module = Path(module_data["Dir"])
+    if f"github.com/metacubex/sing-tun v0.4.27 {module_data.get('Sum')}" not in (root / "go.sum").read_text():
+        fail("sing-tun module checksum is not present in pinned go.sum")
+    tun_linux = module / "tun_linux.go"
+    if not tun_linux.is_file() or sha256(tun_linux) != SING_TUN_TUN_LINUX_SHA256:
+        fail("sing-tun v0.4.27 tun_linux.go is missing or does not match the pinned implementation")
+    if "func New(options Options) (Tun, error)" not in tun_linux.read_text():
+        fail("sing-tun tun_linux.go does not expose the expected New implementation")
+
+
+def apply(root: Path) -> None:
+    path = root / "listener/sing_tun/server.go"
+    text = path.read_text()
+    if "func NewWithOwnedFD(" in text and "func newListener(" in text:
+        return
+    if "func NewWithOwnedFD(" in text or "ownedFD :=" in text:
+        fail("partially applied owned-FD adapter; refusing to guess")
+    old_import = '\t"sync"\n\t"time"'
+    if old_import not in text:
+        fail("server.go import anchor changed")
+    text = text.replace(old_import, '\t"sync"\n\t"syscall"\n\t"time"', 1)
+    old = 'func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Listener, err error) {'
+    new = '''func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Listener, err error) {
+return newListener(options, tunnel, false, additions...)
+}
+
+// NewWithOwnedFD consumes options.FileDescriptor on every normal return.
+// It is intentionally restricted to Android/Linux; callers retain ownership on
+// unsupported platforms or invalid descriptors.
+func NewWithOwnedFD(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Listener, err error) {
+if runtime.GOOS != "android" && runtime.GOOS != "linux" {
+return nil, E.New("owned TUN fd is supported only on Android/Linux")
+}
+if options.FileDescriptor < 3 {
+return nil, E.New("owned TUN fd must be >= 3")
+}
+return newListener(options, tunnel, true, additions...)
+}
+
+func newListener(options LC.Tun, tunnel C.Tunnel, ownsFD bool, additions ...inbound.Addition) (l *Listener, err error) {
+ownedFD := 0
+if ownsFD {
+ownedFD = options.FileDescriptor
+}
+defer func() {
+if ownedFD > 0 {
+_ = syscall.Close(ownedFD)
+}
+}()'''
+    if text.count(old) != 1:
+        fail("New function anchor changed")
+    text = text.replace(old, new, 1)
+    old_tun = "\tif err != nil {\n\t\terr = E.Cause(err, \"configure tun interface\")\n\t\treturn\n\t}\n\n\tl.dnsServerIp = dnsServerIp"
+    new_tun = "\tif err != nil {\n\t\terr = E.Cause(err, \"configure tun interface\")\n\t\treturn\n\t}\n\tl.tunIf = tunIf\n\townedFD = 0\n\n\tl.dnsServerIp = dnsServerIp"
+    if text.count(old_tun) != 1:
+        fail("tunIf ownership handoff anchor changed")
+    text = text.replace(old_tun, new_tun, 1)
+    old_late = "\tl.tunIf = tunIf\n\n\ttunStack, err := tun.NewStack"
+    if text.count(old_late) != 1:
+        fail("late tunIf assignment anchor changed")
+    text = text.replace(old_late, "\ttunStack, err := tun.NewStack", 1)
+    # Format and verify in memory before replacing the pinned source file.
+    try:
+        formatted = subprocess.check_output(["gofmt"], input=text.encode())
+    except (OSError, subprocess.CalledProcessError) as exc:
+        fail(f"gofmt failed before patch: {exc}")
+    if hashlib.sha256(formatted).hexdigest() != PATCHED_SERVER_SHA256:
+        fail("adapted server.go does not match the reviewed output digest")
+    path.write_bytes(formatted)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("source", type=Path, help="pinned mihomo checkout")
+    args = parser.parse_args()
+    root = args.source.resolve()
+    verify_source(root)
+    apply(root)
+    print(f"prepared {root} for sing-tun {SING_TUN_VERSION} owned FD")
+
+
+if __name__ == "__main__":
+    main()

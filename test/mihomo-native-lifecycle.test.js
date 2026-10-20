@@ -213,8 +213,9 @@ test("Mihomo rechecks stop after construction before consuming the caller descri
   const bridge = read("native/android/mihomo-bridge/bridge.go");
   const wrapper = bridge.split("func startAndroidTUNAtGeneration(")[1].split("func startAndroidTUNWithConstructor(")[0];
   assert.match(wrapper, /return startAndroidTUNWithConstructor\(/);
-  assert.match(wrapper, /return sing_tun\.New\(options, tunnel\.Tunnel\)/);
+  assert.match(wrapper, /return sing_tun\.NewWithOwnedFD\(options, tunnel\.Tunnel\)/);
   const body = bridge.split("func startAndroidTUNWithConstructor(")[1].split("func closeAndroidResources()")[0];
+  assert.doesNotMatch(body, /(?:syscall|unix)\.Close\(dupFd\)/);
   const constructed = body.indexOf("listener, err := construct(options)");
   const retained = body.indexOf("androidRuntime.listener = listener", constructed);
   const recheck = body.indexOf("androidRuntime.checkConfigurationGeneration(generation)", retained);

@@ -240,12 +240,15 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
 // Rejection retains the caller's descriptor and does not clean up a newer TUN.
 func startAndroidTUNAtGeneration(fd int, stack, address, dns string, generation uint64) bool {
 	return startAndroidTUNWithConstructor(fd, stack, address, dns, generation, func(options LC.Tun) (io.Closer, error) {
-		return sing_tun.New(options, tunnel.Tunnel)
+		return sing_tun.NewWithOwnedFD(options, tunnel.Tunnel)
 	})
 }
 
 // The per-call constructor keeps host regressions on the actual startup path
 // without mutating a global factory or pretending to attach an Android TUN.
+// It must consume the supplied duplicate on every return: retain it in the
+// successful listener, or close it on failure. Never close its number here once
+// handed off: upstream cleanup may already have closed and recycled that number.
 func startAndroidTUNWithConstructor(fd int, stack, address, dns string, generation uint64, construct func(LC.Tun) (io.Closer, error)) bool {
 	androidTunMu.Lock()
 	defer androidTunMu.Unlock()
@@ -318,7 +321,6 @@ func startAndroidTUNWithConstructor(fd int, stack, address, dns string, generati
 
 	listener, err := construct(options)
 	if err != nil {
-		_ = syscall.Close(dupFd)
 		return false
 	}
 

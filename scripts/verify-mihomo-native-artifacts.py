@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
 import re
@@ -19,6 +20,8 @@ EXPECTED_VERSION_LDFLAG = "github.com/metacubex/mihomo/constant.Version=v1.19.32
 EXPECTED_TOOLCHAIN = {"goos": "android", "androidNdk": "28.0.13004108", "cgoEnabled": True}
 EXPECTED_GOARCH = {"arm64-v8a": "arm64", "armeabi-v7a": "arm", "x86_64": "amd64"}
 HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
+ADAPTER_PATH = "native/android/mihomo-bridge/prepare-upstream.py"
+PATCHED_SOURCE_PATH = "listener/sing_tun/server.go"
 
 
 class VerificationError(Exception):
@@ -76,6 +79,38 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def adapter_values(repo: Path) -> tuple[str, str]:
+    """Read adapter provenance metadata without importing or executing it."""
+    path = repo / ADAPTER_PATH
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        fail(f"missing upstream adapter script {path}: {exc}")
+    try:
+        tree = ast.parse(text, filename=str(path))
+    except (SyntaxError, ValueError) as exc:
+        fail(f"invalid upstream adapter script {path}: {exc}")
+    values = []
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        else:
+            continue
+        if any(isinstance(target, ast.Name) and target.id == "PATCHED_SERVER_SHA256" for target in targets):
+            try:
+                value = ast.literal_eval(node.value)
+            except (ValueError, TypeError, SyntaxError):
+                fail("upstream adapter PATCHED_SERVER_SHA256 must be a literal string")
+            if not isinstance(value, str) or not HEX64.fullmatch(value):
+                fail("upstream adapter PATCHED_SERVER_SHA256 must be a 64-character SHA-256 hex string")
+            values.append(value.lower())
+    if len(values) != 1:
+        fail("upstream adapter must define exactly one PATCHED_SERVER_SHA256 constant")
+    return sha256(path), values[0]
+
+
 def manifest_values(repo: Path) -> tuple[str, str, dict[str, str]]:
     path = repo / "native/android/app/src/main/kotlin/app/angelanexus/MihomoNativeArtifactManifest.kt"
     try:
@@ -109,6 +144,7 @@ def manifest_values(repo: Path) -> tuple[str, str, dict[str, str]]:
 
 def verify(artifacts_root: Path, repo: Path) -> None:
     version, commit, manifest_hashes = manifest_values(repo)
+    adapter_hash, patched_source_hash = adapter_values(repo)
     if version != "v1.19.32":
         fail(f"manifest version mismatch: expected v1.19.32, got {version}")
     compliance = load_json(repo / "docs/upstream/MIHOMO_ANDROID_RUNTIME_COMPLIANCE.json", "upstream compliance JSON")
@@ -166,6 +202,16 @@ def verify(artifacts_root: Path, repo: Path) -> None:
             fail(f"provenance {abi} source repository mismatch")
         if require(psource, "commit", f"provenance.source {abi}") != commit:
             fail(f"provenance {abi} source commit mismatch")
+        adapter = require_object(record, "ownershipAdapter", f"provenance {abi}")
+        if require(adapter, "path", f"provenance.ownershipAdapter {abi}") != ADAPTER_PATH:
+            fail(f"provenance {abi} ownershipAdapter path mismatch")
+        if require_hash(adapter, "sha256", f"provenance.ownershipAdapter {abi}") != adapter_hash:
+            fail(f"provenance {abi} ownershipAdapter SHA-256 mismatch")
+        patched = require_object(adapter, "patchedSource", f"provenance.ownershipAdapter {abi}")
+        if require(patched, "path", f"provenance.ownershipAdapter.patchedSource {abi}") != PATCHED_SOURCE_PATH:
+            fail(f"provenance {abi} patchedSource path mismatch")
+        if require_hash(patched, "sha256", f"provenance.ownershipAdapter.patchedSource {abi}") != patched_source_hash:
+            fail(f"provenance {abi} patchedSource SHA-256 mismatch")
         partifact = require_object(record, "artifact", f"provenance {abi}")
         if require(partifact, "name", f"provenance.artifact {abi}") != artifact.name:
             fail(f"provenance {abi} artifact name mismatch")
