@@ -23,6 +23,8 @@ EXPECTED = {
     "go.sum": "8fa2b10fe8589a4a1118fd6819f59231f74a27e71c8154de9c3903a69c3735aa",
     "listener/sing_tun/server.go": "8b0d766e346aa5a36ec40dc66c1fe7cd3466ead48a687cfb4a262342ca9a3335",
     "listener/sing_tun/server_notwindows.go": "b455a1c900fa94bde40c09b01183c28414b1bf45810ff79ba5eb58f7c34ee66c",
+    "component/nat/table.go": "e683db1cc9a41980b0c860d506663ed3d412260df5abc70f903106e1ebf82c54",
+    "tunnel/connection.go": "1e48fbdff3551c8d0dcbe5265088c3b56db0b66eb9c7512af5aaa31e8e65af1b",
     "tunnel/statistic/manager.go": "508daa254d05b6414e899e4eb154cb3b83572d6223e5662da9463728cb588886",
     "tunnel/statistic/tracker.go": "80e8cc0df115c35a62baea5aec4c3ad4a28c1cf9c47c52a78e76523520c83a6f",
     "tunnel/tunnel.go": "bd0818dddd04779aad3f078819b3ca050bd8bdce29ba57e5a377770539278596",
@@ -33,10 +35,12 @@ SING_TUN_TUN_LINUX_SHA256 = "34d3c504a859006bf2981709d86e104c9a2b7c9542ef5895201
 PATCHED_SERVER_SHA256 = "1a77f3a7416b8074bc5e91c4944079c059fe766991bccfaa921780ad0068b8e1"
 PATCHED_STATISTICS_SHA256 = "316e372b7de3735a9a44c8f2357092ee1023fb21c6bbb899ea6a5228cc1dbb09"
 STATISTICS_PATCH_SHA256 = "293330f8b4ba6ed0fb318ea43f5bb759b0946fa98f44c563131135441d4c124b"
-LATE_CONNECTIONS_PATCH_SHA256 = "3d4b934c812ec15d27f828950e3b8df9e2976689a055fd94b2650c212c70a183"
+LATE_CONNECTIONS_PATCH_SHA256 = "c070cd2a1ce4c161f29cdb8f1bba43a516fbcb36a07957a5993ac176501a6621"
 PATCHED_LATE_MANAGER_SHA256 = "0def9a0f17b675de99d35f9b50903741eb59e9fdd8c50c272a5212fc450f945a"
+PATCHED_NAT_TABLE_SHA256 = "14c048a266086e2dec951d8874e1fa67d31085edf86c4b8aae1625caeef29e90"
+PATCHED_CONNECTION_SHA256 = "2dfe920d8c32fb802353892aa1d37ebc7ba65c274d9bc922b3046faf556f3c62"
 PATCHED_TRACKER_SHA256 = "790b996d9e8144ecc453c6624b11664f2956d068e8ccb284f046be9afc09c99b"
-PATCHED_TUNNEL_SHA256 = "56a3fdcdc11ceea3ad54cf328edaf0231110ccc711b91959e1c7537371c3c667"
+PATCHED_TUNNEL_SHA256 = "e07baeb546fdaa4772d92be066cc8566fcc5d146afad02c98283bff3f26c3773"
 
 
 def sha256(path: Path) -> str:
@@ -67,6 +71,10 @@ def verify_source(root: Path) -> None:
         fail(f"unexpected mihomo commit {actual!r}; expected {COMMIT}")
     patched_server = root / "listener/sing_tun/server.go"
     patched_hash = sha256(patched_server) if patched_server.is_file() else None
+    nat_table = root / "component/nat/table.go"
+    connection = root / "tunnel/connection.go"
+    nat_table_hash = sha256(nat_table) if nat_table.is_file() else None
+    connection_hash = sha256(connection) if connection.is_file() else None
     statistics = root / "tunnel/statistic/manager.go"
     statistics_hash = sha256(statistics) if statistics.is_file() else None
     tracker = root / "tunnel/statistic/tracker.go"
@@ -82,11 +90,17 @@ def verify_source(root: Path) -> None:
         "angelanexus_android/library_integration_test.go",
         "tunnel/statistic/angelanexus_statistics_test.go",
         "tunnel/statistic/angelanexus_late_connections_test.go",
+        "component/nat/table.go",
+        "tunnel/connection.go",
         "tunnel/angelanexus_late_tunnel_test.go",
     }
     for line in dirty.splitlines():
         path = line[3:] if len(line) >= 4 else ""
         if path == "listener/sing_tun/server.go" and patched_hash == PATCHED_SERVER_SHA256:
+            continue
+        if path == "component/nat/table.go" and nat_table_hash == PATCHED_NAT_TABLE_SHA256:
+            continue
+        if path == "tunnel/connection.go" and connection_hash == PATCHED_CONNECTION_SHA256:
             continue
         if path == "tunnel/statistic/manager.go" and statistics_hash in (PATCHED_STATISTICS_SHA256, PATCHED_LATE_MANAGER_SHA256):
             continue
@@ -105,6 +119,10 @@ def verify_source(root: Path) -> None:
             # A patched server.go is handled below, but every other source must
             # remain pristine.  Idempotent reruns are checked by markers.
             if rel == "listener/sing_tun/server.go" and patched_hash == PATCHED_SERVER_SHA256:
+                continue
+            if rel == "component/nat/table.go" and nat_table_hash == PATCHED_NAT_TABLE_SHA256:
+                continue
+            if rel == "tunnel/connection.go" and connection_hash == PATCHED_CONNECTION_SHA256:
                 continue
             if rel == "tunnel/statistic/manager.go" and statistics_hash in (PATCHED_STATISTICS_SHA256, PATCHED_LATE_MANAGER_SHA256):
                 continue
@@ -224,16 +242,20 @@ def apply_late(root: Path) -> None:
         fail("late-connections.patch is missing or does not match the reviewed patch digest")
     paths = {"tunnel/statistic/manager.go": PATCHED_LATE_MANAGER_SHA256,
              "tunnel/statistic/tracker.go": PATCHED_TRACKER_SHA256,
-             "tunnel/tunnel.go": PATCHED_TUNNEL_SHA256}
+             "tunnel/tunnel.go": PATCHED_TUNNEL_SHA256,
+             "component/nat/table.go": PATCHED_NAT_TABLE_SHA256,
+             "tunnel/connection.go": PATCHED_CONNECTION_SHA256}
     if all(sha256(root / rel) == digest for rel, digest in paths.items()):
         return
     inputs = {"tunnel/statistic/manager.go": PATCHED_STATISTICS_SHA256,
               "tunnel/statistic/tracker.go": EXPECTED["tunnel/statistic/tracker.go"],
-              "tunnel/tunnel.go": EXPECTED["tunnel/tunnel.go"]}
+              "tunnel/tunnel.go": EXPECTED["tunnel/tunnel.go"],
+              "component/nat/table.go": EXPECTED["component/nat/table.go"],
+              "tunnel/connection.go": EXPECTED["tunnel/connection.go"]}
     for rel, digest in inputs.items():
         if sha256(root / rel) != digest:
             fail(f"late patch input {rel} does not match reviewed source")
-    # Parse only the exact three reviewed sections and patch into temporary
+    # Parse only the exact five reviewed sections and patch into temporary
     # outputs. Never let patch mutate the checkout before every digest matches.
     import re
     sections = re.split(r"(?m)(?=^--- )", patch.read_text())

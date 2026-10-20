@@ -46,7 +46,10 @@ func (p *lateGateProxy) DialContext(ctx context.Context, metadata *C.Metadata) (
 		return nil, ctx.Err()
 	}
 }
-func (p *lateGateProxy) ListenPacketContext(ctx context.Context, _ *C.Metadata) (C.PacketConn, error) {
+func (p *lateGateProxy) ListenPacketContext(ctx context.Context, metadata *C.Metadata) (C.PacketConn, error) {
+	if p.Proxy != nil {
+		return p.Proxy.ListenPacketContext(ctx, metadata)
+	}
 	p.enteredOnce.Do(func() { close(p.entered) })
 	select {
 	case <-p.release:
@@ -158,20 +161,20 @@ func TestAngelaNexusLateTunnelTCP(t *testing.T) {
 				statistic.DefaultManager.StopRegistrations()
 				statistic.DefaultManager.StartRegistrations()
 			}
-				release()
-				_ = remotePeer.SetReadDeadline(time.Now().Add(3 * time.Second))
-				if stale {
-					var b [1]byte
-					if n, err := remotePeer.Read(b[:]); n != 0 || err != io.EOF {
-						t.Fatalf("stale TCP result forwarded data or remained open: n=%d err=%v", n, err)
-					}
-					lateGateWait(t, done, "rejected TCP handler exit")
-					if remoteConn.writes.Load() != 0 {
-						t.Fatalf("stale early TCP connection wrote %d times", remoteConn.writes.Load())
-					}
-					if _, err := remote.Write([]byte("stale")); !errors.Is(err, io.ErrClosedPipe) {
-						t.Fatalf("underlying stale TCP socket not closed: %v", err)
-					}
+			release()
+			_ = remotePeer.SetReadDeadline(time.Now().Add(3 * time.Second))
+			if stale {
+				var b [1]byte
+				if n, err := remotePeer.Read(b[:]); n != 0 || err != io.EOF {
+					t.Fatalf("stale TCP result forwarded data or remained open: n=%d err=%v", n, err)
+				}
+				lateGateWait(t, done, "rejected TCP handler exit")
+				if remoteConn.writes.Load() != 0 {
+					t.Fatalf("stale early TCP connection wrote %d times", remoteConn.writes.Load())
+				}
+				if _, err := remote.Write([]byte("stale")); !errors.Is(err, io.ErrClosedPipe) {
+					t.Fatalf("underlying stale TCP socket not closed: %v", err)
+				}
 				afterUpload, _ := statistic.DefaultManager.Total()
 				if afterUpload != beforeUpload {
 					t.Fatalf("stale early TCP upload changed by %d", afterUpload-beforeUpload)
@@ -487,4 +490,185 @@ func TestAngelaNexusLateTunnelRejectHandshake(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for REJECT tracker close")
 	}
+}
+
+type lateNATSender struct{ id byte }
+
+func (*lateNATSender) Send(C.PacketAdapter)                       {}
+func (*lateNATSender) Process(C.PacketConn, C.WriteBackProxy)     {}
+func (*lateNATSender) Close()                                     {}
+func (*lateNATSender) DoSniff(*C.Metadata) error                  { return nil }
+func (*lateNATSender) AddMapping(*C.Metadata, *C.Metadata)        {}
+func (*lateNATSender) RestoreReadFrom(addr netip.Addr) netip.Addr { return addr }
+
+type lateCountingUDPProxy struct {
+	C.Proxy
+	udp   C.PacketConn
+	calls atomic.Int32
+}
+
+func (p *lateCountingUDPProxy) Name() string                  { return "late-counting-udp" }
+func (p *lateCountingUDPProxy) Type() C.AdapterType           { return C.Direct }
+func (p *lateCountingUDPProxy) IsL3Protocol(*C.Metadata) bool { return false }
+func (p *lateCountingUDPProxy) SupportUDP() bool              { return true }
+func (p *lateCountingUDPProxy) ListenPacketContext(context.Context, *C.Metadata) (C.PacketConn, error) {
+	if p.calls.Add(1) != 1 {
+		return nil, errors.New("unexpected replacement dial")
+	}
+	return p.udp, nil
+}
+
+func lateNATConn(t *testing.T) *lateGatePacketConn {
+	t.Helper()
+	raw, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn := &lateGatePacketConn{EnhancePacketConn: N.NewEnhancePacketConn(raw), closed: make(chan struct{}), readDone: make(chan struct{})}
+	t.Cleanup(func() { _ = conn.Close() })
+	return conn
+}
+func lateNATPeer(t *testing.T) *net.UDPConn {
+	t.Helper()
+	peer, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = peer.Close() })
+	return peer
+}
+func lateNATRead(t *testing.T, peer *net.UDPConn, want string) {
+	t.Helper()
+	_ = peer.SetReadDeadline(time.Now().Add(3 * time.Second))
+	var buf [64]byte
+	n, _, err := peer.ReadFromUDP(buf[:])
+	if err != nil || string(buf[:n]) != want {
+		t.Fatalf("UDP payload=%q err=%v, want %q", buf[:n], err, want)
+	}
+}
+
+func TestAngelaNexusLateTunnelUDPReplacementSameRawKey(t *testing.T) {
+	oldConn, freshConn := lateNATConn(t), lateNATConn(t)
+	peer := lateNATPeer(t)
+	oldProxy := &lateGateProxy{udp: oldConn, entered: make(chan struct{}), release: make(chan struct{})}
+	freshProxy := &lateCountingUDPProxy{udp: freshConn}
+	lateGateSetup(t, oldProxy)
+	local := oldConn.LocalAddr()
+	metadata := lateGateMetadata(C.UDP, uint16(peer.LocalAddr().(*net.UDPAddr).Port))
+	makePacket := func(payload string) *lateGatePacket {
+		return &lateGatePacket{data: []byte(payload), local: local, dropped: make(chan struct{})}
+	}
+	oldPacket, first, second := makePacket("old"), makePacket("fresh-before-old-exit"), makePacket("fresh-after-old-exit")
+	var once sync.Once
+	release := func() { once.Do(func() { close(oldProxy.release) }) }
+	t.Cleanup(func() {
+		release()
+		_ = oldConn.Close()
+		_ = freshConn.Close()
+		lateGateWait(t, oldPacket.dropped, "old packet release")
+		lateGateWait(t, first.dropped, "first fresh packet release")
+		lateGateWait(t, second.dropped, "second fresh packet release")
+		lateGateWait(t, freshConn.readDone, "fresh UDP reader exit")
+	})
+	handleUDPConn(C.NewPacketAdapter(oldPacket, metadata.Clone()))
+	lateGateWait(t, oldProxy.entered, "old proxy ListenPacketContext")
+	statistic.DefaultManager.StopRegistrations()
+	statistic.DefaultManager.StartRegistrations()
+	UpdateProxies(map[string]C.Proxy{"GLOBAL": freshProxy, "DIRECT": freshProxy}, nil)
+	// The old dial is still blocked. A same-raw-key packet must get its own
+	// generation's sender and transfer real bytes before the old dial exits.
+	handleUDPConn(C.NewPacketAdapter(first, metadata.Clone()))
+	lateNATRead(t, peer, "fresh-before-old-exit")
+	lateGateWait(t, first.dropped, "first fresh packet processing")
+	release()
+	lateGateWait(t, oldConn.closed, "stale result close")
+	lateGateWait(t, oldPacket.dropped, "stale packet drop")
+	if oldConn.reads.Load() != 0 || oldConn.writes.Load() != 0 {
+		t.Fatalf("old relay ran: reads=%d writes=%d", oldConn.reads.Load(), oldConn.writes.Load())
+	}
+	handleUDPConn(C.NewPacketAdapter(second, metadata.Clone()))
+	lateNATRead(t, peer, "fresh-after-old-exit")
+	lateGateWait(t, second.dropped, "second fresh packet processing")
+	if freshProxy.calls.Load() != 1 || freshConn.writes.Load() != 2 {
+		t.Fatalf("replacement was redialed: dials=%d writes=%d", freshProxy.calls.Load(), freshConn.writes.Load())
+	}
+}
+
+func TestAngelaNexusLateTunnelNATReplacementOwnsCleanup(t *testing.T) {
+	local, peer := lateNATPeer(t), lateNATPeer(t)
+	key := "round22-replacement-" + local.LocalAddr().String()
+	old, fresh := &lateNATSender{id: 1}, &lateNATSender{id: 2}
+	natTable.GetOrCreate(key, func() C.PacketSender { return old })
+	if !natTable.DeleteIf(key, old) {
+		t.Fatal("old entry was not removed")
+	}
+	natTable.GetOrCreate(key, func() C.PacketSender { return fresh })
+	t.Cleanup(func() { closeAllLocalCoon(key, fresh) })
+	if !natTable.AddForLocalConn(key, "peer", local) {
+		t.Fatal("missing replacement entry")
+	}
+	if natTable.DeleteIf(key, old) {
+		t.Fatal("old failed-dial cleanup removed replacement")
+	}
+	closeAllLocalCoon(key, old)
+	if natTable.GetForLocalConn(key, "peer") != local {
+		t.Fatal("old receive cleanup removed replacement")
+	}
+	if _, err := local.WriteToUDP([]byte("replacement-open"), peer.LocalAddr().(*net.UDPAddr)); err != nil {
+		t.Fatal(err)
+	}
+	lateNATRead(t, peer, "replacement-open")
+	// Retain a second remote mapping and creation-lock lookup on the same key.
+	other := lateNATPeer(t)
+	if !natTable.AddForLocalConn(key, "other", other) {
+		t.Fatal("missing second remote mapping")
+	}
+	if cond, loaded := natTable.GetOrCreateLockForLocalConn(key, "peer"); cond == nil || loaded {
+		t.Fatal("first creation lock lookup failed")
+	}
+	if cond, loaded := natTable.GetOrCreateLockForLocalConn(key, "peer"); cond == nil || !loaded {
+		t.Fatal("creation lock lookup was not reused")
+	}
+	closeAllLocalCoon(key, fresh)
+	for _, conn := range []*net.UDPConn{local, other} {
+		if _, err := conn.WriteToUDP([]byte("closed"), peer.LocalAddr().(*net.UDPAddr)); !errors.Is(err, net.ErrClosed) {
+			t.Fatalf("owned local socket not closed: %v", err)
+		}
+	}
+}
+
+func TestAngelaNexusLateTunnelTPROXYBareNATKey(t *testing.T) {
+	conn, peer := lateNATConn(t), lateNATPeer(t)
+	proxy := &lateGateProxy{udp: conn, entered: make(chan struct{}), release: make(chan struct{})}
+	lateGateSetup(t, proxy)
+	metadata := lateGateMetadata(C.UDP, uint16(peer.LocalAddr().(*net.UDPAddr).Port))
+	metadata.Type = C.TPROXY
+	packet := &lateGatePacket{data: []byte("tproxy-bare-key"), local: conn.LocalAddr(), dropped: make(chan struct{})}
+	adapter := C.NewPacketAdapter(packet, metadata)
+	var once sync.Once
+	release := func() { once.Do(func() { close(proxy.release) }) }
+	t.Cleanup(func() {
+		release()
+		_ = conn.Close()
+		lateGateWait(t, packet.dropped, "TPROXY packet release")
+		lateGateWait(t, conn.readDone, "TPROXY reader exit")
+	})
+	handleUDPConn(adapter)
+	lateGateWait(t, proxy.entered, "TPROXY proxy dial")
+	local := lateNATPeer(t)
+	// Use the actual PacketAdapter key, not an unrelated synthetic entry.
+	if !natTable.AddForLocalConn(adapter.Key(), "peer", local) || natTable.GetForLocalConn(adapter.Key(), "peer") != local {
+		t.Fatal("actual non-TUN sender did not preserve the bare-key local map contract")
+	}
+	if cond, _ := natTable.GetOrCreateLockForLocalConn(adapter.Key(), "peer"); cond == nil {
+		t.Fatal("bare-key creation lock absent")
+	}
+	closeAllLocalCoon(adapter.Key(), &lateNATSender{id: 9})
+	if _, err := local.WriteToUDP([]byte("local-still-open"), peer.LocalAddr().(*net.UDPAddr)); err != nil {
+		t.Fatal(err)
+	}
+	lateNATRead(t, peer, "local-still-open")
+	release()
+	lateNATRead(t, peer, "tproxy-bare-key")
+	lateGateWait(t, packet.dropped, "TPROXY forwarding complete")
 }

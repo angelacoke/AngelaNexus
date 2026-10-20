@@ -17,8 +17,8 @@ const workflow = yaml.load(read(".github/workflows/mihomo-android-native-build.y
   assert.match(provenance.run, /sha256sum "\$RUNNER_TEMP\/mihomo\/listener\/sing_tun\/server\.go"/);
 });
 
-// Exercise the real verification function with a complete seven-file pinned fixture.
-for (const mode of ["clean", "exact-server", "exact-statistics", "exact-late", "marker-server", "modified-tracker", "unknown-dirty", "wrong-commit"]) {
+// Exercise the real verification function with a complete nine-file pinned fixture.
+for (const mode of ["clean", "exact-server", "exact-statistics", "exact-late", "marker-server", "modified-tracker", "modified-nat", "modified-connection", "unknown-dirty", "wrong-commit"]) {
   test(`owned-fd source verification is fail-closed: ${mode}`, () => {
     const result = spawnSync("python3", ["-B", "-c", `
 import hashlib, importlib.util, json, pathlib, sys, tempfile
@@ -30,10 +30,10 @@ with tempfile.TemporaryDirectory() as tmp:
     pristine = {
       "go.mod": "github.com/metacubex/sing-tun v0.4.27\\n", "go.sum": "github.com/metacubex/sing-tun v0.4.27 h1:fixture\\n",
       "listener/sing_tun/server.go": "pristine server\\n", "listener/sing_tun/server_notwindows.go": "pristine notwindows\\n",
-      "tunnel/statistic/manager.go": "pristine manager\\n", "tunnel/statistic/tracker.go": "pristine tracker\\n", "tunnel/tunnel.go": "pristine tunnel\\n"}
+      "tunnel/statistic/manager.go": "pristine manager\\n", "tunnel/statistic/tracker.go": "pristine tracker\\n", "tunnel/tunnel.go": "pristine tunnel\\n", "component/nat/table.go": "pristine nat\\n", "tunnel/connection.go": "pristine connection\\n"}
     for rel, text in pristine.items():
         p = root / rel; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(text)
-    final = {"listener/sing_tun/server.go": "reviewed server\\n", "tunnel/statistic/manager.go": "reviewed manager\\n", "tunnel/statistic/tracker.go": "reviewed tracker\\n", "tunnel/tunnel.go": "reviewed tunnel\\n"}
+    final = {"listener/sing_tun/server.go": "reviewed server\\n", "tunnel/statistic/manager.go": "reviewed manager\\n", "tunnel/statistic/tracker.go": "reviewed tracker\\n", "tunnel/tunnel.go": "reviewed tunnel\\n", "component/nat/table.go": "reviewed nat\\n", "tunnel/connection.go": "reviewed connection\\n"}
     m.EXPECTED = {rel: m.sha256(root / rel) for rel in pristine}
     for rel, text in final.items():
         p = root / rel; p.write_text(text)
@@ -42,6 +42,8 @@ with tempfile.TemporaryDirectory() as tmp:
     m.PATCHED_LATE_MANAGER_SHA256 = m.PATCHED_STATISTICS_SHA256
     m.PATCHED_TRACKER_SHA256 = m.sha256(root / "tunnel/statistic/tracker.go")
     m.PATCHED_TUNNEL_SHA256 = m.sha256(root / "tunnel/tunnel.go")
+    m.PATCHED_NAT_TABLE_SHA256 = m.sha256(root / "component/nat/table.go")
+    m.PATCHED_CONNECTION_SHA256 = m.sha256(root / "tunnel/connection.go")
     for rel in final: (root / rel).write_text(pristine[rel])
     status = ""; commit = m.COMMIT
     if mode == "exact-server":
@@ -49,12 +51,16 @@ with tempfile.TemporaryDirectory() as tmp:
     elif mode == "exact-statistics":
         (root / "tunnel/statistic/manager.go").write_text(final["tunnel/statistic/manager.go"]); status = " M tunnel/statistic/manager.go\\n"
     elif mode == "exact-late":
-        for rel in ("tunnel/statistic/manager.go", "tunnel/statistic/tracker.go", "tunnel/tunnel.go"): (root / rel).write_text(final[rel])
-        status = " M tunnel/statistic/manager.go\\n M tunnel/statistic/tracker.go\\n M tunnel/tunnel.go\\n"
+        for rel in final: (root / rel).write_text(final[rel])
+        status = "".join(" M " + rel + "\\n" for rel in final)
     elif mode == "marker-server":
         (root / "listener/sing_tun/server.go").write_text("func NewWithOwnedFD() {}\\n"); status = " M listener/sing_tun/server.go\\n"
     elif mode == "modified-tracker":
         (root / "tunnel/statistic/tracker.go").write_text("modified tracker\\n"); status = " M tunnel/statistic/tracker.go\\n"
+    elif mode == "modified-nat":
+        (root / "component/nat/table.go").write_text("modified nat\\n"); status = " M component/nat/table.go\\n"
+    elif mode == "modified-connection":
+        (root / "tunnel/connection.go").write_text("modified connection\\n"); status = " M tunnel/connection.go\\n"
     elif mode == "unknown-dirty": status = "?? unreviewed.go\\n"
     elif mode == "wrong-commit": commit = "0" * 40
     def output(command, **kwargs):
@@ -73,9 +79,9 @@ with tempfile.TemporaryDirectory() as tmp:
   });
 }
 
-// Directly exercise the three-file late patch. Every rejected input/output/path
-// must leave all three upstream files byte-for-byte untouched.
-for (const mode of ["clean", "all-final", "late-patch-tampered", "manager-input-tampered", "tracker-input-tampered", "tunnel-input-tampered", "last-output-hash-error", "last-section-invalid", "path-traversal-section", "partial-final-mixed"]) {
+// Directly exercise the five-file late patch. Every rejected input/output/path
+// must leave all five upstream files byte-for-byte untouched.
+for (const mode of ["clean", "all-final", "late-patch-tampered", "manager-input-tampered", "tracker-input-tampered", "tunnel-input-tampered", "nat-input-tampered", "connection-input-tampered", "nat-output-hash-error", "last-output-hash-error", "last-section-invalid", "path-traversal-section", "partial-final-mixed"]) {
   test(`late patch application is exact and atomic: ${mode}`, () => {
     const result = spawnSync("python3", ["-B", "-c", `
 import difflib, hashlib, importlib.util, pathlib, sys, tempfile
@@ -83,9 +89,11 @@ spec = importlib.util.spec_from_file_location("adapter", sys.argv[1]); m = impor
 mode = sys.argv[2]
 with tempfile.TemporaryDirectory() as tmp:
     root = pathlib.Path(tmp); m.__file__ = str(root / "prepare-upstream.py")
-    rels = ["tunnel/statistic/manager.go", "tunnel/statistic/tracker.go", "tunnel/tunnel.go"]
+    rels = ["tunnel/statistic/manager.go", "tunnel/statistic/tracker.go", "tunnel/tunnel.go", "component/nat/table.go", "tunnel/connection.go"]
     pristine = {rels[0]: "package statistic\\n// pristine manager\\n", rels[1]: "package statistic\\n// pristine tracker\\n", rels[2]: "package tunnel\\n// pristine tunnel\\n"}
+    pristine.update({rels[3]: "package nat\\n// pristine NAT\\n", rels[4]: "package tunnel\\n// pristine connection\\n"})
     final = {rels[0]: "package statistic\\n// final manager\\n", rels[1]: "package statistic\\n// final tracker\\n", rels[2]: "package tunnel\\n// final tunnel\\n"}
+    final.update({rels[3]: "package nat\\n// final NAT\\n", rels[4]: "package tunnel\\n// final connection\\n"})
     for rel in rels:
         p = root / rel; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(pristine[rel])
     patch = root / "late-connections.patch"
@@ -99,6 +107,8 @@ with tempfile.TemporaryDirectory() as tmp:
     m.PATCHED_LATE_MANAGER_SHA256 = hashlib.sha256(final[rels[0]].encode()).hexdigest()
     m.PATCHED_TRACKER_SHA256 = hashlib.sha256(final[rels[1]].encode()).hexdigest()
     m.PATCHED_TUNNEL_SHA256 = hashlib.sha256(final[rels[2]].encode()).hexdigest()
+    m.PATCHED_NAT_TABLE_SHA256 = hashlib.sha256(final[rels[3]].encode()).hexdigest()
+    m.PATCHED_CONNECTION_SHA256 = hashlib.sha256(final[rels[4]].encode()).hexdigest()
     m.EXPECTED[rels[0]] = m.sha256(root / rels[0])
     # Generate manager section from the actual statistics output so patching is valid.
     sections[0] = "".join(difflib.unified_diff((root / rels[0]).read_text().splitlines(True), final[rels[0]].splitlines(True), fromfile=rels[0], tofile=rels[0]))
@@ -109,11 +119,14 @@ with tempfile.TemporaryDirectory() as tmp:
     elif mode == "manager-input-tampered": (root / rels[0]).write_text("wrong manager\\n")
     elif mode == "tracker-input-tampered": (root / rels[1]).write_text("wrong tracker\\n")
     elif mode == "tunnel-input-tampered": (root / rels[2]).write_text("wrong tunnel\\n")
-    elif mode == "last-output-hash-error": m.PATCHED_TUNNEL_SHA256 = "0" * 64
+    elif mode == "nat-input-tampered": (root / rels[3]).write_text("wrong nat\\n")
+    elif mode == "connection-input-tampered": (root / rels[4]).write_text("wrong connection\\n")
+    elif mode == "nat-output-hash-error": m.PATCHED_NAT_TABLE_SHA256 = "0" * 64
+    elif mode == "last-output-hash-error": m.PATCHED_CONNECTION_SHA256 = "0" * 64
     elif mode == "last-section-invalid":
-        sections[2] = "--- tunnel/tunnel.go\\n+++ tunnel/tunnel.go\\n@@ invalid\\nnot a patch\\n"; patch.write_text(sections[0] + sections[1] + sections[2]); m.LATE_CONNECTIONS_PATCH_SHA256 = m.sha256(patch)
+        sections[4] = "--- tunnel/connection.go\\n+++ tunnel/connection.go\\n@@ invalid\\nnot a patch\\n"; patch.write_text("".join(sections)); m.LATE_CONNECTIONS_PATCH_SHA256 = m.sha256(patch)
     elif mode == "path-traversal-section":
-        sections[2] = sections[2].replace("--- tunnel/tunnel.go\\n+++ tunnel/tunnel.go\\n", "--- ../escape.go\\n+++ ../escape.go\\n", 1); patch.write_text("".join(sections)); m.LATE_CONNECTIONS_PATCH_SHA256 = m.sha256(patch)
+        sections[4] = sections[4].replace("--- tunnel/connection.go\\n+++ tunnel/connection.go\\n", "--- ../escape.go\\n+++ ../escape.go\\n", 1); patch.write_text("".join(sections)); m.LATE_CONNECTIONS_PATCH_SHA256 = m.sha256(patch)
     elif mode == "partial-final-mixed":
         (root / rels[2]).write_text(final[rels[2]])
     before = {r: (root / r).read_bytes() for r in rels}

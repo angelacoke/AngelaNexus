@@ -167,6 +167,8 @@ jobs:
           LATE_CONNECTIONS_PATCH_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/late-connections.patch" | awk '{print $1}')"
           PATCHED_TRACKER_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/tunnel/statistic/tracker.go" | awk '{print $1}')"
           PATCHED_TUNNEL_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/tunnel/tunnel.go" | awk '{print $1}')"
+          PATCHED_NAT_TABLE_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/component/nat/table.go" | awk '{print $1}')"
+          PATCHED_CONNECTION_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/tunnel/connection.go" | awk '{print $1}')"
           GO_VERSION="$(go version | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
           NDK_BIN="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
           CC_PATH="$NDK_BIN/${{ matrix.cc }}"
@@ -192,7 +194,7 @@ jobs:
               "libraryEntry": {"path": "native/android/mihomo-bridge/library.go", "sha256": "$LIBRARY_ENTRY_SHA256"},
               "ownershipAdapter": {"path": "native/android/mihomo-bridge/prepare-upstream.py", "sha256": "$ADAPTER_SHA256", "patchedSource": {"path": "listener/sing_tun/server.go", "sha256": "$PATCHED_SERVER_SHA256"}},
               "statisticsPatch": {"path": "native/android/mihomo-bridge/statistics.patch", "sha256": "$STATISTICS_PATCH_SHA256", "patchedSource": {"path": "tunnel/statistic/manager.go", "sha256": "$PATCHED_LATE_MANAGER_SHA256"}},
-              "lateConnectionsPatch": {"path": "native/android/mihomo-bridge/late-connections.patch", "sha256": "$LATE_CONNECTIONS_PATCH_SHA256", "patchedSources": {"manager": {"path": "tunnel/statistic/manager.go", "sha256": "$PATCHED_LATE_MANAGER_SHA256"}, "tracker": {"path": "tunnel/statistic/tracker.go", "sha256": "$PATCHED_TRACKER_SHA256"}, "tunnel": {"path": "tunnel/tunnel.go", "sha256": "$PATCHED_TUNNEL_SHA256"}}},
+              "lateConnectionsPatch": {"path": "native/android/mihomo-bridge/late-connections.patch", "sha256": "$LATE_CONNECTIONS_PATCH_SHA256", "patchedSources": {"manager": {"path": "tunnel/statistic/manager.go", "sha256": "$PATCHED_LATE_MANAGER_SHA256"}, "tracker": {"path": "tunnel/statistic/tracker.go", "sha256": "$PATCHED_TRACKER_SHA256"}, "tunnel": {"path": "tunnel/tunnel.go", "sha256": "$PATCHED_TUNNEL_SHA256"}, "natTable": {"path": "component/nat/table.go", "sha256": "$PATCHED_NAT_TABLE_SHA256"}, "connection": {"path": "tunnel/connection.go", "sha256": "$PATCHED_CONNECTION_SHA256"}}},
               "artifact": {"name": "libclash-${{ matrix.abi }}.so", "sha256": "$ARTIFACT_SHA256"},
           }
           out.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")

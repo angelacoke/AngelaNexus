@@ -30,7 +30,7 @@ test("the source adapter alone applies the reviewed late patch before bridge sta
   const prepare = read("native/android/mihomo-bridge/prepare-upstream.py");
   assert.ok(prepare.indexOf("apply_statistics(root)\n    apply_late(root)") > 0);
   const provenance = steps.find(step => step.name === "Generate native build provenance evidence");
-  for (const path of ["late-connections.patch", "tunnel/statistic/manager.go", "tunnel/statistic/tracker.go", "tunnel/tunnel.go"]) {
+  for (const path of ["late-connections.patch", "tunnel/statistic/manager.go", "tunnel/statistic/tracker.go", "tunnel/tunnel.go", "component/nat/table.go", "tunnel/connection.go"]) {
     assert.ok(provenance.run.includes(path), `missing build evidence: ${path}`);
   }
   assert.match(provenance.run, /"lateConnectionsPatch"/);
@@ -73,6 +73,8 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
         manager: "tunnel/statistic/manager.go",
         tracker: "tunnel/statistic/tracker.go",
         tunnel: "tunnel/tunnel.go",
+        natTable: "component/nat/table.go",
+        connection: "tunnel/connection.go",
       };
       for (const [name, path] of Object.entries(sources)) put(join(root, "mihomo", path), `reviewed final ${name} output\n`);
       const run = step.run.replace(/\$\{\{ matrix\.(\w+) \}\}/g, (_, key) => matrix[key]);
@@ -89,7 +91,7 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
       assert.equal(evidence.artifact.sha256, hash(artifact));
       assert.equal(evidence.ownershipAdapter.patchedSource.sha256, hash(join(root, "mihomo", sources.server)));
       assert.equal(evidence.statisticsPatch.patchedSource.sha256, hash(join(root, "mihomo", sources.manager)));
-      for (const name of ["manager", "tracker", "tunnel"]) {
+      for (const name of ["manager", "tracker", "tunnel", "natTable", "connection"]) {
         assert.deepEqual(evidence.lateConnectionsPatch.patchedSources[name], { path: sources[name], sha256: hash(join(root, "mihomo", sources[name])) });
       }
       assert.equal(evidence.lateConnectionsPatch.sha256, hash(join(process.cwd(), "native/android/mihomo-bridge/late-connections.patch")));
@@ -115,4 +117,14 @@ test("real tracker Close preserves registration until success or closed-only err
     assert.ok(patch.includes(`+\terr := ${receiver}.${conn}.Close()`));
     assert.ok(patch.includes(`+\tif err == nil || registrationClosedOnly(err) {\n+\t\t${receiver}.manager.Leave(${receiver})`));
   }
+});
+
+test("UDP NAT keys are generation-scoped and cleanup is sender-owned", () => {
+  const patch = read("native/android/mihomo-bridge/late-connections.patch");
+  assert.match(patch, /key := packet\.Key\(\)/);
+  assert.match(patch, /if metadata\.Type == C\.TUN/);
+  assert.match(patch, /key = fmt\.Sprintf\("%d:%s", registrationEpoch, key\)/);
+  assert.match(patch, /natTable\.DeleteIf\(key, sender\)/);
+  assert.match(patch, /func \(t \*Table\) DetachLocalConnsIf\(key string, sender C\.PacketSender\) \\*\[\]\*net\.UDPConn/);
+  assert.match(patch, /closeAllLocalCoon\(key, sender\)/);
 });

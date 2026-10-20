@@ -27,6 +27,8 @@ PATCHED_STATISTICS_PATH = "tunnel/statistic/manager.go"
 LATE_CONNECTIONS_PATCH_PATH = "native/android/mihomo-bridge/late-connections.patch"
 PATCHED_TRACKER_PATH = "tunnel/statistic/tracker.go"
 PATCHED_TUNNEL_PATH = "tunnel/tunnel.go"
+PATCHED_NAT_TABLE_PATH = "component/nat/table.go"
+PATCHED_CONNECTION_PATH = "tunnel/connection.go"
 
 
 class VerificationError(Exception):
@@ -84,7 +86,7 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def adapter_values(repo: Path) -> tuple[str, str, str, str, str, str, str, str]:
+def adapter_values(repo: Path) -> tuple[str, ...]:
     """Read adapter provenance metadata without importing or executing it."""
     path = repo / ADAPTER_PATH
     try:
@@ -95,7 +97,7 @@ def adapter_values(repo: Path) -> tuple[str, str, str, str, str, str, str, str]:
         tree = ast.parse(text, filename=str(path))
     except (SyntaxError, ValueError) as exc:
         fail(f"invalid upstream adapter script {path}: {exc}")
-    wanted = {"PATCHED_SERVER_SHA256": [], "PATCHED_STATISTICS_SHA256": [], "STATISTICS_PATCH_SHA256": [], "LATE_CONNECTIONS_PATCH_SHA256": [], "PATCHED_LATE_MANAGER_SHA256": [], "PATCHED_TRACKER_SHA256": [], "PATCHED_TUNNEL_SHA256": []}
+    wanted = {"PATCHED_SERVER_SHA256": [], "PATCHED_STATISTICS_SHA256": [], "STATISTICS_PATCH_SHA256": [], "LATE_CONNECTIONS_PATCH_SHA256": [], "PATCHED_LATE_MANAGER_SHA256": [], "PATCHED_TRACKER_SHA256": [], "PATCHED_TUNNEL_SHA256": [], "PATCHED_NAT_TABLE_SHA256": [], "PATCHED_CONNECTION_SHA256": []}
     for node in tree.body:
         if isinstance(node, ast.Assign):
             targets = node.targets
@@ -117,7 +119,7 @@ def adapter_values(repo: Path) -> tuple[str, str, str, str, str, str, str, str]:
     for name, values in wanted.items():
         if len(values) != 1:
             fail(f"upstream adapter must define exactly one {name} constant")
-    return (sha256(path), wanted["PATCHED_SERVER_SHA256"][0], wanted["STATISTICS_PATCH_SHA256"][0], wanted["PATCHED_STATISTICS_SHA256"][0], wanted["LATE_CONNECTIONS_PATCH_SHA256"][0], wanted["PATCHED_LATE_MANAGER_SHA256"][0], wanted["PATCHED_TRACKER_SHA256"][0], wanted["PATCHED_TUNNEL_SHA256"][0])
+    return (sha256(path), wanted["PATCHED_SERVER_SHA256"][0], wanted["STATISTICS_PATCH_SHA256"][0], wanted["PATCHED_STATISTICS_SHA256"][0], wanted["LATE_CONNECTIONS_PATCH_SHA256"][0], wanted["PATCHED_LATE_MANAGER_SHA256"][0], wanted["PATCHED_TRACKER_SHA256"][0], wanted["PATCHED_TUNNEL_SHA256"][0], wanted["PATCHED_NAT_TABLE_SHA256"][0], wanted["PATCHED_CONNECTION_SHA256"][0])
 
 
 def manifest_values(repo: Path) -> tuple[str, str, dict[str, str]]:
@@ -153,7 +155,7 @@ def manifest_values(repo: Path) -> tuple[str, str, dict[str, str]]:
 
 def verify(artifacts_root: Path, repo: Path) -> None:
     version, commit, manifest_hashes = manifest_values(repo)
-    adapter_hash, patched_source_hash, statistics_patch_hash, patched_statistics_hash, late_patch_hash, late_manager_hash, tracker_hash, tunnel_hash = adapter_values(repo)
+    adapter_hash, patched_source_hash, statistics_patch_hash, patched_statistics_hash, late_patch_hash, late_manager_hash, tracker_hash, tunnel_hash, nat_table_hash, connection_hash = adapter_values(repo)
     actual_statistics_patch_hash = sha256(repo / STATISTICS_PATCH_PATH)
     actual_late_patch_hash = sha256(repo / LATE_CONNECTIONS_PATCH_PATH)
     if actual_late_patch_hash != late_patch_hash:
@@ -243,7 +245,7 @@ def verify(artifacts_root: Path, repo: Path) -> None:
         if require_hash(late, "sha256", f"provenance.lateConnectionsPatch {abi}") != late_patch_hash:
             fail(f"provenance {abi} late connections patch SHA-256 mismatch")
         sources = require_object(late, "patchedSources", f"provenance.lateConnectionsPatch {abi}")
-        for name, relative, expected in (("manager", PATCHED_STATISTICS_PATH, late_manager_hash), ("tracker", PATCHED_TRACKER_PATH, tracker_hash), ("tunnel", PATCHED_TUNNEL_PATH, tunnel_hash)):
+        for name, relative, expected in (("manager", PATCHED_STATISTICS_PATH, late_manager_hash), ("tracker", PATCHED_TRACKER_PATH, tracker_hash), ("tunnel", PATCHED_TUNNEL_PATH, tunnel_hash), ("natTable", PATCHED_NAT_TABLE_PATH, nat_table_hash), ("connection", PATCHED_CONNECTION_PATH, connection_hash)):
             evidence = require_object(sources, name, f"provenance.lateConnectionsPatch.patchedSources {abi}")
             if require(evidence, "path", f"provenance late source {name} {abi}") != relative:
                 fail(f"provenance {abi} lateConnectionsPatch {name} path mismatch")

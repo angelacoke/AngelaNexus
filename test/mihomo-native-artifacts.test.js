@@ -23,6 +23,8 @@ function fixture() {
   const patchedStatistics = Buffer.from("fixture patched statistics manager\n");
   const patchedTracker = Buffer.from("fixture patched tracker\n");
   const patchedTunnel = Buffer.from("fixture patched tunnel\n");
+  const patchedNatTable = Buffer.from("fixture patched NAT table\n");
+  const patchedConnection = Buffer.from("fixture patched connection\n");
   const lateConnectionsPatch = Buffer.from("fixture late connections patch\n");
   const sourceDir = join(root, "native/android/mihomo-bridge");
   mkdirSync(sourceDir, { recursive: true });
@@ -38,7 +40,7 @@ function fixture() {
   writeFileSync(join(sourceDir, "bridge.go"), bridge);
   writeFileSync(join(sourceDir, "lifecycle.go"), lifecycle);
   writeFileSync(join(sourceDir, "library.go"), libraryEntry);
-  const adapterSource = `PATCHED_SERVER_SHA256 = "${digest(patchedSource)}"\nPATCHED_STATISTICS_SHA256 = "${digest(patchedStatistics)}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${digest(patchedStatistics)}"\nPATCHED_TRACKER_SHA256 = "${digest(patchedTracker)}"\nPATCHED_TUNNEL_SHA256 = "${digest(patchedTunnel)}"\n`;
+  const adapterSource = `PATCHED_SERVER_SHA256 = "${digest(patchedSource)}"\nPATCHED_STATISTICS_SHA256 = "${digest(patchedStatistics)}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${digest(patchedStatistics)}"\nPATCHED_TRACKER_SHA256 = "${digest(patchedTracker)}"\nPATCHED_TUNNEL_SHA256 = "${digest(patchedTunnel)}"\nPATCHED_NAT_TABLE_SHA256 = "${digest(patchedNatTable)}"\nPATCHED_CONNECTION_SHA256 = "${digest(patchedConnection)}"\n`;
   writeFileSync(join(sourceDir, "prepare-upstream.py"), adapterSource);
   const adapterSha = digest(adapterSource);
   const records = {};
@@ -91,6 +93,8 @@ ${ABIS.map((abi) => ` val ${abi.replaceAll("-", "_")} = MihomoNativeLibrarySpec(
           manager: { path: "tunnel/statistic/manager.go", sha256: digest(patchedStatistics) },
           tracker: { path: "tunnel/statistic/tracker.go", sha256: digest(patchedTracker) },
           tunnel: { path: "tunnel/tunnel.go", sha256: digest(patchedTunnel) },
+          natTable: { path: "component/nat/table.go", sha256: digest(patchedNatTable) },
+          connection: { path: "tunnel/connection.go", sha256: digest(patchedConnection) },
         },
       },
       artifact: { name: artifact, sha256: records[abi].sha256 },
@@ -339,7 +343,7 @@ test("rejects late patch and each final source hash tampering", () => withFixtur
   let result = run(fx);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /late connections patch SHA-256 mismatch/);
-  const cases = [["manager", "manager.go"], ["tracker", "tracker.go"], ["tunnel", "tunnel.go"]];
+  const cases = [["manager", "manager.go"], ["tracker", "tracker.go"], ["tunnel", "tunnel.go"], ["natTable", "table.go"], ["connection", "connection.go"]];
   for (const [name, file] of cases) {
     const fresh = fixture();
     try {
@@ -382,3 +386,18 @@ test("packaging does not require an upstream source checkout in the app reposito
   const result = run(fx);
   assert.equal(result.status, 0, result.stderr);
 }));
+
+for (const name of ["natTable", "connection"]) {
+  test(`rejects old provenance missing ${name} output evidence`, () => withFixture((fx) => {
+    mutate(fx, "x86_64", (p) => { delete p.lateConnectionsPatch.patchedSources[name]; });
+    const result = run(fx);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, new RegExp(`missing required field '${name}'`));
+  }));
+  test(`rejects alternate ${name} output path`, () => withFixture((fx) => {
+    mutate(fx, "arm64-v8a", (p) => { p.lateConnectionsPatch.patchedSources[name].path = "wrong.go"; });
+    const result = run(fx);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, new RegExp(`lateConnectionsPatch ${name} path mismatch`));
+  }));
+}

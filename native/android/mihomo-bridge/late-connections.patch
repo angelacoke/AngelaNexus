@@ -267,7 +267,19 @@
  	if !isHandle(packet.Metadata().Type) {
  		packet.Drop()
  		return
-@@ -476,7 +477,10 @@
+@@ -438,6 +439,11 @@
+ 	}
+ 
+ 	key := packet.Key()
++	// TUN write-back does not use the local-address keyed TProxy socket map.
++	// Other inbound types must retain their existing bare-key contract.
++	if metadata.Type == C.TUN {
++		key = fmt.Sprintf("%d:%s", registrationEpoch, key)
++	}
+ 	sender, loaded := natTable.GetOrCreate(key, func() C.PacketSender {
+ 		sender := newPacketSender()
+ 		if sniffingEnable && snifferDispatcher.Enable() {
+@@ -476,7 +482,10 @@
  			}
  			logMetadata(metadata, rule, rawPc)
  
@@ -279,7 +291,16 @@
  
  			sender.AddMapping(originMetadata, dialMetadata)
  			oAddrPort := dialMetadata.AddrPort()
-@@ -500,6 +504,7 @@
+@@ -490,7 +499,7 @@
+ 			pc, proxy, err := dial()
+ 			if err != nil {
+ 				sender.Close()
+-				natTable.Delete(key)
++				natTable.DeleteIf(key, sender)
+ 				return
+ 			}
+ 			sender.Process(pc, proxy)
+@@ -500,6 +509,7 @@
  }
  
  func handleTCPConn(connCtx C.ConnContext) {
@@ -287,7 +308,7 @@
  	if !isHandle(connCtx.Metadata().Type) {
  		_ = connCtx.Conn().Close()
  		return
-@@ -569,13 +574,20 @@
+@@ -569,13 +579,20 @@
  	}
  
  	var peekBytes []byte
@@ -309,7 +330,7 @@
  			return
  		}
  
-@@ -599,7 +611,7 @@
+@@ -599,7 +616,7 @@
  			if err != nil {
  				return
  			}
@@ -318,7 +339,7 @@
  				_, _ = conn.Discard(peekLen)
  			}
  		}
-@@ -612,7 +624,6 @@
+@@ -612,7 +629,6 @@
  	}
  	logMetadata(metadata, rule, remoteConn)
  
@@ -326,3 +347,82 @@
  	defer func(remoteConn C.Conn) {
  		_ = remoteConn.Close()
  	}(remoteConn)
+--- component/nat/table.go
++++ component/nat/table.go
+@@ -29,6 +29,41 @@
+ 
+ func (t *Table) Delete(key string) {
+ 	t.mapping.Delete(key)
++}
++
++// detachIf compares ownership and removes a single key under the same bucket
++// lock. Only the detached entry can be cleaned, never a later replacement.
++func (t *Table) detachIf(key string, sender C.PacketSender) *entry {
++	var detached *entry
++	t.mapping.Compute(key, func(current *entry, loaded bool) (*entry, xsync.ComputeOp) {
++		if loaded && current.PacketSender == sender {
++			detached = current
++			return nil, xsync.DeleteOp
++		}
++		return current, xsync.CancelOp
++	})
++	return detached
++}
++
++// DeleteIf removes key only when it still belongs to sender.
++func (t *Table) DeleteIf(key string, sender C.PacketSender) bool {
++	return t.detachIf(key, sender) != nil
++}
++
++// DetachLocalConnsIf removes only the sender-owned entry, then snapshots its
++// local sockets outside the table lock. Callers close only those sockets.
++// This does not join local-connection creators already holding that entry.
++func (t *Table) DetachLocalConnsIf(key string, sender C.PacketSender) []*net.UDPConn {
++	item := t.detachIf(key, sender)
++	if item == nil {
++		return nil
++	}
++	var conns []*net.UDPConn
++	item.LocalUDPConnMap.Range(func(remote string, conn *net.UDPConn) bool {
++		conns = append(conns, conn)
++		return true
++	})
++	return conns
+ }
+ 
+ func (t *Table) GetForLocalConn(lAddr, rAddr string) *net.UDPConn {
+--- tunnel/connection.go
++++ tunnel/connection.go
+@@ -169,8 +169,7 @@
+ 	defer func() {
+ 		sender.Close()
+ 		_ = pc.Close()
+-		closeAllLocalCoon(key)
+-		natTable.Delete(key)
++		closeAllLocalCoon(key, sender)
+ 	}()
+ 
+ 	for {
+@@ -207,16 +206,12 @@
+ 	}
+ }
+ 
+-func closeAllLocalCoon(lAddr string) {
+-	natTable.RangeForLocalConn(lAddr, func(key string, value *net.UDPConn) bool {
+-		conn := value
+-
+-		conn.Close()
+-		log.Debugln("Closing TProxy local conn... lAddr=%s rAddr=%s", lAddr, key)
+-		return true
+-	})
+-}
+-
++func closeAllLocalCoon(lAddr string, sender C.PacketSender) {
++	for _, conn := range natTable.DetachLocalConnsIf(lAddr, sender) {
++		_ = conn.Close()
++		log.Debugln("Closing TProxy local conn... lAddr=%s", lAddr)
++	}
++}
+ func handleSocket(inbound, outbound net.Conn) {
+ 	N.Relay(inbound, outbound)
+ }
