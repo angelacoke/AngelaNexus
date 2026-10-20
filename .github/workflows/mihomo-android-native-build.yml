@@ -37,6 +37,12 @@ jobs:
         with:
           go-version: "1.24.8"
 
+      - name: Test Android lifecycle ownership and dial admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -race -v native/android/mihomo-bridge/lifecycle.go native/android/mihomo-bridge/lifecycle_test.go
+
       - name: Install Android NDK
         shell: bash
         env:
@@ -64,10 +70,11 @@ jobs:
         run: |
           set -euo pipefail
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge.go" ./angelanexus_android_bridge.go
+          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/lifecycle.go" ./angelanexus_android_lifecycle.go
           grep -q "func startTUN" ./angelanexus_android_bridge.go
           grep -q "angelanexusProtectFd" ./angelanexus_android_bridge.go
-          gofmt -w ./angelanexus_android_bridge.go
-          test -z "$(gofmt -d ./angelanexus_android_bridge.go)"
+          gofmt -w ./angelanexus_android_bridge.go ./angelanexus_android_lifecycle.go
+          test -z "$(gofmt -d ./angelanexus_android_bridge.go ./angelanexus_android_lifecycle.go)"
 
       - name: Build native shared object
         shell: bash
@@ -101,7 +108,10 @@ jobs:
           test -s "$RUNNER_TEMP/libclash-${{ matrix.abi }}.so"
           file "$RUNNER_TEMP/libclash-${{ matrix.abi }}.so"
           sha256sum "$RUNNER_TEMP/libclash-${{ matrix.abi }}.so"
-          nm -D --defined-only "$RUNNER_TEMP/libclash-${{ matrix.abi }}.so" | grep -E "angelaInit|angelaApplyConfig|startTUN|stopTun|suspend|forceGC|getTraffic|getTotalTraffic|freeCString"
+          nm -D --defined-only "$RUNNER_TEMP/libclash-${{ matrix.abi }}.so" > "$RUNNER_TEMP/mihomo-symbols.txt"
+          for symbol in angelaInit angelaApplyConfig startTUN angelaStopTun stopTun suspend forceGC getTraffic getTotalTraffic freeCString; do
+            grep -Eq "[[:space:]]${symbol}$" "$RUNNER_TEMP/mihomo-symbols.txt"
+          done
 
       - name: Generate native build provenance evidence
         shell: bash
@@ -115,6 +125,7 @@ jobs:
           ARTIFACT="$RUNNER_TEMP/libclash-${{ matrix.abi }}.so"
           ARTIFACT_SHA256="$(sha256sum "$ARTIFACT" | awk '{print $1}')"
           BRIDGE_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge.go" | awk '{print $1}')"
+          LIFECYCLE_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/lifecycle.go" | awk '{print $1}')"
           GO_VERSION="$(go version | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
           NDK_BIN="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
           CC_PATH="$NDK_BIN/${{ matrix.cc }}"
@@ -136,6 +147,7 @@ jobs:
               "toolchain": {"go": "$GO_VERSION", "androidNdk": "$NDK_VERSION", "compiler": "$COMPILER_VERSION", "goos": "android", "goarch": "${{ matrix.goarch }}", "goarm": "7" if "${{ matrix.goarch }}" == "arm" else None, "cgoEnabled": True},
               "build": {"trimpath": True, "buildmode": "c-shared", "tags": ["with_gvisor", "cmfa"], "versionLdflag": "github.com/metacubex/mihomo/constant.Version=v1.19.32"},
               "bridge": {"path": "native/android/mihomo-bridge/bridge.go", "sha256": "$BRIDGE_SHA256"},
+              "lifecycle": {"path": "native/android/mihomo-bridge/lifecycle.go", "sha256": "$LIFECYCLE_SHA256"},
               "artifact": {"name": "libclash-${{ matrix.abi }}.so", "sha256": "$ARTIFACT_SHA256"},
           }
           out.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")

@@ -141,13 +141,21 @@ Java_app_angelanexus_MihomoJniNativeHost_nativeStartTun(
 
 extern "C" JNIEXPORT void JNICALL
 Java_app_angelanexus_MihomoJniNativeHost_nativeStopTun(JNIEnv* env, jobject) {
-    using StopTun = void (*)();
-    const auto stop = resolve<StopTun>("stopTun");
-    if (stop == nullptr) {
-        throwState(env, "Mihomo stopTun export is unavailable");
+    using StopTun = char* (*)();
+    const auto stop = resolve<StopTun>("angelaStopTun");
+    const auto freeCString = resolve<void (*)(char*)>("freeCString");
+    if (stop == nullptr || freeCString == nullptr) {
+        throwState(env, "Mihomo angelaStopTun export is unavailable");
         return;
     }
-    stop();
+    char* error = stop();
+    if (error != nullptr && *error != '\0') {
+        const jstring message = makeString(env, error);
+        const char* chars = env->GetStringUTFChars(message, nullptr);
+        throwState(env, chars);
+        env->ReleaseStringUTFChars(message, chars);
+    }
+    freeCString(error);
 }
 
 extern "C" JNIEXPORT void JNICALL
