@@ -858,3 +858,106 @@ func TestAndroidBridgeCompletedStopRejectsStaleConfigurationGeneration(t *testin
 		})
 	}
 }
+
+// A pending stop must reject the actual export without waiting for a parser's
+// control lock. Rejection must not touch listener or tracker ownership.
+func TestAndroidBridgePendingStopRejectsStartBeforeControlLock(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	listener := &bridgeTestListener{}
+	androidRuntime.listener = listener
+	androidRuntime.protected.Store(true)
+	androidRuntime.beginStop()
+	androidTunMu.Lock()
+	locked := true
+	done := make(chan bool, 1)
+	completed := false
+	defer func() {
+		if locked {
+			androidTunMu.Unlock()
+		}
+		if !completed {
+			<-done
+		}
+		androidRuntime.endStop()
+		_ = stopTunError()
+	}()
+	go func() { done <- startTUN(-1, nil, nil, nil) != 0 }()
+	select {
+	case accepted := <-done:
+		completed = true
+		if accepted {
+			t.Fatal("start accepted during pending stop")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("start waited for control lock despite pending stop")
+	}
+	if listener.closes != 0 || androidRuntime.listener != listener {
+		t.Fatal("rejected start changed cleanup ownership")
+	}
+	androidTunMu.Unlock()
+	locked = false
+}
+
+// Explicit tokens model a start paused before lock acquisition. A newer runtime
+// can already own resources when this stale request eventually gets the lock.
+// No real Android TUN is constructed: even an invalid fresh replacement normally
+// performs old-resource cleanup, making stale-start rejection observable here.
+func TestAndroidBridgeCompletedStopRejectsStaleStartBeforeCleanup(t *testing.T) {
+	for _, closeFails := range []bool{false, true} {
+		t.Run(fmt.Sprintf("closeFails=%t", closeFails), func(t *testing.T) {
+			androidRuntime = androidTunLifecycle{}
+			generation := androidRuntime.stopGeneration.Load()
+			if err := stopTunError(); err != nil {
+				t.Fatal(err)
+			}
+			listener := &bridgeTestListener{}
+			if closeFails {
+				listener.err = errors.New("newer listener must not be closed by stale start")
+			}
+			androidRuntime.listener = listener
+			androidRuntime.protected.Store(true)
+			androidRuntime.setSuspended(true)
+			tunnel.OnSuspend()
+			local, peer := net.Pipe()
+			defer local.Close()
+			defer peer.Close()
+			direct := outbound.NewDirectWithOption(outbound.DirectOption{Name: "stale-start-test"})
+			tracked := &bridgeRetryConn{Conn: outbound.NewConn(local, direct)}
+			tracker := statistic.NewTCPTracker(tracked, statistic.DefaultManager, &constant.Metadata{}, nil, 0, 0, true)
+			defer tracker.Close()
+			defer func() { listener.err = nil; _ = stopTunError() }()
+			var fds [2]int
+			if err := syscall.Pipe(fds[:]); err != nil {
+				t.Fatal(err)
+			}
+			defer syscall.Close(fds[0])
+			defer syscall.Close(fds[1])
+			epoch := androidRuntime.epoch.Load()
+			if startAndroidTUNAtGeneration(fds[0], "system", "invalid-prefix", "", generation) {
+				t.Fatal("stale start accepted after completed stop")
+			}
+			if listener.closes != 0 || androidRuntime.listener != listener || tracked.closes != 0 || statistic.DefaultManager.Get(tracker.ID()) != tracker {
+				t.Fatal("stale start closed or discarded newer resources")
+			}
+			if !androidRuntime.protected.Load() || !androidRuntime.suspended.Load() || androidRuntime.epoch.Load() != epoch || tunnel.Status() != tunnel.Suspend {
+				t.Fatal("stale start changed newer admission or pause state")
+			}
+			if _, err := syscall.Write(fds[1], []byte{42}); err != nil {
+				t.Fatal(err)
+			}
+			var data [1]byte
+			if n, err := syscall.Read(fds[0], data[:]); err != nil || n != 1 || data[0] != 42 {
+				t.Fatalf("stale start consumed caller descriptor: n=%d err=%v", n, err)
+			}
+			// A new request at the current generation must reach replacement
+			// cleanup, even though its deliberately invalid fd cannot attach.
+			listener.err = nil
+			if startAndroidTUNAtGeneration(-1, "", "", "", androidRuntime.stopGeneration.Load()) {
+				t.Fatal("invalid fresh start accepted")
+			}
+			if listener.closes != 1 || androidRuntime.listener != nil || tracked.closes != 1 || androidRuntime.protected.Load() {
+				t.Fatal("fresh start was rejected before normal replacement cleanup")
+			}
+		})
+	}
+}

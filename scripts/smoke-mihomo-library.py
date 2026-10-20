@@ -76,15 +76,20 @@ def main() -> None:
                     call("angelaInit", home.encode())
                 elif worker == 3:
                     call("angelaStopTun")
-                else:
+                elif worker == 4:
                     resume(1)
                     resume(0)
+                else:
+                    if library.startTUN(-1, b"system", b"", b"") != 0:
+                        raise AssertionError("concurrent invalid TUN start was accepted")
 
-        with ThreadPoolExecutor(max_workers=5) as workers:
-            list(workers.map(concurrent_calls, range(5)))
+        with ThreadPoolExecutor(max_workers=6) as workers:
+            list(workers.map(concurrent_calls, range(6)))
         # Only concurrent requests may be superseded; fresh retries must succeed.
         call("angelaApplyConfig", config)
         call("updateDns", b"127.0.0.1")
+        if library.startTUN(-1, b"system", b"", b"") != 0:
+            raise AssertionError("fresh invalid TUN start was accepted")
         call("angelaStopTun")
     print("Host c-shared load/exports/config/invalid-start/repeated-stop smoke passed", flush=True)
 

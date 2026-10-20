@@ -225,21 +225,39 @@ func updateAndroidDNSAtGeneration(dns string, generation uint64) error {
 
 //export startTUN
 func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
+	generation := androidRuntime.stopGeneration.Load()
+	if err := androidRuntime.checkConfigurationGeneration(generation); err != nil {
+		return 0
+	}
+	if startAndroidTUNAtGeneration(int(fd), cString(stack), cString(address), cString(dns), generation) {
+		return 1
+	}
+	return 0
+}
+
+// Keep the request token across the control-lock wait, just like config/DNS.
+// Rejection retains the caller's descriptor and does not clean up a newer TUN.
+func startAndroidTUNAtGeneration(fd int, stack, address, dns string, generation uint64) bool {
 	androidTunMu.Lock()
 	defer androidTunMu.Unlock()
+	// Reject before touching current ownership: a newer start may have won
+	// the control lock after the superseding stop completed.
+	if err := androidRuntime.checkConfigurationGeneration(generation); err != nil {
+		return false
+	}
 
 	tunnel.OnSuspend()
 	if err := closeAndroidResources(); err != nil {
 		// Keep failed cleanup ownership and the caller's descriptor on failure.
-		return 0
+		return false
 	}
 	if fd < 0 || androidRuntime.pendingStops.Load() != 0 {
-		return 0
+		return false
 	}
 
 	var prefix4 []netip.Prefix
 	var prefix6 []netip.Prefix
-	for _, value := range strings.Split(cString(address), ",") {
+	for _, value := range strings.Split(address, ",") {
 		value = strings.TrimSpace(value)
 		if value == "" {
 			continue
@@ -247,7 +265,7 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
 		prefix, ok := parsePrefix(value)
 		if !ok {
 			// The caller retains ownership until this function succeeds.
-			return 0
+			return false
 		}
 		if prefix.Addr().Is4() {
 			prefix4 = append(prefix4, prefix)
@@ -256,21 +274,21 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
 		}
 	}
 
-	dnsHijack, err := parseDNS(cString(dns))
+	dnsHijack, err := parseDNS(dns)
 	if err != nil {
 		// The caller retains ownership until this function succeeds.
-		return 0
+		return false
 	}
 
-	dupFd, err := syscall.Dup(int(fd))
+	dupFd, err := syscall.Dup(fd)
 	if err != nil {
 		// The caller retains ownership until this function succeeds.
-		return 0
+		return false
 	}
 
 	options := LC.Tun{
 		Enable:              true,
-		Stack:               tunStackValue(cString(stack)),
+		Stack:               tunStackValue(stack),
 		Device:              "AngelaNexus",
 		DNSHijack:           dnsHijack,
 		AutoRoute:           false,
@@ -284,13 +302,13 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
 	listener, err := sing_tun.New(options, tunnel.Tunnel)
 	if err != nil {
 		_ = syscall.Close(dupFd)
-		return 0
+		return false
 	}
 
 	// The listener owns the duplicated descriptor. The caller's descriptor
 	// is released only after successful construction so failure remains
 	// unambiguous at the JNI/service boundary.
-	_ = syscall.Close(int(fd))
+	_ = syscall.Close(fd)
 	androidRuntime.listener = listener
 	// A newly attached runtime starts unpaused; failed starts never clear pause.
 	androidRuntime.setSuspended(false)
@@ -300,7 +318,7 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
 	if androidRuntime.ready() {
 		tunnel.OnRunning()
 	}
-	return 1
+	return true
 }
 
 // Caller holds androidTunMu and suspends tunnel admission. A snapshot closes

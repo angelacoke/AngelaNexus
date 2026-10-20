@@ -185,8 +185,26 @@ test("Mihomo foreign-thread smoke only allows the exact stop rejection during co
   assert.equal((smoke.match(/allow_stopped=True/g) ?? []).length, 2);
   const concurrent = smoke.split("def concurrent_calls(worker):")[1].split("with ThreadPoolExecutor")[0];
   assert.equal((concurrent.match(/allow_stopped=True/g) ?? []).length, 2);
-  const after = smoke.split("list(workers.map(concurrent_calls, range(5)))")[1];
+  assert.match(concurrent, /library\.startTUN\(-1, b"system", b"", b""\) != 0/);
+  assert.match(smoke, /ThreadPoolExecutor\(max_workers=6\)/);
+  const after = smoke.split("list(workers.map(concurrent_calls, range(6)))")[1];
   assert.match(after, /call\("angelaApplyConfig", config\)/);
   assert.match(after, /call\("updateDns", b"127\.0\.0\.1"\)/);
   assert.doesNotMatch(after, /allow_stopped=True/);
+});
+
+test("Mihomo TUN start retains its stop generation and rejects before touching newer ownership", () => {
+  const bridge = read("native/android/mihomo-bridge/bridge.go");
+  const start = bridge.split("func startTUN(")[1].split("func startAndroidTUNAtGeneration(")[0];
+  assert.ok(start.indexOf("generation := androidRuntime.stopGeneration.Load()") < start.indexOf("startAndroidTUNAtGeneration("));
+  assert.ok(start.indexOf("androidRuntime.checkConfigurationGeneration(generation)") < start.indexOf("cString(stack)"));
+  assert.match(start, /startAndroidTUNAtGeneration\(int\(fd\), cString\(stack\), cString\(address\), cString\(dns\), generation\)/);
+  const body = bridge.split("func startAndroidTUNAtGeneration(")[1].split("func closeAndroidResources()")[0];
+  const lock = body.indexOf("androidTunMu.Lock()");
+  const check = body.indexOf("androidRuntime.checkConfigurationGeneration(generation)");
+  assert.ok(lock >= 0 && check > lock);
+  for (const mutation of ["tunnel.OnSuspend()", "closeAndroidResources()", "syscall.Dup(fd)", "syscall.Close(fd)", "androidRuntime.listener = listener"]) {
+    assert.ok(check < body.indexOf(mutation), mutation);
+  }
+  assert.match(body, /defer androidTunMu\.Unlock\(\)/);
 });
