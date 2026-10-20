@@ -522,7 +522,55 @@
  func (t *Table) GetForLocalConn(lAddr, rAddr string) *net.UDPConn {
 --- tunnel/connection.go
 +++ tunnel/connection.go
-@@ -169,8 +169,7 @@
+@@ -17,6 +17,8 @@
+ 	ctx    context.Context
+ 	cancel context.CancelFunc
+ 	ch     chan C.PacketAdapter
++	// Serialize queue admission with cancellation; Drop callbacks run unlocked.
++	queueMu sync.Mutex
+ 
+ 	// destination NAT mapping
+ 	originToTarget map[string]netip.Addr
+@@ -127,25 +129,32 @@
+ }
+ 
+ func (s *packetSender) Send(packet C.PacketAdapter) {
++	// A context select alone can enqueue after Close has drained the queue:
++	// when canceled and writable are both ready, select chooses randomly.
++	s.queueMu.Lock()
+ 	select {
+ 	case <-s.ctx.Done():
+-		packet.Drop() // sender closed before Send()
++		s.queueMu.Unlock()
++		packet.Drop()
+ 		return
+ 	default:
+ 	}
+-
+ 	select {
+ 	case s.ch <- packet:
+-		// put ok, so don't drop packet, will process by other side of chan
+-	case <-s.ctx.Done():
+-		packet.Drop() // sender closed when putting data to chan
++		s.queueMu.Unlock()
++		return
+ 	default:
+-		packet.Drop() // chan is full
++		s.queueMu.Unlock()
++		packet.Drop()
+ 	}
+ }
+ 
+ func (s *packetSender) Close() {
++	// After cancellation commits under queueMu no Send can enqueue again.
++	// Never hold this lock while dropping packets: callbacks may re-enter.
++	s.queueMu.Lock()
+ 	s.cancel()
++	s.queueMu.Unlock()
+ 	s.dropAll()
+ }
+ 
+@@ -169,8 +178,7 @@
  	defer func() {
  		sender.Close()
  		_ = pc.Close()
@@ -532,7 +580,7 @@
  	}()
  
  	for {
-@@ -207,16 +206,12 @@
+@@ -207,16 +215,12 @@
  	}
  }
  

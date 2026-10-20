@@ -763,3 +763,112 @@ func lateGateWaitSetups(t *testing.T) {
 		t.Fatalf("actual setup did not drain: %v", err)
 	}
 }
+
+// Queue ownership is independent of setup admission: an old sender must not
+// retain a packet after Close, even if Send was already racing with that close.
+type lateQueuePacket struct {
+	C.PacketAdapter
+	drops  atomic.Int32
+	onDrop func()
+}
+
+func (p *lateQueuePacket) Drop() {
+	p.drops.Add(1)
+	if p.onDrop != nil {
+		p.onDrop()
+	}
+}
+
+func TestAngelaNexusLateTunnelSenderQueueCloseRace(t *testing.T) {
+	for round := 0; round < 512; round++ {
+		s := newPacketSender().(*packetSender)
+		const count = 64
+		packets := make([]lateQueuePacket, count)
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for i := range packets {
+			wg.Add(1)
+			go func(p *lateQueuePacket) {
+				defer wg.Done()
+				<-start
+				s.Send(p)
+			}(&packets[i])
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			s.Close()
+		}()
+		close(start)
+		wg.Wait()
+		// Do not close again before checking: a second drain masks the leak.
+		if n := len(s.ch); n != 0 {
+			s.Close()
+			t.Fatalf("round %d: closed sender retained %d queued packets", round, n)
+		}
+		for i := range packets {
+			if got := packets[i].drops.Load(); got != 1 {
+				t.Fatalf("round %d packet %d: Drop calls = %d, want 1", round, i, got)
+			}
+		}
+	}
+}
+
+func TestAngelaNexusLateTunnelSenderDropCanReenter(t *testing.T) {
+	for _, mode := range []string{"queue-drain", "queue-full", "already-closed"} {
+		t.Run(mode, func(t *testing.T) {
+			s := newPacketSender().(*packetSender)
+			nested := &lateQueuePacket{}
+			outer := &lateQueuePacket{onDrop: func() {
+				s.Close()
+				s.Send(nested)
+			}}
+			if mode == "queue-drain" {
+				s.Send(outer)
+			} else if mode == "queue-full" {
+				for i := 0; i < cap(s.ch); i++ {
+					s.Send(&lateQueuePacket{})
+				}
+			} else {
+				s.Close()
+			}
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				if mode == "queue-drain" {
+					s.Close()
+				} else {
+					s.Send(outer)
+				}
+			}()
+			lateGateWait(t, done, "reentrant packet Drop outside queue mutex")
+			if outer.drops.Load() != 1 || nested.drops.Load() != 1 || len(s.ch) != 0 {
+				t.Fatalf("packet ownership lost: outer=%d nested=%d queued=%d", outer.drops.Load(), nested.drops.Load(), len(s.ch))
+			}
+			s.Close()
+		})
+	}
+}
+
+func TestAngelaNexusLateTunnelSenderConcurrentClosesDropOnce(t *testing.T) {
+	s := newPacketSender().(*packetSender)
+	packets := make([]lateQueuePacket, cap(s.ch))
+	for i := range packets {
+		s.Send(&packets[i])
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); s.Close() }()
+	}
+	wg.Wait()
+	for i := range packets {
+		if got := packets[i].drops.Load(); got != 1 {
+			t.Fatalf("packet %d: concurrent Close dropped %d times", i, got)
+		}
+	}
+	if len(s.ch) != 0 {
+		t.Fatal("concurrent Close left queued packets")
+	}
+}

@@ -172,3 +172,25 @@ test("ordinary setup drain has explicit acquisition and release without joining 
   assert.match(patch, /sync\.Once/);
   assert.match(patch, /ctx\.Done\(\)/);
 });
+
+test("UDP queue admission is serialized with close and drops packets outside its lock", () => {
+  const patch = read("native/android/mihomo-bridge/late-connections.patch");
+  const sender = patch.slice(patch.indexOf("--- tunnel/connection.go"));
+  const additions = sender.split("\n").filter(line => (line.startsWith("+") && !line.startsWith("+++")) || line.startsWith(" ")).map(line => line.slice(1)).join("\n");
+  assert.match(additions, /queueMu sync\.Mutex/);
+  assert.match(additions, /s\.queueMu\.Lock\(\)/);
+  assert.match(additions, /s\.queueMu\.Unlock\(\)\n\s*packet\.Drop\(\)/);
+  assert.doesNotMatch(additions, /packet\.Drop\(\)\n\s*s\.queueMu\.Unlock\(\)/);
+  assert.match(additions, /s\.queueMu\.Lock\(\)\n\s*s\.cancel\(\)\n\s*s\.queueMu\.Unlock\(\)/);
+});
+
+test("UDP queue race and reentrant Drop regressions stay in the real tunnel CI group", () => {
+  const source = read("native/android/mihomo-bridge/late_tunnel_integration_test.go");
+  for (const name of ["QueueCloseRace", "DropCanReenter", "ConcurrentClosesDropOnce"]) {
+    assert.ok(source.includes(`func TestAngelaNexusLateTunnelSender${name}(`));
+  }
+  assert.match(source, /Do not close again before checking/);
+  assert.match(source, /drops\.Load\(\)/);
+  assert.match(source, /queue-full/);
+  assert.match(source, /already-closed/);
+});
