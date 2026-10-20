@@ -139,3 +139,18 @@ test("Mihomo suspension state is wired before tunnel transitions and readiness",
   const ready = lifecycle.split("func (l *androidTunLifecycle) ready()")[1].split("func (l *androidTunLifecycle) beginStop")[0];
   assert.match(ready, /!l\.suspended\.Load\(\)/);
 });
+
+test("Mihomo pause gates hooks before waiting for serialized control work", () => {
+  const bridge = read("native/android/mihomo-bridge/bridge.go");
+  const pause = bridge.split("func suspend(")[1].split("//export forceGC")[0];
+  assert.match(pause, /if suspended != 0 \{[\s\S]*androidRuntime\.beginSuspend\(\)/);
+  assert.ok(pause.indexOf("androidRuntime.beginSuspend()") < pause.indexOf("androidTunMu.Lock()"));
+  assert.match(pause, /defer androidRuntime\.endSuspend\(\)/);
+  // Defers run in reverse order: retire the request before releasing control.
+  assert.ok(pause.indexOf("defer androidTunMu.Unlock()") < pause.indexOf("defer androidRuntime.endSuspend()"));
+  const lifecycle = read("native/android/mihomo-bridge/lifecycle.go");
+  const ready = lifecycle.split("func (l *androidTunLifecycle) ready()")[1].split("func (l *androidTunLifecycle) beginSuspend")[0];
+  assert.match(ready, /l\.pendingSuspends\.Load\(\) == 0/);
+  const begin = lifecycle.split("func (l *androidTunLifecycle) beginSuspend()")[1].split("func (l *androidTunLifecycle) endSuspend")[0];
+  assert.ok(begin.indexOf("l.pendingSuspends.Add(1)") < begin.indexOf("l.setSuspended(true)"));
+});

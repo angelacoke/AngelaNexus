@@ -25,7 +25,10 @@ type androidTunLifecycle struct {
 	// Stop announces itself before waiting for the control mutex. Count requests
 	// so one completed stop cannot reopen admission while another is queued.
 	pendingStops atomic.Int64
-	admission    sync.RWMutex
+	// A pause also announces itself before waiting for parsing/configuration.
+	// A concurrent resume/start cannot bypass pauses still waiting for that lock.
+	pendingSuspends atomic.Int64
+	admission       sync.RWMutex
 	// Invalidates callbacks which sampled admission before a transition but did
 	// not acquire the read lock until after a later configuration/start reopened it.
 	epoch atomic.Uint64
@@ -70,12 +73,26 @@ func (l *androidTunLifecycle) socketHookAtEpoch(epoch uint64, conn syscall.RawCo
 }
 
 func (l *androidTunLifecycle) ready() bool {
-	return l.protected.Load() && !l.suspended.Load() && l.pendingStops.Load() == 0
+	return l.protected.Load() && !l.suspended.Load() && l.pendingStops.Load() == 0 && l.pendingSuspends.Load() == 0
 }
 
-// Callers serialize explicit pause/resume and start with androidTunMu. Pause
-// closes admission before draining callbacks and invalidates stale entries;
-// resume changes only the pause flag, never protection/cleanup ownership.
+// Gate and drain before waiting for the control mutex. The caller must assert
+// the final paused state again under that mutex before endSuspend: a resume
+// already holding it may clear suspended, but cannot bypass pendingSuspends.
+// This barrier does not cancel a parser or wait for a completed socket's dial.
+func (l *androidTunLifecycle) beginSuspend() {
+	l.pendingSuspends.Add(1)
+	l.setSuspended(true)
+}
+
+func (l *androidTunLifecycle) endSuspend() {
+	l.pendingSuspends.Add(-1)
+}
+
+// Final pause/resume and start state is serialized with androidTunMu; an early
+// pause announcement can concurrently set the flag, guarded by pendingSuspends.
+// Pause drains callbacks and invalidates stale entries; resume changes only the
+// pause flag, never protection/cleanup ownership.
 // Stop may concurrently announce itself and is still authoritative in ready().
 func (l *androidTunLifecycle) setSuspended(suspended bool) {
 	if suspended {

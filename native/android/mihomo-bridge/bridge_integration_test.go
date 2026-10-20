@@ -679,3 +679,75 @@ func TestAndroidBridgePausedFailedReplacementDoesNotResume(t *testing.T) {
 		t.Fatal("resume after failed replacement invented readiness")
 	}
 }
+
+func TestAndroidBridgeQueuedSuspendBlocksBeforeControlLock(t *testing.T) {
+	for _, pauses := range []int{1, 2} {
+		t.Run(fmt.Sprintf("pauses=%d", pauses), func(t *testing.T) {
+			androidRuntime = androidTunLifecycle{}
+			androidRuntime.protected.Store(true)
+			tunnel.OnRunning()
+			oldEpoch := androidRuntime.epoch.Load()
+			listener := &bridgeTestListener{}
+			androidRuntime.listener = listener
+			androidTunMu.Lock()
+			locked := true
+			done := make(chan struct{}, pauses)
+			completed := 0
+			defer func() {
+				if locked {
+					androidTunMu.Unlock()
+				}
+				for completed < pauses {
+					<-done
+					completed++
+				}
+				_ = stopTunError()
+			}()
+			for i := 0; i < pauses; i++ {
+				go func() { suspend(1); done <- struct{}{} }()
+			}
+			deadline := time.Now().Add(5 * time.Second)
+			for androidRuntime.pendingSuspends.Load() != int64(pauses) {
+				if time.Now().After(deadline) {
+					t.Fatal("pauses did not announce before waiting for control lock")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			// Model an operation already owning the lock clearing pause while
+			// finishing config/start/resume. It cannot bypass queued requests.
+			androidRuntime.setSuspended(false)
+			androidRuntime.restoreAdmission(true)
+			conn := &bridgeEpochRawConn{}
+			if err := androidRuntime.socketHook(conn, func(int) bool {
+				t.Error("queued pause invoked protection")
+				return true
+			}); err == nil || conn.controls != 0 {
+				t.Fatal("pause queued behind configuration admitted a socket")
+			}
+			if listener.closes != 0 || androidRuntime.listener != listener {
+				t.Fatal("queued pause changed resource ownership")
+			}
+			androidTunMu.Unlock()
+			locked = false
+			for completed < pauses {
+				select {
+				case <-done:
+					completed++
+				case <-time.After(5 * time.Second):
+					t.Fatal("queued pause did not finish after control lock release")
+				}
+			}
+			if androidRuntime.pendingSuspends.Load() != 0 || androidRuntime.ready() || tunnel.Status() != tunnel.Suspend {
+				t.Fatal("completed pause leaked a request or reopened admission")
+			}
+			if !androidRuntime.protected.Load() || androidRuntime.listener != listener || listener.closes != 0 {
+				t.Fatal("pause discarded protection or listener ownership")
+			}
+			suspend(0)
+			if !androidRuntime.ready() || tunnel.Status() != tunnel.Running {
+				t.Fatal("explicit resume after queued pause failed")
+			}
+			assertAndroidBridgeEpochAdmission(t, oldEpoch)
+		})
+	}
+}

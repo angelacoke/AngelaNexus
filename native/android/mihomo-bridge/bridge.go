@@ -318,8 +318,18 @@ func stopTun() {
 
 //export suspend
 func suspend(suspended C.uchar) {
+	if suspended != 0 {
+		// Parsing/apply can hold androidTunMu for an unbounded time. Gate hooks
+		// now, not only once that operation eventually releases the mutex.
+		androidRuntime.beginSuspend()
+	}
 	androidTunMu.Lock()
 	defer androidTunMu.Unlock()
+	if suspended != 0 {
+		// Retire this request before unlocking: a following resume must not see
+		// an already-completed pause and leave tunnel status falsely suspended.
+		defer androidRuntime.endSuspend()
+	}
 	androidRuntime.setSuspended(suspended != 0)
 	if suspended != 0 || !androidRuntime.ready() {
 		tunnel.OnSuspend()
