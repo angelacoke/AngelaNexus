@@ -111,6 +111,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 scripts/verify-mihomo-native-artifacts.py \
+            --artifacts-root "$RUNNER_TEMP/mihomo" \
+            --repo-root "$GITHUB_WORKSPACE"
           mkdir -p native/android/app/src/main/jniLibs/arm64-v8a
           mkdir -p native/android/app/src/main/jniLibs/armeabi-v7a
           mkdir -p native/android/app/src/main/jniLibs/x86_64

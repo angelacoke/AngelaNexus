@@ -76,6 +76,21 @@ jobs:
           gofmt -w ./angelanexus_android_bridge.go ./angelanexus_android_lifecycle.go
           test -z "$(gofmt -d ./angelanexus_android_bridge.go ./angelanexus_android_lifecycle.go)"
 
+      - name: Test bridge state against pinned Mihomo on host (not Android TUN)
+        if: matrix.abi == 'x86_64'
+        shell: bash
+        working-directory: ${{ runner.temp }}/mihomo
+        run: |
+          set -euo pipefail
+          # Remove only the platform build constraint for this host cgo test.
+          # Always restore the exact Android source before the NDK build.
+          trap 'cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge.go" ./angelanexus_android_bridge.go' EXIT
+          sed '1,2d' "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge.go" > ./angelanexus_android_bridge.go
+          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge_integration_test.go" ./angelanexus_bridge_integration_test.go
+          # Exclude the standalone CLI main.go: its init parses flags before
+          # testing registers -test.*. All imported core packages remain real.
+          go test -race -tags=with_gvisor,cmfa -run '^TestAndroidBridge' -count=1 -timeout=90s -v ./angelanexus_android_bridge.go ./angelanexus_android_lifecycle.go ./angelanexus_bridge_integration_test.go
+
       - name: Build native shared object
         shell: bash
         env:

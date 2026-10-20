@@ -2,8 +2,10 @@ package main
 
 import (
 	"errors"
+	"sync"
 	"syscall"
 	"testing"
+	"time"
 )
 
 type testRawConn struct {
@@ -135,5 +137,115 @@ func TestConfigurationPanicLeavesGateBlocked(t *testing.T) {
 	}()
 	if lifecycle.protected.Load() {
 		t.Fatal("panic restored dial admission")
+	}
+}
+
+func TestTransitionsDrainInFlightProtection(t *testing.T) {
+	for _, operation := range []string{"stop", "configuration"} {
+		t.Run(operation, func(t *testing.T) {
+			var lifecycle androidTunLifecycle
+			lifecycle.protected.Store(true)
+			entered := make(chan struct{})
+			release := make(chan struct{})
+			var once sync.Once
+			unblock := func() { once.Do(func() { close(release) }) }
+			defer unblock()
+			hookDone := make(chan error, 1)
+			go func() {
+				hookDone <- lifecycle.socketHook(&testRawConn{}, func(int) bool {
+					close(entered)
+					<-release
+					return true
+				})
+			}()
+			select {
+			case <-entered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("protect did not enter")
+			}
+			transition := make(chan struct{}, 1)
+			done := make(chan error, 1)
+			// Calling socketHook from Close/apply must reject without deadlocking:
+			// the writer lock must not span arbitrary upstream cleanup/config code.
+			onTransition := func() {
+				transition <- struct{}{}
+				if err := lifecycle.socketHook(&testRawConn{}, func(int) bool {
+					t.Error("transition admitted a new protect callback")
+					return true
+				}); err == nil {
+					t.Error("transition admitted a socket")
+				}
+			}
+			lifecycle.listener = &testListener{onClose: onTransition}
+			go func() {
+				if operation == "stop" {
+					done <- lifecycle.closeTun()
+				} else {
+					lifecycle.applyConfiguration(onTransition)
+					done <- nil
+				}
+			}()
+			deadline := time.Now().Add(5 * time.Second)
+			for lifecycle.protected.Load() {
+				if time.Now().After(deadline) {
+					t.Fatal("transition did not close admission")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			select {
+			case <-transition:
+				t.Fatal("transition ran before the protect callback drained")
+			default:
+			}
+			if err := lifecycle.socketHook(&testRawConn{}, func(int) bool {
+				t.Error("blocked gate called protect")
+				return true
+			}); err == nil {
+				t.Fatal("closed admission allowed a new socket")
+			}
+			unblock()
+			select {
+			case err := <-hookDone:
+				if err == nil {
+					t.Fatal("in-flight hook reported stale successful admission")
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("protect callback did not exit")
+			}
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("transition deadlocked")
+			}
+			if lifecycle.protected.Load() != (operation == "configuration") {
+				t.Fatal("transition restored incorrect admission state")
+			}
+		})
+	}
+}
+
+func TestProtectionPanicReleasesAdmissionBarrier(t *testing.T) {
+	var lifecycle androidTunLifecycle
+	lifecycle.protected.Store(true)
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("expected protect panic")
+			}
+		}()
+		_ = lifecycle.socketHook(&testRawConn{}, func(int) bool { panic("protect failed") })
+	}()
+	done := make(chan error, 1)
+	go func() { done <- lifecycle.closeTun() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("panic leaked the admission read lock")
 	}
 }

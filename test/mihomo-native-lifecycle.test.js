@@ -34,3 +34,26 @@ test("Mihomo export verification checks every required symbol, including retry-a
   assert.match(verify.run, /for symbol in angelaInit angelaApplyConfig startTUN angelaStopTun stopTun suspend forceGC getTraffic getTotalTraffic freeCString; do/);
   assert.match(verify.run, /grep -Eq "\[\[:space:\]\]\$\{symbol\}\$"/);
 });
+
+test("Mihomo host bridge regression uses pinned source and restores the Android build constraint", () => {
+  const host = steps.find(step => step.name === "Test bridge state against pinned Mihomo on host (not Android TUN)");
+  assert.equal(host.if, "matrix.abi == 'x86_64'");
+  assert.equal(host["working-directory"], "${{ runner.temp }}/mihomo");
+  assert.match(host.run, /sed '1,2d' "\$GITHUB_WORKSPACE\/native\/android\/mihomo-bridge\/bridge\.go"/);
+  assert.match(host.run, /trap 'cp .*bridge\.go" \.\/angelanexus_android_bridge\.go' EXIT/);
+  assert.match(host.run, /cp .*bridge_integration_test\.go" \.\/angelanexus_bridge_integration_test\.go/);
+  assert.match(host.run, /go test -race -tags=with_gvisor,cmfa -run '\^TestAndroidBridge' -count=1 -timeout=90s -v \.\/angelanexus_android_bridge\.go \.\/angelanexus_android_lifecycle\.go \.\/angelanexus_bridge_integration_test\.go/);
+  assert.ok(steps.indexOf(host) < steps.findIndex(step => step.name === "Build native shared object"));
+});
+
+test("Mihomo bridge keeps stopped configuration and explicit resume from reopening tunnel admission", () => {
+  const bridge = read("native/android/mihomo-bridge/bridge.go");
+  const apply = bridge.split("func applyAndroidConfiguration")[1].split("//export angelaInit")[0];
+  assert.match(apply, /defer func\(\) \{\s*if !androidRuntime\.protected\.Load\(\) \{\s*tunnel\.OnSuspend\(\)/);
+  assert.equal((bridge.match(/applyAndroidConfiguration\(cfg\)/g) ?? []).length, 2);
+  const stop = bridge.split("func stopTunError")[1].split("//export angelaStopTun")[0];
+  assert.ok(stop.indexOf("tunnel.OnSuspend()") < stop.indexOf("androidRuntime.closeTun()"));
+  const resume = bridge.split("func suspend(")[1].split("//export forceGC")[0];
+  assert.match(resume, /androidTunMu\.Lock\(\)/);
+  assert.match(resume, /suspended != 0 \|\| !androidRuntime\.protected\.Load\(\)/);
+});

@@ -1,54 +1,46 @@
 # Android Native Runtime Integration Baseline
 
-Status: verified Android native-runtime packaging baseline; physical-device runtime evidence is still required.
+Status: native build and lifecycle regression coverage exist; current bridge packaging, physical-device runtime validation and distribution approval are separate, incomplete gates.
 
-## Verified runtime baseline
+## Pinned upstream and historical artifact contract
 
-- Current verified runtime release: v1.19.32
-- Release revision pinned by CI: 88dcbf7f1614a67c3b36b848ee3592dfa92ada36
-- Android arm64-v8a shipped `libclash.so` SHA-256: 667c94964d0a60f86cdcc130b2cdf3b385b02d9f2c5d3b324b3ed7a6b7326007
-- Android armeabi-v7a shipped `libclash.so` SHA-256: 3ae94d7defb1778cd611eceffcff6884407893d28c42a4350af2b49108ac9a09
-- Android x86_64 shipped `libclash.so` SHA-256: da7bcdbf165cc1e3457d3560b51e703cb3a478dd83f0c1cfe42ccf676d6c1f42
+- Mihomo version: v1.19.32
+- Upstream revision pinned by CI: `88dcbf7f1614a67c3b36b848ee3592dfa92ada36`
+- Historical arm64-v8a `libclash.so` SHA-256: `667c94964d0a60f86cdcc130b2cdf3b385b02d9f2c5d3b324b3ed7a6b7326007`
+- Historical armeabi-v7a `libclash.so` SHA-256: `3ae94d7defb1778cd611eceffcff6884407893d28c42a4350af2b49108ac9a09`
+- Historical x86_64 `libclash.so` SHA-256: `da7bcdbf165cc1e3457d3560b51e703cb3a478dd83f0c1cfe42ccf676d6c1f42`
 
-These are the exact SHA-256 values verified by the Android native packaging workflow for the shipped shared libraries.
+These values remain pinned in the Kotlin runtime manifest and compliance record. They are not evidence that the latest bridge sources have been packaged. Changing bridge/lifecycle code requires a new native build, review of its exact artifacts and an explicit update of the pinned contract before those artifacts can be loaded. CI must not silently rewrite runtime hashes to accept whatever it downloaded.
 
 ## Integration boundary
 
-AngelaNexus uses an independently authored Android native boundary. The application layer owns lifecycle, configuration transport, VPN/TUN ownership, security policy, ABI validation and runtime status. The native runtime owns packet processing and native networking operations.
+AngelaNexus owns lifecycle, configuration transport, VPN/TUN ownership, security policy, ABI validation and runtime status. Mihomo owns packet processing and native networking operations. Configuration parsing and kernel selection remain in AngelaNexus Core; the bridge must not duplicate them.
 
-The Android integration must remain a strict boundary:
+The Android integration requires no implicit runtime fallback, no loading of unverified artifacts, and no native capability claims before the corresponding real smoke test succeeds. New JNI consumers require the error-returning `angelaStopTun` export; an older library without it fails explicitly rather than reporting a successful stop.
 
-1. no configuration parsing duplication in the native bridge;
-2. no kernel-selection logic in the Android bridge;
-3. no implicit runtime fallback;
-4. no unverified native artifact may be loaded;
-5. no native capability may be advertised before an actual smoke test succeeds.
+## What TUN stop actually guarantees
 
-## Integrity and release requirements
+The bridge serializes configuration, TUN lifecycle and explicit suspend/resume. Stop first suspends tunnel admission, closes the socket-protection gate, waits for already-entered protection callbacks to return, and closes the bridge-owned TUN listener. A failed listener close retains ownership for retry; the protection gate stays closed. Configuration cannot restore readiness inferred merely from a retained listener, and explicit resume cannot reopen an unattached or failed-stop runtime.
 
-The release pipeline must record:
+The admission read lock spans only the socket protection callback. Stop/configuration do not hold the write lock while invoking upstream cleanup/configuration, which may itself invoke the hook. Stop waits for an in-progress `VpnService.protect` call; this is not a timed cancellation mechanism and does not promise a fixed shutdown deadline.
 
-1. exact runtime revision;
-2. exact bridge source revision;
-3. Go/NDK/toolchain versions;
-4. native ABI list;
-5. SHA-256 for every shipped native artifact;
-6. complete release-time license and notice inventory.
+**This is not full Mihomo shutdown.** A connection whose socket hook returned before stop may still finish dialing afterwards. Existing TCP/UDP connections, NAT state, provider health checks/fetchers, statistic tickers and other upstream goroutines are not all closed by this contract. At the pinned revision, `executor.Shutdown()` is also not a complete connection/task termination API, so calling it would not establish that guarantee. A successful TUN stop must not be presented as proof of zero remaining sockets, background work or battery use.
 
-No prebuilt external AAR or native library is accepted as an implicit production dependency.
+A replacement TUN start closes the previous listener before validating all new arguments; failure can therefore leave the runtime stopped. Only a successful new TUN construction reopens protection and resumes admission.
 
-## Current implementation state
+## What the tests establish
 
-The first real native bridge is now implemented and build-verified:
+- Go helper tests with the race detector exercise protection rejection, callback draining during stop/configuration, panic-safe lock release, close failure/retry and idempotence.
+- A host cgo test against the pinned upstream source exercises actual `executor.ApplyConfig` and tunnel status transitions. Only the Android build constraint is removed from the bridge; the test compiles the bridge/helper/test explicitly to exclude the standalone CLI's early flag parsing, while importing the real upstream core packages. CI restores the original bridge before NDK compilation. This is not Android SDK, TUN, VPN protection or packet-path evidence.
+- Three-ABI NDK builds check every required exported symbol and record artifact, bridge and lifecycle SHA-256 provenance.
+- Ordinary `android-build` prepares Xray/sing-box AARs. Passing that workflow alone does not prove it included the latest Mihomo `.so` or executed `angelaStopTun`.
 
-1. runtime source is pinned to the verified v1.19.32 revision;
-2. the independently authored Android/cgo bridge exports initialization, configuration, TUN lifecycle and runtime-control functions;
-3. `libclash.so` is built for arm64-v8a, armeabi-v7a and x86_64;
-4. the C/C++ JNI shim and Kotlin loader are present;
-5. Android VpnService remains the owner of the TUN descriptor and lifecycle boundary;
-6. native artifact hashes are pinned and verified during packaging;
-7. signed Mihomo-enabled APK/AAB artifacts are produced by CI.
+## Packaging and distribution gates
 
-The remaining evidence gate is a reproducible Android physical-device smoke test proving load -> initialize -> configuration apply -> TUN start -> traffic -> stop. Until that evidence exists, the runtime is not marked end-to-end production-ready.
+The dedicated `android-native-package` workflow is separate and follows native builds on `main`. Its distribution gate currently remains blocked pending license, provenance and naming review; do not bypass it to obtain a green build. The application is Apache-2.0 and the embedded Mihomo artifact is declared GPL-3.0, requiring an approved distribution model.
 
-Configuration parsing and kernel selection remain in AngelaNexus Core; the Android native bridge must not duplicate that logic.
+Before copying any library, the packaging verifier must check all three ABI artifacts and provenance against the checked-out bridge/lifecycle source and both the Kotlin and compliance hash contracts. Missing, mixed, tampered or unreviewed artifacts fail closed. Hash/provenance checks are consistency checks, not a replacement for trusted build provenance or legal approval.
+
+Release evidence still requires exact upstream and bridge revisions, toolchain versions, ABI inventory, every shipped artifact hash, licenses/notices, packaged APK/AAB verification and signing-certificate verification. No prebuilt external AAR or native library is an implicit production dependency.
+
+Physical-device validation remains required: load -> initialize -> apply configuration -> TUN start -> TCP/UDP/DNS/IPv6 traffic -> stop/retry -> restart, including leak and battery/background measurements. Neither native compilation nor launcher stability establishes those results. The runtime is not end-to-end production-ready.

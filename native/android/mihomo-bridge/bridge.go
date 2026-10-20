@@ -92,9 +92,21 @@ func protectSocket(fd int) bool {
 }
 
 func init() {
+	tunnel.OnSuspend()
 	dialer.DefaultSocketHook = func(network, address string, conn syscall.RawConn) error {
 		return androidRuntime.socketHook(conn, protectSocket)
 	}
+}
+
+func applyAndroidConfiguration(cfg *config.Config) {
+	// ApplyConfig internally resumes the tunnel, even before a TUN is attached.
+	// Keep stopped/failed-start runtimes suspended, including panic paths.
+	defer func() {
+		if !androidRuntime.protected.Load() {
+			tunnel.OnSuspend()
+		}
+	}()
+	androidRuntime.applyConfiguration(func() { executor.ApplyConfig(cfg, true) })
 }
 
 //export angelaInit
@@ -124,7 +136,7 @@ func angelaApplyConfig(configJSON *C.char) *C.char {
 
 	androidTunMu.Lock()
 	defer androidTunMu.Unlock()
-	androidRuntime.applyConfiguration(func() { executor.ApplyConfig(cfg, true) })
+	applyAndroidConfiguration(cfg)
 	lastConfigJSON = append(lastConfigJSON[:0], data...)
 	return C.CString("")
 }
@@ -163,7 +175,7 @@ func updateDns(dns *C.char) *C.char {
 	if err != nil {
 		return resultString(err)
 	}
-	androidRuntime.applyConfiguration(func() { executor.ApplyConfig(cfg, true) })
+	applyAndroidConfiguration(cfg)
 	lastConfigJSON = append(lastConfigJSON[:0], updated...)
 	return C.CString("")
 }
@@ -173,6 +185,7 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
 	androidTunMu.Lock()
 	defer androidTunMu.Unlock()
 
+	tunnel.OnSuspend()
 	if err := androidRuntime.closeTun(); err != nil {
 		// Keep the old listener and the caller's descriptor on cleanup failure.
 		return 0
@@ -237,12 +250,14 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
 	_ = syscall.Close(int(fd))
 	androidRuntime.listener = listener
 	androidRuntime.protected.Store(true)
+	tunnel.OnRunning()
 	return 1
 }
 
 func stopTunError() error {
 	androidTunMu.Lock()
 	defer androidTunMu.Unlock()
+	tunnel.OnSuspend()
 	return androidRuntime.closeTun()
 }
 
@@ -260,7 +275,9 @@ func stopTun() {
 
 //export suspend
 func suspend(suspended C.uchar) {
-	if suspended != 0 {
+	androidTunMu.Lock()
+	defer androidTunMu.Unlock()
+	if suspended != 0 || !androidRuntime.protected.Load() {
 		tunnel.OnSuspend()
 	} else {
 		tunnel.OnRunning()
