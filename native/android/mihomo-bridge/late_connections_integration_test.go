@@ -16,6 +16,19 @@ import (
 
 var errAngelaNexusSentinel = errors.New("angela-nexus-close-sentinel")
 
+type angelaClosePlan struct {
+	calls    atomic.Int32
+	failures int32
+	err      error
+}
+
+func (p *angelaClosePlan) close(realClose func() error) error {
+	if p.calls.Add(1) <= p.failures {
+		return p.err
+	}
+	return realClose()
+}
+
 type angelaFakeTracker struct {
 	id    string
 	idFn  func() string
@@ -41,14 +54,34 @@ func (f *angelaFakeTracker) ProviderChains() C.Chain       { return nil }
 func (f *angelaFakeTracker) AppendToChains(C.ProxyAdapter) {}
 func (f *angelaFakeTracker) RemoteDestination() string     { return "loopback" }
 
-type angelaTCPConn struct{ N.ExtendedConn }
+type angelaTCPConn struct {
+	N.ExtendedConn
+	closePlan *angelaClosePlan
+}
+
+func (c *angelaTCPConn) Close() error {
+	if c.closePlan != nil {
+		return c.closePlan.close(c.ExtendedConn.Close)
+	}
+	return c.ExtendedConn.Close()
+}
 
 func (c *angelaTCPConn) Chains() C.Chain               { return nil }
 func (c *angelaTCPConn) ProviderChains() C.Chain       { return nil }
 func (c *angelaTCPConn) AppendToChains(C.ProxyAdapter) {}
 func (c *angelaTCPConn) RemoteDestination() string     { return "127.0.0.1" }
 
-type angelaUDPConn struct{ N.EnhancePacketConn }
+type angelaUDPConn struct {
+	N.EnhancePacketConn
+	closePlan *angelaClosePlan
+}
+
+func (c *angelaUDPConn) Close() error {
+	if c.closePlan != nil {
+		return c.closePlan.close(c.EnhancePacketConn.Close)
+	}
+	return c.EnhancePacketConn.Close()
+}
 
 func (c *angelaUDPConn) Chains() C.Chain                                   { return nil }
 func (c *angelaUDPConn) ProviderChains() C.Chain                           { return nil }
@@ -58,6 +91,136 @@ func (c *angelaUDPConn) ResolveUDP(_ context.Context, _ *C.Metadata) error { ret
 
 // ResolveUDP's context type is deliberately supplied by the real interface below.
 var _ C.Conn = (*angelaTCPConn)(nil)
+
+func angelaRangeHas(t *testing.T, m *Manager, want Tracker) {
+	t.Helper()
+	var found Tracker
+	m.Range(func(c Tracker) bool {
+		if c.ID() == want.ID() {
+			found = c
+		}
+		return true
+	})
+	if found != want {
+		t.Fatalf("tracker %q missing from Range", want.ID())
+	}
+}
+
+func TestAngelaNexusLateConnectionsCloseFailures(t *testing.T) {
+	t.Run("registered_tcp_and_udp_retain_until_successful_close", func(t *testing.T) {
+		m := &Manager{}
+		m.StartRegistrations()
+
+		tcpPeer, tcpRemote := net.Pipe()
+		defer tcpPeer.Close()
+		defer tcpRemote.Close()
+		tcpConn := &angelaTCPConn{
+			ExtendedConn: N.NewExtendedConn(tcpPeer),
+			closePlan:    &angelaClosePlan{failures: 1, err: errAngelaNexusSentinel},
+		}
+		tcp, err := NewTCPTrackerAtEpoch(tcpConn, m, &C.Metadata{NetWork: C.TCP}, nil, 0, 0, false, m.RegistrationEpoch())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m.Get(tcp.ID()) != tcp {
+			t.Fatal("TCP tracker was not registered")
+		}
+		if err := tcp.Close(); !errors.Is(err, errAngelaNexusSentinel) {
+			t.Fatalf("TCP close error = %v", err)
+		}
+		if m.Get(tcp.ID()) != tcp {
+			t.Fatal("failed TCP close removed tracker")
+		}
+		angelaRangeHas(t, m, tcp)
+		if err := tcp.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if m.Get(tcp.ID()) != nil {
+			t.Fatal("successful TCP retry retained tracker")
+		}
+
+		rawUDP, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		udpConn := &angelaUDPConn{
+			EnhancePacketConn: N.NewEnhancePacketConn(rawUDP),
+			closePlan:         &angelaClosePlan{failures: 1, err: errAngelaNexusSentinel},
+		}
+		udp, err := NewUDPTrackerAtEpoch(udpConn, m, &C.Metadata{NetWork: C.UDP}, nil, 0, 0, false, m.RegistrationEpoch())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := udp.Close(); !errors.Is(err, errAngelaNexusSentinel) {
+			t.Fatalf("UDP close error = %v", err)
+		}
+		if m.Get(udp.ID()) != udp {
+			t.Fatal("failed UDP close removed tracker")
+		}
+		angelaRangeHas(t, m, udp)
+		if err := udp.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if m.Get(udp.ID()) != nil {
+			t.Fatal("successful UDP retry retained tracker")
+		}
+	})
+
+	for _, tc := range []struct {
+		name string
+		err  error
+		keep bool
+	}{
+		{name: "standalone_net_err_closed_is_registration_only", err: net.ErrClosed},
+		{name: "mixed_close_error_is_retained", err: errors.Join(net.ErrClosed, errAngelaNexusSentinel), keep: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &Manager{}
+			m.StartRegistrations()
+			epoch := m.RegistrationEpoch()
+			m.StopRegistrations()
+			peer, remote := net.Pipe()
+			defer peer.Close()
+			defer remote.Close()
+			conn := &angelaTCPConn{
+				ExtendedConn: N.NewExtendedConn(peer),
+				closePlan:    &angelaClosePlan{failures: 3, err: tc.err},
+			}
+			tracker, err := NewTCPTrackerAtEpoch(conn, m, &C.Metadata{NetWork: C.TCP}, nil, 0, 0, false, epoch)
+			if tracker != nil {
+				t.Fatal("rejected TCP tracker was returned")
+			}
+			if tc.keep {
+				if err == nil || !errors.Is(err, errAngelaNexusSentinel) {
+					t.Fatalf("mixed close error was swallowed: %v", err)
+				}
+				var retained Tracker
+				m.Range(func(c Tracker) bool { retained = c; return false })
+				if retained == nil {
+					t.Fatal("failed JoinAtEpoch close was not retained")
+				}
+				for retry := 0; retry < 2; retry++ {
+					if retryErr := retained.Close(); !errors.Is(retryErr, errAngelaNexusSentinel) {
+						t.Fatalf("failed retry %d error = %v", retry, retryErr)
+					}
+					angelaRangeHas(t, m, retained)
+				}
+				if retryErr := retained.Close(); retryErr != nil {
+					t.Fatal(retryErr)
+				}
+				if m.Get(retained.ID()) != nil {
+					t.Fatal("successful retry did not delete retained tracker")
+				}
+			} else {
+				var retained Tracker
+				m.Range(func(c Tracker) bool { retained = c; return false })
+				if retained != nil {
+					t.Fatal("net.ErrClosed-only rejection was retained")
+				}
+			}
+		})
+	}
+}
 
 func TestAngelaNexusLateConnections(t *testing.T) {
 	t.Run("closed_gate_closes_real_tcp_and_udp_and_preserves_legacy_constructor", func(t *testing.T) {

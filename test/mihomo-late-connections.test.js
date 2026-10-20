@@ -96,3 +96,23 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 }
+
+test("TCP admits each retry result before early-data handshake and never wraps it twice", () => {
+  const patch = read("native/android/mihomo-bridge/late-connections.patch");
+  const tcp = patch.slice(patch.indexOf("func handleTCPConn"));
+  const additions = tcp.split("\n").filter(line => line.startsWith("+") && !line.startsWith("+++")).map(line => line.slice(1)).join("\n");
+  assert.equal((additions.match(/NewTCPTrackerAtEpoch\(/g) || []).length, 1);
+  assert.match(additions, /NewTCPTrackerAtEpoch\(remoteConn, statistic\.DefaultManager, metadata, rule, 0, 0, true, registrationEpoch\)/);
+  assert.match(additions, /cancel\(\).*do not redial/);
+  assert.doesNotMatch(additions, /int64\(peekLen\)/);
+  const regressions = read("native/android/mihomo-bridge/late_tunnel_integration_test.go");
+  assert.match(regressions, /NeedHandshake\(\) bool/);
+});
+
+test("real tracker Close preserves registration until success or closed-only error", () => {
+  const patch = read("native/android/mihomo-bridge/late-connections.patch");
+  for (const [receiver, conn] of [["tt", "Conn"], ["ut", "PacketConn"]]) {
+    assert.ok(patch.includes(`+\terr := ${receiver}.${conn}.Close()`));
+    assert.ok(patch.includes(`+\tif err == nil || registrationClosedOnly(err) {\n+\t\t${receiver}.manager.Leave(${receiver})`));
+  }
+});

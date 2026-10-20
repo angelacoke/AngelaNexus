@@ -133,7 +133,20 @@
  func (m *Manager) Join(c Tracker) {
 --- tunnel/statistic/tracker.go
 +++ tunnel/statistic/tracker.go
-@@ -116,7 +116,7 @@
+@@ -108,15 +108,18 @@
+ }
+ 
+ func (tt *tcpTracker) Close() error {
+-	tt.manager.Leave(tt)
+-	return tt.Conn.Close()
++	err := tt.Conn.Close()
++	if err == nil || registrationClosedOnly(err) {
++		tt.manager.Leave(tt)
++	}
++	return err
+ }
+ 
+ func (tt *tcpTracker) Upstream() any {
  	return tt.Conn
  }
  
@@ -142,7 +155,7 @@
  	metadata.RemoteDst = conn.RemoteDestination()
  
  	t := &tcpTracker{
-@@ -135,6 +135,16 @@
+@@ -135,6 +138,16 @@
  		pushToManager: pushToManager,
  	}
  
@@ -159,7 +172,7 @@
  	if pushToManager {
  		if uploadTotal > 0 {
  			manager.PushUploaded(uploadTotal)
-@@ -143,14 +153,15 @@
+@@ -143,14 +156,15 @@
  			manager.PushDownloaded(downloadTotal)
  		}
  	}
@@ -182,7 +195,20 @@
  }
  
  type udpTracker struct {
-@@ -208,7 +219,7 @@
+@@ -200,15 +214,18 @@
+ }
+ 
+ func (ut *udpTracker) Close() error {
+-	ut.manager.Leave(ut)
+-	return ut.PacketConn.Close()
++	err := ut.PacketConn.Close()
++	if err == nil || registrationClosedOnly(err) {
++		ut.manager.Leave(ut)
++	}
++	return err
+ }
+ 
+ func (ut *udpTracker) Upstream() any {
  	return ut.PacketConn
  }
  
@@ -191,7 +217,7 @@
  	metadata.RemoteDst = conn.RemoteDestination()
  
  	ut := &udpTracker{
-@@ -227,6 +238,16 @@
+@@ -227,6 +244,16 @@
  		pushToManager: pushToManager,
  	}
  
@@ -208,7 +234,7 @@
  	if pushToManager {
  		if uploadTotal > 0 {
  			manager.PushUploaded(uploadTotal)
-@@ -235,12 +256,13 @@
+@@ -235,12 +262,13 @@
  			manager.PushDownloaded(downloadTotal)
  		}
  	}
@@ -261,15 +287,42 @@
  	if !isHandle(connCtx.Metadata().Type) {
  		_ = connCtx.Conn().Close()
  		return
-@@ -612,7 +617,10 @@
+@@ -569,13 +574,20 @@
+ 	}
+ 
+ 	var peekBytes []byte
+-	var peekLen int
+ 
+ 	ctx, cancel := context.WithTimeout(context.Background(), C.DefaultTCPTimeout)
+ 	defer cancel()
+ 	remoteConn, err := retry(ctx, func(ctx context.Context) (remoteConn C.Conn, err error) {
+ 		remoteConn, err = proxy.DialContext(ctx, dialMetadata)
+ 		if err != nil {
++			return
++		}
++
++		// Admit each dial result before any early-data handshake can write.
++		// A rejected tracker owns closure (and retains failed closes for retry).
++		remoteConn, err = statistic.NewTCPTrackerAtEpoch(remoteConn, statistic.DefaultManager, metadata, rule, 0, 0, true, registrationEpoch)
++		if err != nil {
++			cancel() // do not redial a generation that can no longer be admitted
+ 			return
+ 		}
+ 
+@@ -599,7 +611,7 @@
+ 			if err != nil {
+ 				return
+ 			}
+-			if peekLen = len(peekBytes); peekLen > 0 {
++			if peekLen := len(peekBytes); peekLen > 0 {
+ 				_, _ = conn.Discard(peekLen)
+ 			}
+ 		}
+@@ -612,7 +624,6 @@
  	}
  	logMetadata(metadata, rule, remoteConn)
  
 -	remoteConn = statistic.NewTCPTracker(remoteConn, statistic.DefaultManager, metadata, rule, int64(peekLen), 0, true)
-+	remoteConn, err = statistic.NewTCPTrackerAtEpoch(remoteConn, statistic.DefaultManager, metadata, rule, int64(peekLen), 0, true, registrationEpoch)
-+	if err != nil {
-+		return
-+	}
  	defer func(remoteConn C.Conn) {
  		_ = remoteConn.Close()
  	}(remoteConn)

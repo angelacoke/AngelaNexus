@@ -481,7 +481,10 @@ func TestAndroidBridgeStopRetainsUnregisteredFailedTracker(t *testing.T) {
 	closeFailure := errors.New("underlying connection close failed")
 	conn := &bridgeRetryConn{Conn: outbound.NewConn(local, direct), err: closeFailure}
 	tracker := statistic.NewTCPTracker(conn, statistic.DefaultManager, &constant.Metadata{}, nil, 0, 0, true)
-	defer tracker.Close()
+	defer func() {
+		conn.err = nil
+		_ = tracker.Close()
+	}()
 	listenerFailure := errors.New("listener close failed")
 	listener := &bridgeTestListener{err: listenerFailure}
 	androidRuntime.listener = listener
@@ -491,9 +494,14 @@ func TestAndroidBridgeStopRetainsUnregisteredFailedTracker(t *testing.T) {
 	if !errors.Is(err, closeFailure) || !errors.Is(err, listenerFailure) {
 		t.Fatalf("stop failed to report both cleanup errors: %v", err)
 	}
-	// Pinned upstream unregisters first, even when its underlying Close fails.
-	if statistic.DefaultManager.Get(tracker.ID()) != nil || androidRuntime.pendingConnections[tracker.ID()] != tracker || conn.closes != 1 {
-		t.Fatal("unregistered failed tracker lost retry ownership")
+	// Adapted real trackers retain registration on a genuine close failure.
+	if statistic.DefaultManager.Get(tracker.ID()) != tracker || androidRuntime.pendingConnections[tracker.ID()] != tracker || conn.closes != 1 {
+		t.Fatal("failed tracker lost manager or bridge retry ownership")
+	}
+	// An independent upstream removal must still not discard the bridge's owner.
+	statistic.DefaultManager.Leave(tracker)
+	if statistic.DefaultManager.Get(tracker.ID()) != nil || androidRuntime.pendingConnections[tracker.ID()] != tracker {
+		t.Fatal("unregistered failed tracker lost independent retry ownership")
 	}
 	if androidRuntime.listener != listener || androidRuntime.protected.Load() || tunnel.Status() != tunnel.Suspend {
 		t.Fatal("failed cleanup lost listener or reopened admission")
