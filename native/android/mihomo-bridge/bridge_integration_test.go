@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1547,4 +1548,189 @@ func TestAndroidBridgeRetriesLateRejectedConnectionClose(t *testing.T) {
 	if err := stopTunError(); err != nil || conn.closes != 3 {
 		t.Fatalf("released late result closed again: %v (closes=%d)", err, conn.closes)
 	}
+}
+
+// BeginSetup models the interval between an accepted socket and its tracker
+// registration.  Stop cancels the registration generation, but must retain the
+// setup debt until its owner releases it.
+func TestAndroidBridgeSetupCancellationWaitsForRelease(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	manager := statistic.DefaultManager
+	manager.StopRegistrations()
+	manager.StartRegistrations()
+	epoch, registrationCtx := manager.Registration()
+	release, err := manager.BeginSetup(epoch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- stopTunError() }()
+	select {
+	case <-registrationCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("stop did not cancel the registration generation")
+	}
+	select {
+	case err := <-stopDone:
+		t.Fatalf("stop returned before setup release: %v", err)
+	default:
+	}
+	release()
+	select {
+	case err := <-stopDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("stop did not finish after setup release")
+	}
+}
+
+func TestAndroidBridgeUncooperativeSetupBlocksReplacementAndPreservesFD(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	manager := statistic.DefaultManager
+	manager.StopRegistrations()
+	manager.StartRegistrations()
+	epoch, _ := manager.Registration()
+	release, err := manager.BeginSetup(epoch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	var fds [2]int
+	if err := syscall.Pipe(fds[:]); err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Close(fds[0])
+	defer syscall.Close(fds[1])
+	constructCalls := 0
+	stopErr := make(chan error, 1)
+	go func() { stopErr <- stopTunError() }()
+	var firstStopErr error
+	select {
+	case firstStopErr = <-stopErr:
+		if !errors.Is(firstStopErr, context.DeadlineExceeded) {
+			t.Fatalf("uncooperative setup stop unexpectedly succeeded or lost deadline: %v", firstStopErr)
+		}
+	case <-time.After(androidSetupDrainTimeout + 500*time.Millisecond):
+		t.Fatal("uncooperative setup did not reach the deadline")
+	}
+	if startAndroidTUNWithConstructor(fds[0], "system", "172.19.0.1/30", "", androidRuntime.stopGeneration.Load(), func(options LC.Tun) (io.Closer, error) {
+		constructCalls++
+		return os.NewFile(uintptr(options.FileDescriptor), "must-not-start"), nil
+	}) {
+		t.Fatal("replacement started over setup debt")
+	}
+	if constructCalls != 0 {
+		t.Fatal("failed replacement called the constructor")
+	}
+	var stat syscall.Stat_t
+	if err := syscall.Fstat(fds[0], &stat); err != nil {
+		t.Fatalf("failed replacement consumed caller fd: %v", err)
+	}
+	release()
+	if err := stopTunError(); err != nil {
+		t.Fatal(err)
+	}
+	fresh := &bridgeConstructedListener{fd: -1}
+	if !startAndroidTUNWithConstructor(fds[0], "system", "172.19.0.1/30", "", androidRuntime.stopGeneration.Load(), func(options LC.Tun) (io.Closer, error) {
+		fresh.fd = options.FileDescriptor
+		return fresh, nil
+	}) {
+		t.Fatal("fresh constructor did not start after setup debt was released")
+	}
+	if err := syscall.Fstat(fds[0], &stat); !errors.Is(err, syscall.EBADF) {
+		t.Fatalf("fresh start did not consume caller fd: %v", err)
+	}
+	if err := stopTunError(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAndroidBridgeEarlyTCPSetupCloseUnblocksStop(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	manager := statistic.DefaultManager
+	manager.StopRegistrations()
+	manager.StartRegistrations()
+	epoch, _ := manager.Registration()
+	release, err := manager.BeginSetup(epoch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	local, peer := net.Pipe()
+	defer peer.Close()
+	direct := outbound.NewDirectWithOption(outbound.DirectOption{Name: "early-setup-close"})
+	closed := make(chan struct{})
+	signalConn := &bridgeSetupSignalConn{Conn: local, closed: closed}
+	tracker := statistic.NewTCPTracker(outbound.NewConn(signalConn, direct), manager, &constant.Metadata{NetWork: constant.TCP}, nil, 0, 0, true)
+	defer tracker.Close()
+	go func() {
+		<-closed
+		release()
+	}()
+	if err := stopTunError(); err != nil {
+		t.Fatal(err)
+	}
+	if manager.Get(tracker.ID()) != nil {
+		t.Fatal("early TCP tracker remained registered after stop")
+	}
+}
+
+func TestAndroidBridgeLateRejectedTrackerIsRetriedAfterSnapshot(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	manager := statistic.DefaultManager
+	manager.StopRegistrations()
+	manager.StartRegistrations()
+	epoch, _ := manager.Registration()
+	release, err := manager.BeginSetup(epoch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	local, peer := net.Pipe()
+	defer peer.Close()
+	failure := errors.New("late setup close failed")
+	direct := outbound.NewDirectWithOption(outbound.DirectOption{Name: "late-setup"})
+	conn := &bridgeRetryConn{Conn: outbound.NewConn(local, direct), err: errors.Join(net.ErrClosed, failure)}
+	barrierLocal, barrierPeer := net.Pipe()
+	defer barrierPeer.Close()
+	snapshotClosed := make(chan struct{})
+	barrier := statistic.NewTCPTracker(outbound.NewConn(&bridgeSetupSignalConn{Conn: barrierLocal, closed: snapshotClosed}, direct), manager, &constant.Metadata{NetWork: constant.TCP}, nil, 0, 0, true)
+	defer barrier.Close()
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- stopTunError() }()
+	select {
+	case <-snapshotClosed:
+	case <-time.After(time.Second):
+		t.Fatal("snapshot barrier was not closed")
+	}
+	tracker, err := statistic.NewTCPTrackerAtEpoch(conn, manager, &constant.Metadata{NetWork: constant.TCP}, nil, 0, 0, true, epoch)
+	if tracker != nil || !errors.Is(err, failure) {
+		t.Fatalf("late rejected tracker result: tracker=%v err=%v", tracker, err)
+	}
+	release()
+	if err := <-stopDone; !errors.Is(err, errAndroidLateSetupConnections) {
+		t.Fatalf("late tracker was not reported after snapshot: %v", err)
+	}
+	conn.err = nil
+	if err := stopTunError(); err != nil {
+		t.Fatal(err)
+	}
+	remaining := 0
+	manager.Range(func(statistic.Tracker) bool { remaining++; return true })
+	if remaining != 0 || conn.closes != 2 {
+		t.Fatalf("late tracker retry did not release ownership: closes=%d", conn.closes)
+	}
+}
+
+type bridgeSetupSignalConn struct {
+	net.Conn
+	closed chan struct{}
+	once   sync.Once
+}
+
+func (c *bridgeSetupSignalConn) Close() error {
+	err := c.Conn.Close()
+	c.once.Do(func() { close(c.closed) })
+	return err
 }

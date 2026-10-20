@@ -10,7 +10,7 @@
  	"os"
  	"sync"
  	"time"
-@@ -14,32 +17,135 @@
+@@ -14,32 +17,188 @@
  
  func init() {
  	DefaultManager = &Manager{
@@ -58,6 +58,8 @@
 +	registrationOpen  bool
 +	registrationEpoch uint64
 +	registrationGen   *registrationGeneration
++	setupCount        uint64
++	setupDrain        chan struct{}
 +	connections       xsync.Map[string, Tracker]
 +	uploadTemp        atomic.Int64
 +	downloadTemp      atomic.Int64
@@ -123,6 +125,57 @@
 +}
 +
 +var errRegistrationStopped = errors.New("statistics registration epoch closed")
++
++// BeginSetup admits one ordinary dial/retry/early-handshake operation in the
++// current registration generation. Its release is safe to call repeatedly.
++func (m *Manager) BeginSetup(epoch uint64) (func(), error) {
++	m.registrationMu.Lock()
++	if !m.registrationOpen || epoch != m.registrationEpoch {
++		m.registrationMu.Unlock()
++		return nil, errRegistrationStopped
++	}
++	if m.setupCount == 0 {
++		m.setupDrain = make(chan struct{})
++	}
++	m.setupCount++
++	drain := m.setupDrain
++	m.registrationMu.Unlock()
++	var once sync.Once
++	return func() {
++		once.Do(func() {
++			m.registrationMu.Lock()
++			if m.setupCount > 0 {
++				m.setupCount--
++				if m.setupCount == 0 && m.setupDrain == drain {
++					close(drain)
++					m.setupDrain = nil
++				}
++			}
++			m.registrationMu.Unlock()
++		})
++	}, nil
++}
++
++// WaitSetups waits for all admitted setup operations after registration closes.
++// The channel snapshot and context select are deliberately outside the mutex.
++func (m *Manager) WaitSetups(ctx context.Context) error {
++	m.registrationMu.Lock()
++	if m.registrationOpen {
++		m.registrationMu.Unlock()
++		return errors.New("statistics registrations are still open")
++	}
++	drain := m.setupDrain
++	m.registrationMu.Unlock()
++	if drain == nil {
++		return nil
++	}
++	select {
++	case <-drain:
++		return nil
++	case <-ctx.Done():
++		return ctx.Err()
++	}
++}
 +
 +// JoinAtEpoch transfers ownership even on rejection. A rejected result is
 +// closed outside the gate lock; genuine failures remain visible to Range for
@@ -335,7 +388,17 @@
  
  			sender.AddMapping(originMetadata, dialMetadata)
  			oAddrPort := dialMetadata.AddrPort()
-@@ -490,7 +499,7 @@
+@@ -487,12 +496,20 @@
+ 		}
+ 
+ 		go func() {
++			releaseSetup, setupErr := statistic.DefaultManager.BeginSetup(registrationEpoch)
++			if setupErr != nil {
++				sender.Close()
++				natTable.DeleteIf(key, sender)
++				return
++			}
++			defer releaseSetup()
  			pc, proxy, err := dial()
  			if err != nil {
  				sender.Close()
@@ -343,8 +406,11 @@
 +				natTable.DeleteIf(key, sender)
  				return
  			}
++			releaseSetup()
  			sender.Process(pc, proxy)
-@@ -500,6 +509,7 @@
+ 		}()
+ 	}
+@@ -500,6 +517,7 @@
  }
  
  func handleTCPConn(connCtx C.ConnContext) {
@@ -352,14 +418,18 @@
  	if !isHandle(connCtx.Metadata().Type) {
  		_ = connCtx.Conn().Close()
  		return
-@@ -569,13 +579,20 @@
+@@ -569,13 +587,24 @@
  	}
  
  	var peekBytes []byte
 -	var peekLen int
 -
 -	ctx, cancel := context.WithTimeout(context.Background(), C.DefaultTCPTimeout)
-+
++	releaseSetup, err := statistic.DefaultManager.BeginSetup(registrationEpoch)
++	if err != nil {
++		return
++	}
++	defer releaseSetup()
 +	ctx, cancel := context.WithTimeout(registrationCtx, C.DefaultTCPTimeout)
  	defer cancel()
  	remoteConn, err := retry(ctx, func(ctx context.Context) (remoteConn C.Conn, err error) {
@@ -376,7 +446,7 @@
  			return
  		}
  
-@@ -599,7 +616,7 @@
+@@ -599,7 +628,7 @@
  			if err != nil {
  				return
  			}
@@ -385,15 +455,18 @@
  				_, _ = conn.Discard(peekLen)
  			}
  		}
-@@ -612,7 +629,6 @@
+@@ -610,9 +639,9 @@
+ 	if err != nil {
+ 		return
  	}
++	releaseSetup()
  	logMetadata(metadata, rule, remoteConn)
  
 -	remoteConn = statistic.NewTCPTracker(remoteConn, statistic.DefaultManager, metadata, rule, int64(peekLen), 0, true)
  	defer func(remoteConn C.Conn) {
  		_ = remoteConn.Close()
  	}(remoteConn)
-@@ -739,6 +755,9 @@
+@@ -739,6 +768,9 @@
  func retry[T any](ctx context.Context, ft func(context.Context) (T, error), fe func(err error)) (t T, err error) {
  	s := slowdown.New()
  	for i := 0; i < 10; i++ {

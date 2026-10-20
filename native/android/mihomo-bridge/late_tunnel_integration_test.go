@@ -175,6 +175,15 @@ func TestAngelaNexusLateTunnelTCP(t *testing.T) {
 			lateGateWait(t, p.entered, "actual TCP proxy dial")
 			if stale {
 				statistic.DefaultManager.StopRegistrations()
+				if ignoreContext {
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+					if err := statistic.DefaultManager.WaitSetups(ctx); !errors.Is(err, context.DeadlineExceeded) {
+						t.Fatalf("blocked actual dial disappeared from setup ledger: %v", err)
+					}
+					cancel()
+				} else {
+					lateGateWaitSetups(t)
+				}
 				statistic.DefaultManager.StartRegistrations()
 				if !ignoreContext {
 					lateGateWait(t, p.canceled, "TCP setup context cancellation")
@@ -182,6 +191,8 @@ func TestAngelaNexusLateTunnelTCP(t *testing.T) {
 			}
 			release()
 			if stale {
+				statistic.DefaultManager.StopRegistrations()
+				lateGateWaitSetups(t)
 				lateGateWait(t, done, "rejected TCP handler exit")
 				if ignoreContext {
 					_ = remotePeer.SetReadDeadline(time.Now().Add(3 * time.Second))
@@ -207,6 +218,13 @@ func TestAngelaNexusLateTunnelTCP(t *testing.T) {
 				}
 				if remoteConn.writes.Load() != 1 {
 					t.Fatalf("fresh early TCP connection wrote %d times", remoteConn.writes.Load())
+				}
+				statistic.DefaultManager.StopRegistrations()
+				lateGateWaitSetups(t)
+				select {
+				case <-done:
+					t.Fatal("fresh TCP relay exited before setup-only drain")
+				default:
 				}
 				lateGateWaitUpload(t, beforeUpload, int64(len(payload)))
 				afterUpload, _ := statistic.DefaultManager.Total()
@@ -296,6 +314,15 @@ func TestAngelaNexusLateTunnelUDP(t *testing.T) {
 			lateGateWait(t, p.entered, "actual UDP proxy dial")
 			if stale {
 				statistic.DefaultManager.StopRegistrations()
+				if ignoreContext {
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+					if err := statistic.DefaultManager.WaitSetups(ctx); !errors.Is(err, context.DeadlineExceeded) {
+						t.Fatalf("blocked actual dial disappeared from setup ledger: %v", err)
+					}
+					cancel()
+				} else {
+					lateGateWaitSetups(t)
+				}
 				statistic.DefaultManager.StartRegistrations()
 				if !ignoreContext {
 					lateGateWait(t, p.canceled, "UDP setup context cancellation")
@@ -303,6 +330,8 @@ func TestAngelaNexusLateTunnelUDP(t *testing.T) {
 			}
 			release()
 			if stale {
+				statistic.DefaultManager.StopRegistrations()
+				lateGateWaitSetups(t)
 				lateGateWait(t, packet.dropped, "stale UDP packet drop")
 				if ignoreContext {
 					lateGateWait(t, conn.closed, "rejected UDP connection close")
@@ -319,6 +348,13 @@ func TestAngelaNexusLateTunnelUDP(t *testing.T) {
 				n, _, err := peer.ReadFrom(b[:])
 				if err != nil || string(b[:n]) != "payload" {
 					t.Fatalf("fresh UDP forwarding failed: %q %v", b[:n], err)
+				}
+				statistic.DefaultManager.StopRegistrations()
+				lateGateWaitSetups(t)
+				select {
+				case <-conn.readDone:
+					t.Fatal("fresh UDP relay exited before setup-only drain")
+				default:
 				}
 				lateGateWait(t, packet.dropped, "fresh UDP packet processed")
 				if conn.writes.Load() != 1 {
@@ -716,5 +752,14 @@ func TestAngelaNexusLateTunnelRetryCancelBetweenAttempts(t *testing.T) {
 	_, err := retry(ctx, func(context.Context) (int, error) { calls++; return 0, errors.New("retryable") }, func(error) { reported++; cancel() })
 	if err == nil || calls != 1 || reported != 1 {
 		t.Fatalf("retry continued after cancellation: calls=%d reports=%d err=%v", calls, reported, err)
+	}
+}
+
+func lateGateWaitSetups(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := statistic.DefaultManager.WaitSetups(ctx); err != nil {
+		t.Fatalf("actual setup did not drain: %v", err)
 	}
 }

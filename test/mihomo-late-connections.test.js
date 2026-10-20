@@ -151,3 +151,24 @@ test("cancellation regressions remain in CI-selected groups and retain ignoring-
   assert.match(tunnel, /underlying stale TCP socket not closed/);
   assert.match(tunnel, /underlying stale UDP socket not closed/);
 });
+
+test("bridge closes tracked handshakes before bounded setup drain and preserves late cleanup failures", () => {
+  const cleanup = bridge.split("func closeAndroidResources()")[1].split("func stopTunError")[0];
+  assert.ok(cleanup.indexOf("StopRegistrations()") < cleanup.indexOf("closeConnections(connections)"));
+  assert.ok(cleanup.indexOf("closeConnections(connections)") < cleanup.indexOf("waitAndroidSetups(androidSetupDrainTimeout)"));
+  assert.ok(cleanup.indexOf("waitAndroidSetups(androidSetupDrainTimeout)") < cleanup.lastIndexOf("DefaultManager.Range"));
+  assert.match(cleanup, /errAndroidLateSetupConnections/);
+  assert.match(cleanup, /errors\.Join\(listenerErr, connectionErr, setupErr, lateErr\)/);
+  assert.match(cleanup, /androidSetupDrainTimeout = 2 \* time\.Second/);
+  assert.match(cleanup, /context\.WithTimeout\(context\.Background\(\), timeout\)/);
+  assert.match(cleanup, /DefaultManager\.WaitSetups\(ctx\)/);
+});
+
+test("ordinary setup drain has explicit acquisition and release without joining relays", () => {
+  const patch = read("native/android/mihomo-bridge/late-connections.patch");
+  assert.match(patch, /func \(m \*Manager\) BeginSetup\(epoch uint64\) \(func\(\), error\)/);
+  assert.match(patch, /func \(m \*Manager\) WaitSetups\(ctx context\.Context\) error/);
+  assert.equal((patch.match(/DefaultManager\.BeginSetup\(registrationEpoch\)/g) || []).length, 2);
+  assert.match(patch, /sync\.Once/);
+  assert.match(patch, /ctx\.Done\(\)/);
+});

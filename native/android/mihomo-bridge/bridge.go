@@ -19,6 +19,7 @@ static int angelanexusProtectFd(int fd) {
 import "C"
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -29,6 +30,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/metacubex/mihomo/component/dialer"
@@ -362,7 +364,9 @@ func startAndroidTUNWithConstructor(fd int, stack, address, dns string, generati
 
 // Caller holds androidTunMu and suspends tunnel admission. Closing registration
 // first invalidates ordinary tunnel TCP/UDP setup tokens before taking a snapshot.
-// Late results close themselves; this does not join dials, NAT or background work.
+// Join only admitted dial/retry/early-handshake work, not pre-dial metadata,
+// relays, NAT, DNS or providers. A timeout preserves setup debt for the next stop
+// and prevents a replacement attachment from committing through failed cleanup.
 func closeAndroidResources() error {
 	statistic.DefaultManager.StopRegistrations()
 	listenerErr := androidRuntime.closeTun()
@@ -376,7 +380,29 @@ func closeAndroidResources() error {
 	})
 	// Do not short-circuit on a listener failure: still attempt every connection.
 	connectionErr := androidRuntime.closeConnections(connections)
-	return errors.Join(listenerErr, connectionErr)
+	setupErr := waitAndroidSetups(androidSetupDrainTimeout)
+	// A rejected late result can fail Close after the snapshot above. Its manager
+	// registration is the retry owner. Do not report successful stop or reopen
+	// admission while that newly retained connection still awaits cleanup.
+	var lateErr error
+	statistic.DefaultManager.Range(func(connection statistic.Tracker) bool {
+		if _, captured := connections[connection.ID()]; !captured {
+			lateErr = errAndroidLateSetupConnections
+			return false
+		}
+		return true
+	})
+	return errors.Join(listenerErr, connectionErr, setupErr, lateErr)
+}
+
+const androidSetupDrainTimeout = 2 * time.Second
+
+var errAndroidLateSetupConnections = errors.New("late setup connections await cleanup retry")
+
+func waitAndroidSetups(timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return statistic.DefaultManager.WaitSetups(ctx)
 }
 
 func stopTunError() error {

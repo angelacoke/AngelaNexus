@@ -438,3 +438,107 @@ func TestAngelaNexusLateConnectionsClosedContextAndConcurrentRestart(t *testing.
 	}
 	m.StopRegistrations()
 }
+
+func TestAngelaNexusLateConnectionsSetupLedger(t *testing.T) {
+	m := &Manager{}
+	m.StartRegistrations()
+	epoch := m.RegistrationEpoch()
+	release, err := m.BeginSetup(epoch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.StopRegistrations()
+	if _, err := m.BeginSetup(epoch); err == nil {
+		t.Fatal("closed setup was admitted")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if err := m.WaitSetups(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("WaitSetups error = %v, want timeout", err)
+	}
+	release()
+	release()
+	m.StartRegistrations()
+	m.StopRegistrations()
+	if err := m.WaitSetups(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	m.StartRegistrations()
+	fresh := m.RegistrationEpoch()
+	freshRelease, err := m.BeginSetup(fresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.StopRegistrations()
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	if err := m.WaitSetups(ctx2); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("retained setup WaitSetups error = %v", err)
+	}
+	cancel2()
+	freshRelease()
+	if err := m.WaitSetups(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAngelaNexusLateConnectionsSetupDebtSurvivesReopen(t *testing.T) {
+	m := &Manager{}
+	m.StartRegistrations()
+	oldEpoch := m.RegistrationEpoch()
+	oldRelease, err := m.BeginSetup(oldEpoch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer oldRelease()
+	if err := m.WaitSetups(context.Background()); err == nil {
+		t.Fatal("wait accepted open admission")
+	}
+	m.StopRegistrations()
+	m.StartRegistrations()
+	if _, err := m.BeginSetup(oldEpoch); err == nil {
+		t.Fatal("stale epoch acquired setup")
+	}
+	freshRelease, err := m.BeginSetup(m.RegistrationEpoch())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer freshRelease()
+	m.StopRegistrations()
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := m.WaitSetups(canceled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled wait: %v", err)
+	}
+	oldRelease()
+	ctx, timeoutCancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer timeoutCancel()
+	if err := m.WaitSetups(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("fresh debt lost after old release: %v", err)
+	}
+	var releases sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		releases.Add(1)
+		go func() { defer releases.Done(); freshRelease(); oldRelease() }()
+	}
+	releases.Wait()
+	ctx2, cancel2 := context.WithTimeout(context.Background(), time.Second)
+	defer cancel2()
+	if err := m.WaitSetups(ctx2); err != nil {
+		t.Fatal(err)
+	}
+	m.StartRegistrations()
+	next, err := m.BeginSetup(m.RegistrationEpoch())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.StopRegistrations()
+	ctx3, cancel3 := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel3()
+	if err := m.WaitSetups(ctx3); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("new drain reused completed channel: %v", err)
+	}
+	next()
+	if err := m.WaitSetups(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}

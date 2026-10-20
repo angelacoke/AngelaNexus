@@ -66,7 +66,7 @@ test("Mihomo stop and replacement close visible trackers even after listener fai
   assert.match(cleanup, /connections\[connection\.ID\(\)\] = connection/);
   assert.ok(cleanup.indexOf("androidRuntime.closeTun()") < cleanup.indexOf("statistic.DefaultManager.Range"));
   assert.match(cleanup, /connectionErr := androidRuntime\.closeConnections\(connections\)/);
-  assert.match(cleanup, /return errors\.Join\(listenerErr, connectionErr\)/);
+  assert.match(cleanup, /return errors\.Join\(listenerErr, connectionErr, setupErr, lateErr\)/);
   assert.doesNotMatch(cleanup, /if listenerErr/);
   const start = bridge.split("func startTUN(")[1].split("func closeAndroidResources")[0];
   assert.ok(start.indexOf("closeAndroidResources()") < start.indexOf("if fd < 0"));
