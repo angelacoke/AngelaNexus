@@ -872,3 +872,211 @@ func TestAngelaNexusLateTunnelSenderConcurrentClosesDropOnce(t *testing.T) {
 		t.Fatal("concurrent Close left queued packets")
 	}
 }
+
+// These tests synchronize on callbacks, not sleeps: Close must prevent the next
+// forwarding stage once the callback returns. Already-entered writes are not joined.
+type lateProcessPacket struct {
+	lateQueuePacket
+	metadata  *C.Metadata
+	onData    func()
+	dataCalls atomic.Int32
+}
+
+func (p *lateProcessPacket) Metadata() *C.Metadata { return p.metadata }
+func (p *lateProcessPacket) Data() []byte {
+	p.dataCalls.Add(1)
+	if p.onData != nil {
+		p.onData()
+	}
+	return []byte("sender-stage-payload")
+}
+
+type lateProcessConn struct {
+	C.PacketConn
+	resolve   func(context.Context, *C.Metadata) error
+	writes    atomic.Int32
+	deadlines atomic.Int32
+	onWrite   func()
+}
+
+func (c *lateProcessConn) ResolveUDP(ctx context.Context, m *C.Metadata) error {
+	return c.resolve(ctx, m)
+}
+func (c *lateProcessConn) WriteTo(b []byte, _ net.Addr) (int, error) {
+	c.writes.Add(1)
+	if c.onWrite != nil {
+		c.onWrite()
+	}
+	return len(b), nil
+}
+func (c *lateProcessConn) SetReadDeadline(time.Time) error { c.deadlines.Add(1); return nil }
+
+type lateProcessWriteBack struct {
+	C.WriteBackProxy
+	update func()
+	calls  atomic.Int32
+}
+
+func (p *lateProcessWriteBack) UpdateWriteBack(C.WriteBack) { p.calls.Add(1); p.update() }
+
+func TestAngelaNexusLateTunnelSenderResolveAfterClose(t *testing.T) {
+	for _, mode := range []string{"late-success", "late-error", "fresh-success"} {
+		t.Run(mode, func(t *testing.T) {
+			s := newPacketSender().(*packetSender)
+			metadata := lateGateMetadata(C.UDP, 9)
+			metadata.Host = "sender-stage.invalid"
+			metadata.DstIP = netip.Addr{}
+			p := &lateProcessPacket{metadata: metadata}
+			entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			var once sync.Once
+			unblock := func() { once.Do(func() { close(release) }) }
+			c := &lateProcessConn{resolve: func(ctx context.Context, m *C.Metadata) error {
+				close(entered)
+				<-release // deliberately ignore cancellation and report a late result
+				if mode != "fresh-success" && ctx.Err() == nil {
+					return errors.New("missing cancellation")
+				}
+				m.DstIP = netip.MustParseAddr("127.0.0.1")
+				if mode == "late-error" {
+					return errors.New("late resolver failure")
+				}
+				return nil
+			}}
+			t.Cleanup(func() { s.Close(); unblock(); lateGateWait(t, done, "resolver Process exit") })
+			// Drop re-enters Close and ends the fresh control's Process loop too.
+			p.onDrop = s.Close
+			s.Send(p)
+			go func() { defer close(done); s.Process(c, nil) }()
+			lateGateWait(t, entered, "dequeued packet resolver")
+			if mode != "fresh-success" {
+				s.Close()
+			}
+			if p.drops.Load() != 0 {
+				t.Fatal("Close reclaimed a packet still owned by resolver")
+			}
+			unblock()
+			lateGateWait(t, done, "resolved Process exit")
+			want := int32(0)
+			if mode == "fresh-success" {
+				want = 1
+			}
+			if c.writes.Load() != want || c.deadlines.Load() != want || p.dataCalls.Load() != want || p.drops.Load() != 1 {
+				t.Fatalf("stage ownership: writes=%d deadlines=%d data=%d drops=%d want forwarding=%d", c.writes.Load(), c.deadlines.Load(), p.dataCalls.Load(), p.drops.Load(), want)
+			}
+			if mode != "fresh-success" && len(s.originToTarget) != 0 {
+				t.Fatal("canceled resolution installed a NAT mapping")
+			}
+		})
+	}
+}
+
+func TestAngelaNexusLateTunnelSenderCallbackClose(t *testing.T) {
+	for _, mode := range []string{"write-back", "data", "write-entered", "fresh"} {
+		t.Run(mode, func(t *testing.T) {
+			s := newPacketSender().(*packetSender)
+			p := &lateProcessPacket{metadata: lateGateMetadata(C.UDP, 9)}
+			p.onDrop = s.Close
+			c := &lateProcessConn{}
+			proxy := &lateProcessWriteBack{update: func() {}}
+			switch mode {
+			case "write-back":
+				proxy.update = s.Close
+			case "data":
+				p.onData = s.Close
+			case "write-entered":
+				c.onWrite = s.Close
+			}
+			s.Send(p)
+			done := make(chan struct{})
+			go func() { defer close(done); s.Process(c, proxy) }()
+			t.Cleanup(func() { s.Close(); lateGateWait(t, done, "callback Process exit") })
+			lateGateWait(t, done, "reentrant close through sender callback")
+			wantWrites, wantData, wantDeadlines := int32(0), int32(1), int32(0)
+			if mode == "write-back" {
+				wantData = 0
+			}
+			if mode == "fresh" || mode == "write-entered" {
+				wantWrites = 1
+			}
+			if mode == "fresh" {
+				wantDeadlines = 1
+			}
+			if p.drops.Load() != 1 || proxy.calls.Load() != 1 || c.writes.Load() != wantWrites || p.dataCalls.Load() != wantData || c.deadlines.Load() != wantDeadlines {
+				t.Fatalf("callback stages: drops=%d proxy=%d writes=%d data=%d deadlines=%d", p.drops.Load(), proxy.calls.Load(), c.writes.Load(), p.dataCalls.Load(), c.deadlines.Load())
+			}
+		})
+	}
+}
+
+func TestAngelaNexusLateTunnelSenderCanceledDequeued(t *testing.T) {
+	// Inject the already-owned queue state directly so both select arms are ready.
+	// Production Send cannot enqueue after Close; this targets Process selection.
+	for i := 0; i < 128; i++ {
+		s := newPacketSender().(*packetSender)
+		s.Close()
+		p := &lateQueuePacket{onDrop: s.Close}
+		s.ch <- p
+		proxy := &lateProcessWriteBack{update: func() { t.Error("canceled dequeue updated write-back") }}
+		s.Process(nil, proxy)
+		s.Close() // if cancellation won select, Close still owns the queued packet
+		if p.drops.Load() != 1 || proxy.calls.Load() != 0 || len(s.ch) != 0 {
+			t.Fatal("canceled dequeue ownership lost")
+		}
+	}
+}
+
+func TestAngelaNexusLateTunnelSenderWriteBackAfterClose(t *testing.T) {
+	s := newPacketSender().(*packetSender)
+	p := &lateProcessPacket{metadata: lateGateMetadata(C.UDP, 9)}
+	p.onDrop = s.Close
+	c := &lateProcessConn{}
+	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	proxy := &lateProcessWriteBack{update: func() { close(entered); <-release }}
+	s.Send(p)
+	go func() { defer close(done); s.Process(c, proxy) }()
+	t.Cleanup(func() { s.Close(); unblock(); lateGateWait(t, done, "blocked write-back exit") })
+	lateGateWait(t, entered, "write-back entry")
+	closed := make(chan struct{})
+	go func() { s.Close(); close(closed) }()
+	lateGateWait(t, closed, "Close independent of blocked write-back")
+	if p.drops.Load() != 0 {
+		t.Fatal("Close dropped a packet still owned by write-back")
+	}
+	unblock()
+	lateGateWait(t, done, "write-back return after cancellation")
+	if p.drops.Load() != 1 || c.writes.Load() != 0 || p.dataCalls.Load() != 0 {
+		t.Fatal("late write-back forwarded or lost packet ownership")
+	}
+}
+
+func TestAngelaNexusLateTunnelSenderInFlightWrite(t *testing.T) {
+	s := newPacketSender().(*packetSender)
+	p := &lateProcessPacket{metadata: lateGateMetadata(C.UDP, 9)}
+	p.onDrop = s.Close
+	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	c := &lateProcessConn{onWrite: func() { close(entered); <-release }}
+	s.Send(p)
+	go func() { defer close(done); s.Process(c, nil) }()
+	t.Cleanup(func() { s.Close(); unblock(); lateGateWait(t, done, "in-flight write exit") })
+	lateGateWait(t, entered, "already-entered WriteTo")
+	closed := make(chan struct{})
+	go func() { s.Close(); close(closed) }()
+	lateGateWait(t, closed, "Close independent of in-flight WriteTo")
+	if p.drops.Load() != 0 {
+		t.Fatal("Close released the packet before its write returned")
+	}
+	select {
+	case <-done:
+		t.Fatal("Process exited before its admitted write returned")
+	default:
+	}
+	unblock()
+	lateGateWait(t, done, "admitted write completion")
+	if c.writes.Load() != 1 || c.deadlines.Load() != 0 || p.drops.Load() != 1 {
+		t.Fatalf("in-flight ownership: writes=%d deadlines=%d drops=%d", c.writes.Load(), c.deadlines.Load(), p.drops.Load())
+	}
+}

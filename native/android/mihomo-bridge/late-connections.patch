@@ -531,7 +531,45 @@
  
  	// destination NAT mapping
  	originToTarget map[string]netip.Addr
-@@ -127,25 +129,32 @@
+@@ -64,6 +66,9 @@
+ 
+ func (s *packetSender) processPacket(pc C.PacketConn, packet C.PacketAdapter) {
+ 	defer packet.Drop()
++	if s.ctx.Err() != nil {
++		return
++	}
+ 	metadata := packet.Metadata()
+ 
+ 	var addr *net.UDPAddr
+@@ -95,10 +100,13 @@
+ 			log.Warnln("[UDP] Destination ip not valid: %#v", metadata)
+ 			return
+ 		}
++		if s.ctx.Err() != nil {
++			return
++		}
+ 		s.AddMapping(originMetadata, metadata)
+ 		addr = metadata.UDPAddr()
+ 	}
+-	_ = handleUDPToRemote(packet, pc, addr)
++	_ = handleUDPToRemote(s.ctx, packet, pc, addr)
+ }
+ 
+ func (s *packetSender) Process(pc C.PacketConn, proxy C.WriteBackProxy) {
+@@ -107,6 +115,12 @@
+ 		case <-s.ctx.Done():
+ 			return // sender closed
+ 		case packet := <-s.ch:
++			// A ready queue can win select even after cancellation. Own and drop
++			// this packet, but do not start write-back or forwarding callbacks.
++			if s.ctx.Err() != nil {
++				packet.Drop()
++				return
++			}
+ 			if proxy != nil {
+ 				proxy.UpdateWriteBack(packet)
+ 			}
+@@ -127,36 +141,56 @@
  }
  
  func (s *packetSender) Send(packet C.PacketAdapter) {
@@ -570,7 +608,33 @@
  	s.dropAll()
  }
  
-@@ -169,8 +178,7 @@
+ func (s *packetSender) DoSniff(metadata *C.Metadata) error { return nil }
+ 
+-func handleUDPToRemote(packet C.UDPPacket, pc C.PacketConn, addr *net.UDPAddr) error {
++func handleUDPToRemote(ctx context.Context, packet C.UDPPacket, pc C.PacketConn, addr *net.UDPAddr) error {
+ 	if addr == nil {
+ 		return errors.New("udp addr invalid")
+ 	}
+ 
+-	if _, err := pc.WriteTo(packet.Data(), addr); err != nil {
++	if err := ctx.Err(); err != nil {
++		return err
++	}
++	data := packet.Data()
++	// Callbacks and resolvers may return after (or re-enter) Close. Recheck
++	// immediately before WriteTo without holding a lock across external code.
++	// A write already admitted here is not joined by sender.Close.
++	if err := ctx.Err(); err != nil {
++		return err
++	}
++	if _, err := pc.WriteTo(data, addr); err != nil {
++		return err
++	}
++	if err := ctx.Err(); err != nil {
+ 		return err
+ 	}
+ 	// reset timeout
+@@ -169,8 +203,7 @@
  	defer func() {
  		sender.Close()
  		_ = pc.Close()
@@ -580,7 +644,7 @@
  	}()
  
  	for {
-@@ -207,16 +215,12 @@
+@@ -207,16 +240,12 @@
  	}
  }
  

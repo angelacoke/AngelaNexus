@@ -194,3 +194,26 @@ test("UDP queue race and reentrant Drop regressions stay in the real tunnel CI g
   assert.match(source, /queue-full/);
   assert.match(source, /already-closed/);
 });
+
+test("dequeued UDP packets recheck cancellation across callbacks and before writes", () => {
+  const patch = read("native/android/mihomo-bridge/late-connections.patch");
+  const sender = patch.slice(patch.indexOf("--- tunnel/connection.go"));
+  const additions = sender.split("\n").filter(line => (line.startsWith("+") && !line.startsWith("+++")) || line.startsWith(" ")).map(line => line.slice(1)).join("\n");
+  assert.match(additions, /case packet := <-s\.ch:[\s\S]*if s\.ctx\.Err\(\) != nil \{\n\s*packet\.Drop\(\)\n\s*return/);
+  assert.match(additions, /defer packet\.Drop\(\)\n\s*if s\.ctx\.Err\(\) != nil/);
+  assert.match(additions, /if s\.ctx\.Err\(\) != nil \{\n\s*return\n\s*\}\n\s*s\.AddMapping/);
+  assert.match(additions, /handleUDPToRemote\(s\.ctx, packet, pc, addr\)/);
+  assert.match(additions, /data := packet\.Data\(\)[\s\S]*if err := ctx\.Err\(\); err != nil \{\n\s*return err\n\s*\}\n\s*if _, err := pc\.WriteTo\(data, addr\)/);
+});
+
+test("UDP processing cancellation has late-result, reentry and fresh-forwarding controls", () => {
+  const source = read("native/android/mihomo-bridge/late_tunnel_integration_test.go");
+  for (const name of ["ResolveAfterClose", "CallbackClose", "CanceledDequeued", "WriteBackAfterClose", "InFlightWrite"]) {
+    assert.ok(source.includes(`func TestAngelaNexusLateTunnelSender${name}(`));
+  }
+  for (const mode of ["late-success", "late-error", "fresh-success", "write-entered", "write-back", "data"]) {
+    assert.ok(source.includes(`"${mode}"`));
+  }
+  assert.match(source, /Close independent of blocked write-back/);
+  assert.match(source, /canceled resolution installed a NAT mapping/);
+});
