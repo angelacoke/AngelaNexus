@@ -206,3 +206,11 @@ The Android build uploads the debug APK, available JUnit XML and emulator/logcat
 Xray startup now scopes the received TUN descriptor until ownership transfers to the running service. Configuration, controller, DNS or native-start exceptions before transfer close the descriptor, while a successfully transferred descriptor remains owned by runtime teardown. Kotlin `use` retains the original startup error and suppresses a simultaneous close failure rather than replacing its cause. Pure Kotlin/JUnit tests exercise exception cleanup, ownership transfer, repeated close/transfer and cleanup-error handling; the full Android service change still requires the new commit's SDK/CI build.
 
 The Linux loopback traffic verifier also requires the exact expected HTTP success status/body and request method/path rather than accepting a marker embedded in any response. Neither this check nor launcher survival is evidence of physical-device TUN, UDP, DNS/IPv6 leak prevention, encrypted upstream interoperability or battery behavior. No platform policy, kernel pin or Foundation document is changed.
+
+### Follow-up cleanup and observation boundaries
+
+Xray stop no longer skips a pending DNS reset after native teardown and TUN descriptor release. The cleanup gate treats any remaining native runtime, descriptor or pending DNS reset as unfinished work. Pure Kotlin regressions cover all eight gate-state combinations plus the pending-DNS-only regression; they test the gate and descriptor ownership, not Android's DNS implementation or the actual native service lifecycle.
+
+After the observation window, launcher smoke reads the logs cleared before launch and rejects app-scoped Java/native crash or ANR records, even when the final PID is alive and MainActivity remains resumed. A log-read failure also fails the verifier. Similar-looking package names do not count as this application's crash. This remains bounded, sampled launcher verification, not a guarantee that every possible hang or device failure is detectable.
+
+Loopback target-response validation additionally requires a single decimal Content-Length matching the exact expected body length, and rejects missing, malformed, duplicate or conflicting length fields and unexpected Transfer-Encoding. These are controlled-fixture checks, not a general-purpose HTTP parser or a production traffic security layer.

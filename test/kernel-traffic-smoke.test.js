@@ -18,8 +18,9 @@ test("traffic smoke defaults only to NEXUS_*_BIN and reports missing values", ()
 test("traffic smoke does not accept a marker from a non-success or altered response", () => {
   const response = body => `HTTP/1.1 200 OK\r\ncontent-length: ${Buffer.byteLength(body)}\r\n\r\n${body}`;
   assert.doesNotThrow(() => assertTargetResponse(response("ANGELANEXUS_LOOPBACK_OK")));
-  assert.throws(() => assertTargetResponse(response("prefix ANGELANEXUS_LOOPBACK_OK")), /unexpected target response body/);
+  assert.throws(() => assertTargetResponse(response("ANGELANEXUS_LOOPBACK_OK").replace("ANGELANEXUS_LOOPBACK_OK", "prefix ANGELANEXUS_LOOPBACK_OK")), /unexpected target response body/);
   assert.throws(() => assertTargetResponse(response("ANGELANEXUS_LOOPBACK_OK").replace("200 OK", "404 Not Found")), /unexpected target status/);
+  assert.throws(() => assertTargetResponse(response("ANGELANEXUS_LOOPBACK_OK").replace(/content-length: \d+/, "content-length: 999")), /unexpected target content-length/);
 });
 
 test("traffic smoke rejects missing binaries and cleans up local fixtures", { timeout: 5000 }, async () => {
@@ -89,4 +90,22 @@ test("local SOCKS fixture records independent connections and rejects new connec
   } finally {
     await Promise.all([target, accepting.server, rejecting.server].map(server => new Promise(resolve => server.close(() => resolve()))));
   }
+});
+
+const targetBody = "ANGELANEXUS_LOOPBACK_OK";
+const targetLength = Buffer.byteLength(targetBody);
+for (const [name, headers, error] of [
+  ["missing length", "content-type: text/plain", /content-length/],
+  ["numeric prefix with junk", `Content-Length: ${targetLength}junk`, /content-length/],
+  ["duplicate length", `Content-Length: ${targetLength}\r\nContent-Length: ${targetLength}`, /content-length/],
+  ["conflicting length", `Content-Length: ${targetLength}\r\nContent-Length: 0`, /content-length/],
+  ["ambiguous transfer encoding", `Content-Length: ${targetLength}\r\nTransfer-Encoding: chunked`, /transfer-encoding/],
+]) {
+  test(`traffic smoke rejects ${name} even with the exact target body`, () => {
+    assert.throws(() => assertTargetResponse(`HTTP/1.1 200 OK\r\n${headers}\r\n\r\n${targetBody}`), error);
+  });
+}
+
+test("traffic smoke accepts case-insensitive Content-Length with surrounding whitespace", () => {
+  assert.doesNotThrow(() => assertTargetResponse(`HTTP/1.1 200 OK\r\nCONTENT-LENGTH: \t${targetLength} \r\n\r\n${targetBody}`));
 });

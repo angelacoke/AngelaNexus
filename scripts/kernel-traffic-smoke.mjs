@@ -154,8 +154,18 @@ async function httpViaProxy(port, targetPort) {
 export function assertTargetResponse(response, kernel = "kernel") {
   const separator = response.indexOf("\r\n\r\n");
   if (separator < 0) throw new Error(`${kernel}: incomplete HTTP response headers`);
-  const status = response.slice(0, separator).split("\r\n", 1)[0];
+  const headerLines = response.slice(0, separator).split("\r\n");
+  const status = headerLines[0];
   if (status !== "HTTP/1.1 200 OK") throw new Error(`${kernel}: unexpected target status ${status || "missing"}`);
+  const contentLengths = headerLines.filter(line => /^content-length\s*:/i.test(line));
+  const lengthValue = contentLengths[0]?.split(":").slice(1).join(":").trim();
+  const expectedLength = Buffer.byteLength(TARGET_BODY);
+  if (contentLengths.length !== 1 || !/^\d+$/.test(lengthValue ?? "") || Number(lengthValue) !== expectedLength) {
+    throw new Error(`${kernel}: unexpected target content-length`);
+  }
+  if (headerLines.some(line => /^transfer-encoding\s*:/i.test(line))) {
+    throw new Error(`${kernel}: unexpected target transfer-encoding`);
+  }
   if (response.slice(separator + 4) !== TARGET_BODY) throw new Error(`${kernel}: unexpected target response body`);
 }
 

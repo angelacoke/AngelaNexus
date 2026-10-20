@@ -82,4 +82,13 @@ class XrayDescriptorHandoffTest {
         handoff.close()
         assertEquals(2, descriptor.closeCount)
     }
+
+    @Test
+    fun pendingDnsResetRequiresCleanupRetryAfterDescriptorIsClosed() {
+        assertEquals(true, xrayRuntimeCleanupRequired(
+            running = false,
+            descriptorPresent = false,
+            dnsResetPending = true,
+        ))
+    }
 }

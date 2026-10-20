@@ -84,3 +84,29 @@ test("Android smoke validates required inputs and bounded observation options be
   }
   assert.equal(f.calls.length, 0);
 });
+
+for (const [name, log] of [
+  ["Java crash before first PID sample", "E/AndroidRuntime( 4100): FATAL EXCEPTION: main\nE/AndroidRuntime( 4100): Process: app.angelanexus, PID: 4100\n"],
+  ["ANR while PID stays alive and activity remains resumed", "E/ActivityManager( 100): ANR in app.angelanexus (app.angelanexus/.MainActivity)\n"],
+  ["native crash before first PID sample", "F/DEBUG   ( 4100): pid: 4100, tid: 4100, name: main  >>> app.angelanexus <<<\n"],
+]) {
+  test(`Android smoke rejects ${name}`, async () => {
+    const f = fixture({ "logcat -d": log });
+    await assert.rejects(runAndroidSmoke(f.options), /crash or ANR/);
+    assert.equal(f.sleeps, 3);
+  });
+}
+
+test("Android smoke does not attribute another app's crash or ANR to the launcher", async () => {
+  const f = fixture({ "logcat -d": [
+    "E/AndroidRuntime( 50): Process: app.angelanexus.other, PID: 50",
+    "E/ActivityManager( 100): ANR in app.angelanexus.other (app.angelanexus.other/.MainActivity)",
+    "F/DEBUG ( 50): >>> app.angelanexus.other <<<",
+  ].join("\n") });
+  await runAndroidSmoke(f.options);
+});
+
+test("Android smoke fails closed when post-launch failure logs cannot be read", async () => {
+  const f = fixture({ "logcat -d": new Error("logcat device disconnected") });
+  await assert.rejects(runAndroidSmoke(f.options), /device disconnected/);
+});

@@ -44,6 +44,15 @@ export async function runAndroidSmoke({ adb, apk, samples = 30, intervalMs = 100
   if (!resumed) throw new Error("MainActivity is not the resumed activity");
   const installedPath = await invoke(["shell", "pm", "path", PACKAGE]);
   if (!/^package:\S+/m.test(installedPath)) throw new Error("Installed package path is missing");
+  // Liveness and a resumed Activity do not exclude an ANR. Logcat was cleared
+  // immediately before launch, so reject app-scoped failures from this run,
+  // including a crash/restart before the first PID observation.
+  const logs = await invoke(["logcat", "-d", "-v", "brief"]);
+  if (/^[EF]\/AndroidRuntime\s*\([^\n)]*\):\s*Process:\s*app\.angelanexus(?:,|\s*$)/m.test(logs) ||
+      /(?:^|\n)[^\n]*\bANR in app\.angelanexus(?:\s|$)/m.test(logs) ||
+      />>>\s*app\.angelanexus\s*<<</.test(logs)) {
+    throw new Error("App crash or ANR recorded during launcher observation");
+  }
   return { package: PACKAGE, pids: initialPids, samples, observationMs: samples * intervalMs };
 }
 

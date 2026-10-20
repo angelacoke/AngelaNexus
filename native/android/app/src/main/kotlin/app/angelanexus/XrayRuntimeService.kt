@@ -96,7 +96,9 @@ class XrayRuntimeService : Service() {
     }
 
     private fun stopRuntime(): Throwable? {
-        if (!running && tun == null) return null
+        // A failed DNS reset is independent of native/descriptor ownership.
+        // Do not let the already-cleaned runtime short-circuit its retry.
+        if (!xrayRuntimeCleanupRequired(running, tun != null, dnsResetPending)) return null
 
         var failure: Throwable? = null
 
