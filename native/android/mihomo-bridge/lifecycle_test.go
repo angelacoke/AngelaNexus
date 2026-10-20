@@ -154,7 +154,7 @@ func TestConfigurationPanicLeavesGateBlocked(t *testing.T) {
 }
 
 func TestTransitionsDrainInFlightProtection(t *testing.T) {
-	for _, operation := range []string{"stop", "configuration"} {
+	for _, operation := range []string{"stop", "configuration", "stop announcement"} {
 		t.Run(operation, func(t *testing.T) {
 			var lifecycle androidTunLifecycle
 			lifecycle.protected.Store(true)
@@ -193,6 +193,11 @@ func TestTransitionsDrainInFlightProtection(t *testing.T) {
 			go func() {
 				if operation == "stop" {
 					done <- lifecycle.closeTun()
+				} else if operation == "stop announcement" {
+					lifecycle.beginStop()
+					onTransition()
+					lifecycle.endStop()
+					done <- nil
 				} else {
 					lifecycle.applyConfiguration(onTransition)
 					done <- nil
@@ -480,5 +485,121 @@ func TestCloseTunAcceptsOnlyAlreadyClosedErrors(t *testing.T) {
 				t.Fatalf("close count = %d, want %d", listener.closes, wantCloses)
 			}
 		})
+	}
+}
+
+func TestPendingStopsCannotBorrowReopenedReadiness(t *testing.T) {
+	var lifecycle androidTunLifecycle
+	lifecycle.protected.Store(true)
+	lifecycle.beginStop()
+	lifecycle.beginStop()
+	if lifecycle.pendingStops.Load() != 2 {
+		t.Fatal("concurrent stop requests were not counted")
+	}
+	// Model a constructor which passed its initial check before stop was queued.
+	lifecycle.protected.Store(true)
+	assertBlocked := func() {
+		t.Helper()
+		conn := &testRawConn{}
+		if lifecycle.ready() {
+			t.Fatal("pending stop borrowed reopened readiness")
+		}
+		if err := lifecycle.socketHook(conn, func(int) bool {
+			t.Error("pending stop invoked protection")
+			return true
+		}); err == nil || conn.controls != 0 {
+			t.Fatal("pending stop admitted or touched a socket")
+		}
+	}
+	assertBlocked()
+	lifecycle.endStop()
+	assertBlocked()
+	if err := lifecycle.closeTun(); err != nil {
+		t.Fatal(err)
+	}
+	lifecycle.endStop()
+	if lifecycle.pendingStops.Load() != 0 || lifecycle.ready() {
+		t.Fatal("completed stops left a request or invented readiness")
+	}
+	// A genuinely new ready runtime is usable after all stop calls complete.
+	lifecycle.protected.Store(true)
+	if err := lifecycle.socketHook(&testRawConn{}, func(int) bool { return true }); err != nil {
+		t.Fatalf("fresh runtime stayed blocked: %v", err)
+	}
+}
+
+func TestStopDuringConfigurationPreventsReadinessRestore(t *testing.T) {
+	var lifecycle androidTunLifecycle
+	lifecycle.protected.Store(true)
+	lifecycle.applyConfiguration(func() {
+		lifecycle.beginStop()
+	})
+	if lifecycle.protected.Load() || lifecycle.ready() {
+		t.Fatal("configuration restored admission over a pending stop")
+	}
+	lifecycle.endStop()
+	if lifecycle.ready() {
+		t.Fatal("completing stop restored stale readiness")
+	}
+}
+
+func TestStopBarrierCannotBeUndoneByConcurrentRestore(t *testing.T) {
+	for iteration := 0; iteration < 500; iteration++ {
+		var lifecycle androidTunLifecycle
+		lifecycle.protected.Store(true)
+		start := make(chan struct{})
+		restored := make(chan struct{})
+		go func() {
+			<-start
+			lifecycle.restoreAdmission(true)
+			close(restored)
+		}()
+		close(start)
+		lifecycle.beginStop()
+		<-restored
+		if lifecycle.protected.Load() || lifecycle.ready() {
+			t.Fatalf("iteration %d: late restoration undid stop barrier", iteration)
+		}
+		lifecycle.endStop()
+	}
+}
+
+func TestStopDrainReassertsClosureAfterAlreadyEnteredRestore(t *testing.T) {
+	var lifecycle androidTunLifecycle
+	lifecycle.protected.Store(true)
+	// Model restoreAdmission holding the writer lock after it sampled no stop,
+	// but before publishing readiness. Stop can announce and close the gate,
+	// then must wait for this writer before completing its callback drain.
+	lifecycle.admission.Lock()
+	locked := true
+	done := make(chan struct{})
+	go func() {
+		lifecycle.beginStop()
+		close(done)
+	}()
+	defer func() {
+		if locked {
+			lifecycle.admission.Unlock()
+		}
+		<-done
+		lifecycle.endStop()
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for lifecycle.pendingStops.Load() != 1 || lifecycle.protected.Load() {
+		if time.Now().After(deadline) {
+			t.Fatal("stop did not close the gate before waiting for the writer")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	lifecycle.protected.Store(true) // The already-entered writer's late publication.
+	lifecycle.admission.Unlock()
+	locked = false
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stop did not finish draining the old readiness writer")
+	}
+	if lifecycle.protected.Load() || lifecycle.ready() {
+		t.Fatal("stop drain did not reassert closure after late readiness publication")
 	}
 }

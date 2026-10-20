@@ -105,7 +105,7 @@ func applyAndroidConfiguration(cfg *config.Config) {
 	// ApplyConfig internally resumes the tunnel, even before a TUN is attached.
 	// Keep stopped/failed-start runtimes suspended, including panic paths.
 	defer func() {
-		if !androidRuntime.protected.Load() {
+		if !androidRuntime.ready() {
 			tunnel.OnSuspend()
 		}
 	}()
@@ -209,7 +209,7 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
 		// Keep failed cleanup ownership and the caller's descriptor on failure.
 		return 0
 	}
-	if fd < 0 {
+	if fd < 0 || androidRuntime.pendingStops.Load() != 0 {
 		return 0
 	}
 
@@ -268,8 +268,12 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
 	// unambiguous at the JNI/service boundary.
 	_ = syscall.Close(int(fd))
 	androidRuntime.listener = listener
-	androidRuntime.protected.Store(true)
-	tunnel.OnRunning()
+	androidRuntime.restoreAdmission(true)
+	// A stop may have been announced while constructing the listener. It owns
+	// the queued cleanup; do not resume tunnel admission before it gets the lock.
+	if androidRuntime.ready() {
+		tunnel.OnRunning()
+	}
 	return 1
 }
 
@@ -288,6 +292,10 @@ func closeAndroidResources() error {
 }
 
 func stopTunError() error {
+	// Reject and drain socket hooks even if config.Parse/ApplyConfig currently
+	// holds the control mutex. This does not cancel parsing or completed hooks.
+	androidRuntime.beginStop()
+	defer androidRuntime.endStop()
 	androidTunMu.Lock()
 	defer androidTunMu.Unlock()
 	tunnel.OnSuspend()
@@ -310,7 +318,7 @@ func stopTun() {
 func suspend(suspended C.uchar) {
 	androidTunMu.Lock()
 	defer androidTunMu.Unlock()
-	if suspended != 0 || !androidRuntime.protected.Load() {
+	if suspended != 0 || !androidRuntime.ready() {
 		tunnel.OnSuspend()
 	} else {
 		tunnel.OnRunning()

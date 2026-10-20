@@ -509,3 +509,114 @@ func TestAndroidBridgeStopRetainsUnregisteredFailedTracker(t *testing.T) {
 		t.Fatal("successful cleanup was not idempotent")
 	}
 }
+
+// Holding the same mutex used by config.Parse/ApplyConfig models a slow control
+// operation deterministically. Stop must gate hooks before that mutex is free;
+// the test does not pretend to cancel the operation which owns the mutex.
+func TestAndroidBridgeQueuedStopBlocksBeforeControlLock(t *testing.T) {
+	for _, stops := range []int{1, 2} {
+		for _, closeFails := range []bool{false, true} {
+			t.Run(fmt.Sprintf("stops=%d/closeFails=%t", stops, closeFails), func(t *testing.T) {
+				androidRuntime = androidTunLifecycle{}
+				androidRuntime.protected.Store(true)
+				tunnel.OnRunning()
+				failure := errors.New("queued stop close failed")
+				listener := &bridgeTestListener{}
+				if closeFails {
+					listener.err = failure
+				}
+				androidRuntime.listener = listener
+				androidTunMu.Lock()
+				locked := true
+				done := make(chan error, stops)
+				// Always release and join workers before t.TempDir or the next
+				// test can change package-global state, including assertion failures.
+				completed := 0
+				defer func() {
+					if locked {
+						androidTunMu.Unlock()
+					}
+					for completed < stops {
+						<-done
+						completed++
+					}
+					listener.err = nil
+					_ = stopTunError()
+				}()
+				for i := 0; i < stops; i++ {
+					go func() { done <- stopTunError() }()
+				}
+				deadline := time.Now().Add(5 * time.Second)
+				for androidRuntime.pendingStops.Load() != int64(stops) {
+					if time.Now().After(deadline) {
+						t.Fatal("stops did not announce themselves before waiting for the control lock")
+					}
+					time.Sleep(time.Millisecond)
+				}
+				conn := &bridgeEpochRawConn{}
+				if err := androidRuntime.socketHook(conn, func(int) bool {
+					t.Error("stop queued behind configuration invoked protection")
+					return true
+				}); err == nil || conn.controls != 0 {
+					t.Fatal("stop queued behind configuration admitted a socket")
+				}
+				if listener.closes != 0 {
+					t.Fatal("stop touched owned resources without the control lock")
+				}
+				// The operation currently owning the lock is allowed to finish,
+				// but it must not restore admission over either queued stop.
+				androidRuntime.restoreAdmission(true)
+				if androidRuntime.ready() || androidRuntime.protected.Load() {
+					t.Fatal("readiness restoration overrode queued stop")
+				}
+				androidTunMu.Unlock()
+				locked = false
+				for completed < stops {
+					select {
+					case err := <-done:
+						completed++
+						if closeFails && !errors.Is(err, failure) || !closeFails && err != nil {
+							t.Fatalf("queued stop result: %v", err)
+						}
+					case <-time.After(5 * time.Second):
+						t.Fatal("queued stop did not finish after control lock release")
+					}
+				}
+				if androidRuntime.pendingStops.Load() != 0 || androidRuntime.ready() || tunnel.Status() != tunnel.Suspend {
+					t.Fatal("completed stop left pending requests or reopened admission")
+				}
+				if closeFails && androidRuntime.listener != listener {
+					t.Fatal("queued stop lost failed cleanup ownership")
+				}
+				suspend(0)
+				if tunnel.Status() != tunnel.Suspend {
+					t.Fatal("resume reopened a completed/failed stop")
+				}
+			})
+		}
+	}
+}
+
+func TestAndroidBridgeApplyCannotResumePendingStop(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	constant.SetHomeDir(t.TempDir())
+	cfg, err := config.Parse(bridgeConfigJSON("rule"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	androidRuntime.beginStop()
+	defer androidRuntime.endStop()
+	androidRuntime.protected.Store(true) // Model construction which started earlier.
+	applyAndroidConfiguration(cfg)
+	if androidRuntime.ready() || androidRuntime.protected.Load() || tunnel.Status() != tunnel.Suspend {
+		t.Fatal("upstream apply resumed a runtime with a pending stop")
+	}
+	androidRuntime.protected.Store(true)
+	suspend(0)
+	if tunnel.Status() != tunnel.Suspend {
+		t.Fatal("explicit resume ignored a pending stop")
+	}
+	if startTUN(-1, nil, nil, nil) != 0 || androidRuntime.ready() {
+		t.Fatal("replacement ignored a pending stop")
+	}
+}

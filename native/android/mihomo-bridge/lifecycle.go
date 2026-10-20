@@ -19,7 +19,10 @@ import (
 type androidTunLifecycle struct {
 	listener  io.Closer
 	protected atomic.Bool
-	admission sync.RWMutex
+	// Stop announces itself before waiting for the control mutex. Count requests
+	// so one completed stop cannot reopen admission while another is queued.
+	pendingStops atomic.Int64
+	admission    sync.RWMutex
 	// Invalidates callbacks which sampled admission before a transition but did
 	// not acquire the read lock until after a later configuration/start reopened it.
 	epoch atomic.Uint64
@@ -36,12 +39,12 @@ func (l *androidTunLifecycle) socketHook(conn syscall.RawConn, protect func(int)
 // Keeping the captured token explicit also permits deterministic stale-entry
 // regression tests without relying on goroutine scheduling or sleeps.
 func (l *androidTunLifecycle) socketHookAtEpoch(epoch uint64, conn syscall.RawConn, protect func(int) bool) error {
-	if !l.protected.Load() {
+	if !l.ready() {
 		return errors.New("Android VpnService protection is not ready; dialing is blocked")
 	}
 	l.admission.RLock()
 	defer l.admission.RUnlock()
-	if !l.protected.Load() || epoch != l.epoch.Load() {
+	if !l.ready() || epoch != l.epoch.Load() {
 		return errors.New("Android VpnService protection is not ready; dialing is blocked")
 	}
 	var protectErr error
@@ -57,10 +60,37 @@ func (l *androidTunLifecycle) socketHookAtEpoch(epoch uint64, conn syscall.RawCo
 	}
 	// A stop/configuration may have closed admission while protect was running.
 	// Reject that socket rather than report a stale successful admission.
-	if !l.protected.Load() || epoch != l.epoch.Load() {
+	if !l.ready() || epoch != l.epoch.Load() {
 		return errors.New("Android socket admission closed during protection")
 	}
 	return nil
+}
+
+func (l *androidTunLifecycle) ready() bool {
+	return l.protected.Load() && l.pendingStops.Load() == 0
+}
+
+// beginStop does not need the control mutex: callers must announce the stop
+// before waiting for a parser/apply holding it. Only atomic admission state and
+// the callback barrier are touched here, never listener/connection ownership.
+// A hook already inside its read-side critical section is drained before this
+// returns. A hook which completed earlier is still outside this contract.
+func (l *androidTunLifecycle) beginStop() {
+	l.pendingStops.Add(1)
+	l.blockAndDrain()
+}
+
+func (l *androidTunLifecycle) endStop() {
+	l.pendingStops.Add(-1)
+}
+
+// Serialize restoration with the callback drain. Without this write lock, a
+// restore which sampled pendingStops==0 could pause, let beginStop finish, then
+// publish stale readiness after the stop's barrier returned.
+func (l *androidTunLifecycle) restoreAdmission(wasProtected bool) {
+	l.admission.Lock()
+	defer l.admission.Unlock()
+	l.protected.Store(wasProtected && l.pendingStops.Load() == 0)
 }
 
 func (l *androidTunLifecycle) blockAndDrain() bool {
@@ -70,6 +100,9 @@ func (l *androidTunLifecycle) blockAndDrain() bool {
 	wasProtected := l.protected.Swap(false)
 	l.epoch.Add(1)
 	l.admission.Lock()
+	// An already-entered restore may publish true after the initial Swap using
+	// a pending-stop value sampled earlier. Reassert closure under its lock.
+	l.protected.Store(false)
 	l.admission.Unlock()
 	return wasProtected
 }
@@ -79,7 +112,7 @@ func (l *androidTunLifecycle) applyConfiguration(apply func()) {
 	// Only restore a previously admitted state, never infer it from non-nil.
 	wasProtected := l.blockAndDrain()
 	apply()
-	l.protected.Store(wasProtected)
+	l.restoreAdmission(wasProtected)
 }
 
 func (l *androidTunLifecycle) closeTun() error {

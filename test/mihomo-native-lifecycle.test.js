@@ -49,13 +49,13 @@ test("Mihomo host bridge regression uses pinned source and restores the Android 
 test("Mihomo bridge keeps stopped configuration and explicit resume from reopening tunnel admission", () => {
   const bridge = read("native/android/mihomo-bridge/bridge.go");
   const apply = bridge.split("func applyAndroidConfiguration")[1].split("//export angelaInit")[0];
-  assert.match(apply, /defer func\(\) \{\s*if !androidRuntime\.protected\.Load\(\) \{\s*tunnel\.OnSuspend\(\)/);
+  assert.match(apply, /defer func\(\) \{\s*if !androidRuntime\.ready\(\) \{\s*tunnel\.OnSuspend\(\)/);
   assert.equal((bridge.match(/applyAndroidConfiguration\(cfg\)/g) ?? []).length, 2);
   const stop = bridge.split("func stopTunError")[1].split("//export angelaStopTun")[0];
   assert.ok(stop.indexOf("tunnel.OnSuspend()") < stop.indexOf("closeAndroidResources()"));
   const resume = bridge.split("func suspend(")[1].split("//export forceGC")[0];
   assert.match(resume, /androidTunMu\.Lock\(\)/);
-  assert.match(resume, /suspended != 0 \|\| !androidRuntime\.protected\.Load\(\)/);
+  assert.match(resume, /suspended != 0 \|\| !androidRuntime\.ready\(\)/);
 });
 
 test("Mihomo stop and replacement close visible trackers even after listener failure", () => {
@@ -101,4 +101,18 @@ test("Mihomo serializes upstream parsing, apply, DNS and home mutation through t
   const dns = bridge.split("func updateAndroidDNS(")[1].split("//export startTUN")[0];
   assert.ok(dns.indexOf("androidTunMu.Lock()") < dns.indexOf("config.Parse(updated)"));
   assert.match(dns, /defer androidTunMu\.Unlock\(\)/);
+});
+
+test("Mihomo stop announces admission closure before waiting for serialized control work", () => {
+  const bridge = read("native/android/mihomo-bridge/bridge.go");
+  const stop = bridge.split("func stopTunError()")[1].split("//export angelaStopTun")[0];
+  assert.ok(stop.indexOf("androidRuntime.beginStop()") < stop.indexOf("androidTunMu.Lock()"));
+  assert.match(stop, /defer androidRuntime\.endStop\(\)/);
+  const start = bridge.split("func startTUN(")[1].split("func closeAndroidResources")[0];
+  assert.ok(start.indexOf("androidRuntime.pendingStops.Load() != 0") < start.indexOf("syscall.Dup"));
+  assert.match(start, /androidRuntime\.restoreAdmission\(true\)/);
+  const lifecycle = read("native/android/mihomo-bridge/lifecycle.go");
+  const restore = lifecycle.split("func (l *androidTunLifecycle) restoreAdmission")[1].split("func (l *androidTunLifecycle) blockAndDrain")[0];
+  assert.ok(restore.indexOf("l.admission.Lock()") < restore.indexOf("l.pendingStops.Load()"));
+  assert.match(restore, /defer l\.admission\.Unlock\(\)/);
 });
