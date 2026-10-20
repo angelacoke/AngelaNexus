@@ -30,6 +30,19 @@ class KernelExecutionStateBridge(
         transition(KernelExecutionPhase.RESOLVING)
     }
 
+    /**
+     * Publishes the complete successful import lifecycle before a service start.
+     * MainActivity receives the Core result, but the VPN service starts later;
+     * keeping these transitions here prevents the first START intent from
+     * attempting STARTING directly from IDLE.
+     */
+    fun markImportResolved(kernelId: String) {
+        require(kernelId.isNotBlank()) { "kernelId must not be blank" }
+        transition(KernelExecutionPhase.IMPORT_RECEIVED)
+        transition(KernelExecutionPhase.RESOLVING)
+        transition(KernelExecutionPhase.READY, kernelId = kernelId.trim(), detail = null)
+    }
+
     fun markReady(kernelId: String) {
         require(kernelId.isNotBlank()) { "kernelId must not be blank" }
         transition(KernelExecutionPhase.READY, kernelId = kernelId, detail = null)
@@ -93,7 +106,8 @@ class KernelExecutionStateBridge(
                 to == KernelExecutionPhase.READY ||
                     to == KernelExecutionPhase.FAILED
             KernelExecutionPhase.READY ->
-                to == KernelExecutionPhase.STARTING ||
+                to == KernelExecutionPhase.IMPORT_RECEIVED ||
+                    to == KernelExecutionPhase.STARTING ||
                     to == KernelExecutionPhase.STOPPING ||
                     to == KernelExecutionPhase.FAILED
             KernelExecutionPhase.STARTING ->

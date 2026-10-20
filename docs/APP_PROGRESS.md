@@ -153,3 +153,17 @@ This milestone completes the contract-level bridge for all five target platforms
 ## Evidence rule
 
 A milestone is marked implemented only after source-level evidence plus reproducible build/test evidence exists. Platform placeholders remain explicitly labeled until exercised.
+
+## Import and startup reliability
+
+Implemented with regression coverage:
+
+- Share-link imports preserve VLESS UUIDs, Trojan passwords, VMess JSON payloads, Shadowsocks methods/passwords, TLS options and transport settings through the canonical model.
+- Both plaintext and Base64 subscriptions are supported, with one decoding layer only. Structured documents take precedence over links appearing in their metadata.
+- Text, local-file, URL and structured `importSource` entry points forward an explicitly requested runtime handoff; compilation alone does not start a runtime.
+- The Android Core bundle supports UTF-8/Base64 buffer conversion, with tests executing the generated bundle without Node's Buffer global.
+- A resolved Android import publishes IMPORT_RECEIVED → RESOLVING → READY before a later VPN start; invalid imports/lifecycle changes remain inside the UI error handler. Ready profiles can be replaced before starting, but running profiles cannot bypass the stop lifecycle.
+- The development HTTP import endpoint rejects lookalike media types and oversized declared/chunked bodies. It remains a local development interface without authentication or TLS.
+- Kernel baseline tests validate registry consistency rather than duplicating version literals, allowing controlled upstream candidates to reach the existing verification gates without silently changing policy.
+
+Local verification includes the JavaScript test suite, generated Android bundle tests, pure Kotlin execution-state tests, and configuration checks against the pinned Mihomo, sing-box and Xray Linux binaries. This is not evidence of a full Android build, physical-device startup, proxy traffic, leak prevention or battery behavior. The Android build workflow and physical-device release gates remain necessary.

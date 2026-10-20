@@ -104,6 +104,34 @@ See [Release Policy](docs/RELEASE_POLICY.md).
 - Android root/transparent networking: capability and guarded-runtime foundations are present; production claims require real-device/kernel verification.
 - Mihomo / sing-box / Xray runtime embedding: not yet claimed as production-ready.
 
+## Local development and verification
+
+Use Node.js 20 or newer; CI uses Node.js 24.
+
+```sh
+npm ci
+npm run verify               # JS / JSON / YAML syntax and full automated tests
+npm run core:android:bundle  # Regenerate the embedded Android Core
+npm run benchmark:smoke      # Small functional benchmark, not device performance evidence
+```
+
+`npm run core:server` starts the development import endpoint at
+`POST http://127.0.0.1:18181/v1/runtime/import`. This HTTP service has no
+authentication: do not expose it directly to the Internet or untrusted networks.
+Use `ANGELANEXUS_CORE_PORT` and `ANGELANEXUS_CORE_HOST` to change its address.
+
+`importSource(source, { kernel, prepareRuntimeHandoff: true })` prepares a
+runtime handoff for text, local file content, URLs and structured configurations;
+compilation does not start a kernel. Share links need an explicit compatible
+kernel binding before a runtime handoff can be produced.
+
+Full Android builds also require the Android SDK, Gradle 8.10.2 and the pinned
+native AARs/libraries prepared by CI. There is currently no Gradle Wrapper in
+the repository, so `./gradlew` is not an available entry point. See the
+[Android build workflow](.github/workflows/android-build.yml) for native
+dependency preparation, unit tests, APK packaging and emulator verification.
+Core or emulator test success is not physical-device TUN, leak or battery evidence.
+
 ## Documentation
 
 - [English documentation](docs/README.md)

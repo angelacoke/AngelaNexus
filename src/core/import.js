@@ -8,6 +8,10 @@ function sourceText(input) {
   return null;
 }
 
+function applyNodeLimit(nodes, maxNodes) {
+  return Number.isInteger(maxNodes) && maxNodes > 0 ? nodes.slice(0, maxNodes) : nodes;
+}
+
 function safeMetadata(input, detection, documentKind) {
   const metadata = {
     importKind: documentKind,
@@ -53,7 +57,7 @@ export function importConfiguration(input, { maxNodes = null } = {}) {
     const config = createUnifiedConfig({
       sourceFormat: "share-links",
       kernel: detection.kernel,
-      nodes: maxNodes === null ? nodes : nodes.slice(0, maxNodes),
+      nodes: applyNodeLimit(nodes, maxNodes),
       metadata
     });
     return {
@@ -70,9 +74,7 @@ export function importConfiguration(input, { maxNodes = null } = {}) {
     metadata
   });
 
-  if (maxNodes !== null) {
-    config.nodes = config.nodes.slice(0, maxNodes);
-  }
+  config.nodes = applyNodeLimit(config.nodes, maxNodes);
 
   return {
     ok: true,

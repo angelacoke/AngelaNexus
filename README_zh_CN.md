@@ -103,6 +103,32 @@ CI 全绿、APK/AAB 已签名或开发版本能够运行，都不能单独证明
 - Android Root / 透明网络：能力与受控运行时基础已经建立；正式能力必须经过真实设备和真实内核验证。
 - Mihomo / sing-box / Xray 实际运行时嵌入：尚不宣称达到生产就绪。
 
+## 本地开发与验证
+
+需要 Node.js 20 或更新版本；CI 使用 Node.js 24。
+
+```sh
+npm ci
+npm run verify               # JS / JSON / YAML 语法与完整自动化测试
+npm run core:android:bundle  # 重新生成 Android 内嵌 Core
+npm run benchmark:smoke      # 小规模功能基准，不代表真机性能
+```
+
+本地 Core 导入服务通过 `npm run core:server` 启动，默认监听
+`127.0.0.1:18181`，接口为 `POST /v1/runtime/import`。
+这是开发用的无认证 HTTP 接口，不要直接暴露到公网或不可信网络。
+端口和监听地址可通过 `ANGELANEXUS_CORE_PORT`、`ANGELANEXUS_CORE_HOST` 设置。
+
+`importSource(source, { kernel, prepareRuntimeHandoff: true })` 可为文本、
+本地文件内容、URL 和结构化配置准备运行时交接数据；编译不等于启动内核。
+分享链接需要明确可兼容的内核绑定后才能生成交接配置。
+
+Android 完整构建还需要 Android SDK、Gradle 8.10.2，以及 CI 固定版本的原生
+AAR / 库。仓库当前没有 Gradle Wrapper，不能直接运行 `./gradlew`。
+原生依赖准备、单元测试、APK 打包和模拟器验证步骤见
+[Android 构建工作流](.github/workflows/android-build.yml)。
+通过 Core 测试或模拟器测试，不代表已完成真机 TUN、泄漏防护或电池验证。
+
 ## 文档
 
 - [English README](README.md)

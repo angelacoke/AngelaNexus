@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Kernels } from "../src/core/model.js";
+import { UpstreamKernelRegistry } from "../src/core/kernel-registry.js";
 import { KernelCapabilityManifest } from "../src/core/kernel-capability-manifest.js";
 import { CompatibilityStatus, KernelVersions, protocolCompatibility, validateUnifiedCompatibility, buildCompatibilityMatrix } from "../src/core/compatibility.js";
 
@@ -12,9 +13,10 @@ test("recognizes documented common protocols", () => {
 });
 
 test("tracks stable kernel baselines", () => {
-  assert.equal(KernelVersions[Kernels.MIHOMO].stable, "1.19.32");
-  assert.equal(KernelVersions[Kernels.SING_BOX].stable, "1.14.2");
-  assert.equal(KernelVersions[Kernels.XRAY].stable, "26.3.27");
+  for (const kernel of Object.values(Kernels)) {
+    assert.equal(KernelVersions[kernel].stable, UpstreamKernelRegistry[kernel].stable);
+    assert.equal(KernelVersions[kernel].channel, UpstreamKernelRegistry[kernel].channel);
+  }
 });
 
 test("keeps protocol claims in a dedicated manifest", () => {

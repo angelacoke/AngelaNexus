@@ -44,9 +44,9 @@ export function inspectImport(input, { kernel = null } = {}) {
   return { detection: detected, binding: { kernel: selected, mode: explicit ? "explicit" : "automatic", candidates: detected.candidates.slice(), requiresConfirmation: prompt.required, prompt, decision: { ...decision, requiresUserChoice: prompt.required } } };
 }
 
-export async function importSource(input, { kernel = null, maxNodes = null, fetcher = globalThis.fetch, trafficAcceptance = null } = {}) {
+export async function importSource(input, { kernel = null, maxNodes = null, fetcher = globalThis.fetch, prepareRuntimeHandoff = false, trafficAcceptance = null } = {}) {
   const source = classifyImportSource(input);
-  const options = { kernel, maxNodes, trafficAcceptance };
+  const options = { kernel, maxNodes, prepareRuntimeHandoff, trafficAcceptance };
   if (source.type === "url") return importConfig(await fetchSubscription(source.url, { fetcher }), options);
   if (source.type === "file" || source.type === "text") return importConfig(source.content, options);
   return importConfig(source.value, options);

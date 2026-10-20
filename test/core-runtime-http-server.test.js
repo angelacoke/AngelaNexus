@@ -100,3 +100,68 @@ test("Core runtime HTTP server preserves a canonical execution intent when Core 
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("Core runtime HTTP server accepts JSON parameters but rejects lookalike media types", async () => {
+  const server = createCoreRuntimeHttpServer();
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+
+  try {
+    const accepted = await fetch("http://127.0.0.1:" + port + "/v1/runtime/import", {
+      method: "POST",
+      headers: { "content-type": "application/json; charset=utf-8" },
+      body: "{}",
+    });
+    assert.equal(accepted.status, 400);
+
+    const rejected = await fetch("http://127.0.0.1:" + port + "/v1/runtime/import", {
+      method: "POST",
+      headers: { "content-type": "application/jsonp" },
+      body: "{}",
+    });
+    assert.equal(rejected.status, 415);
+    assert.deepEqual(await rejected.json(), { ok: false, error: "unsupported-content-type" });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("Core runtime HTTP server rejects a declared oversized body before buffering it", async () => {
+  const server = createCoreRuntimeHttpServer({ maxBytes: 8 });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+
+  try {
+    const response = await fetch("http://127.0.0.1:" + port + "/v1/runtime/import", {
+      method: "POST",
+      headers: { "content-type": "application/json", "content-length": "9" },
+      body: "123456789",
+    });
+    assert.equal(response.status, 413);
+    assert.deepEqual(await response.json(), { ok: false, error: "request body exceeds byte limit" });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("Core runtime HTTP server returns 413 for oversized chunked uploads", async () => {
+  const server = createCoreRuntimeHttpServer({ maxBytes: 8 });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  async function* chunks() {
+    yield "1234";
+    yield "56789";
+  }
+  try {
+    const response = await fetch("http://127.0.0.1:" + port + "/v1/runtime/import", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: chunks(),
+      duplex: "half",
+    });
+    assert.equal(response.status, 413);
+    assert.equal((await response.json()).ok, false);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

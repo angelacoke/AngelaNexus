@@ -14,14 +14,37 @@ function jsonResponse(response, status, body) {
   response.end(payload);
 }
 
+function requestContentType(request) {
+  const value = request.headers["content-type"];
+  if (typeof value !== "string") return "";
+  return value.split(";", 1)[0].trim().toLowerCase();
+}
+
 async function readBody(request, maxBytes) {
   const chunks = [];
   let total = 0;
 
+  const contentLength = request.headers["content-length"];
+  if (contentLength !== undefined) {
+    const declaredBytes = Number(contentLength);
+    if (!Number.isInteger(declaredBytes) || declaredBytes < 0) {
+      throw Object.assign(new TypeError("content-length header is invalid"), { code: "INVALID_CONTENT_LENGTH" });
+    }
+    if (declaredBytes > maxBytes) {
+      // Stop consuming an already-buffered oversized request. This gives the
+      // caller a deterministic 413 without allocating the request body.
+      request.resume();
+      throw Object.assign(new RangeError("request body exceeds byte limit"), { code: "PAYLOAD_TOO_LARGE" });
+    }
+  }
+
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     total += buffer.length;
-    if (total > maxBytes) throw Object.assign(new RangeError("request body exceeds byte limit"), { code: "PAYLOAD_TOO_LARGE" });
+    if (total > maxBytes) {
+      request.resume();
+      throw Object.assign(new RangeError("request body exceeds byte limit"), { code: "PAYLOAD_TOO_LARGE" });
+    }
     chunks.push(buffer);
   }
 
@@ -62,8 +85,7 @@ export function createCoreRuntimeHttpServer({
         return;
       }
 
-      const contentType = String(request.headers["content-type"] || "").toLowerCase();
-      if (!contentType.startsWith("application/json")) {
+      if (requestContentType(request) !== "application/json") {
         jsonResponse(response, 415, { ok: false, error: "unsupported-content-type" });
         return;
       }
@@ -74,7 +96,7 @@ export function createCoreRuntimeHttpServer({
     } catch (error) {
       const code = error?.code;
       const status = code === "PAYLOAD_TOO_LARGE" ? 413
-        : code === "INVALID_UTF8" ? 400
+        : code === "INVALID_UTF8" || code === "INVALID_CONTENT_LENGTH" ? 400
         : 400;
       jsonResponse(response, status, {
         ok: false,
