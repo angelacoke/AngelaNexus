@@ -39,6 +39,7 @@ import (
 	"github.com/metacubex/mihomo/listener/sing_tun"
 	"github.com/metacubex/mihomo/tunnel"
 	"github.com/metacubex/mihomo/tunnel/statistic"
+	"golang.org/x/sys/unix"
 )
 
 var (
@@ -293,7 +294,10 @@ func startAndroidTUNWithConstructor(fd int, stack, address, dns string, generati
 	if err := androidRuntime.checkConfigurationGeneration(generation); err != nil {
 		return false
 	}
-	dupFd, err := syscall.Dup(fd)
+	// Upstream uses fd==0 as the sentinel for creating its own TUN. Dup may
+	// return 0 when stdin is closed; reserve all standard descriptors instead.
+	// Set CLOEXEC atomically so concurrent process launches cannot inherit it.
+	dupFd, err := unix.FcntlInt(uintptr(fd), unix.F_DUPFD_CLOEXEC, 3)
 	if err != nil {
 		// The caller retains ownership until this function succeeds.
 		return false

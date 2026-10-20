@@ -109,7 +109,7 @@ test("Mihomo stop announces admission closure before waiting for serialized cont
   assert.ok(stop.indexOf("androidRuntime.beginStop()") < stop.indexOf("androidTunMu.Lock()"));
   assert.match(stop, /defer androidRuntime\.endStop\(\)/);
   const start = bridge.split("func startTUN(")[1].split("func closeAndroidResources")[0];
-  assert.ok(start.indexOf("androidRuntime.pendingStops.Load() != 0") < start.indexOf("syscall.Dup"));
+  assert.ok(start.indexOf("androidRuntime.pendingStops.Load() != 0") < start.indexOf("unix.FcntlInt"));
   assert.match(start, /androidRuntime\.restoreAdmission\(true\)/);
   const lifecycle = read("native/android/mihomo-bridge/lifecycle.go");
   const restore = lifecycle.split("func (l *androidTunLifecycle) restoreAdmission")[1].split("func (l *androidTunLifecycle) blockAndDrain")[0];
@@ -203,7 +203,7 @@ test("Mihomo TUN start retains its stop generation and rejects before touching n
   const lock = body.indexOf("androidTunMu.Lock()");
   const check = body.indexOf("androidRuntime.checkConfigurationGeneration(generation)");
   assert.ok(lock >= 0 && check > lock);
-  for (const mutation of ["tunnel.OnSuspend()", "closeAndroidResources()", "syscall.Dup(fd)", "syscall.Close(fd)", "androidRuntime.listener = listener"]) {
+  for (const mutation of ["tunnel.OnSuspend()", "closeAndroidResources()", "unix.FcntlInt(uintptr(fd), unix.F_DUPFD_CLOEXEC, 3)", "syscall.Close(fd)", "androidRuntime.listener = listener"]) {
     assert.ok(check < body.indexOf(mutation), mutation);
   }
   assert.match(body, /defer androidTunMu\.Unlock\(\)/);
@@ -225,5 +225,18 @@ test("Mihomo rechecks stop after construction before consuming the caller descri
   assert.ok(callerClose < body.indexOf("androidRuntime.restoreAdmission(true)"));
   const checks = [...body.matchAll(/androidRuntime\.checkConfigurationGeneration\(generation\)/g)].map(match => match.index);
   assert.equal(checks.length, 3);
-  assert.ok(checks[1] < body.indexOf("syscall.Dup(fd)"));
+  assert.ok(checks[1] < body.indexOf("unix.FcntlInt("));
+});
+
+test("Mihomo TUN duplicates avoid standard descriptors and atomically prevent exec inheritance", () => {
+  const bridge = read("native/android/mihomo-bridge/bridge.go");
+  const body = bridge.split("func startAndroidTUNWithConstructor(")[1].split("func closeAndroidResources()")[0];
+  assert.match(body, /dupFd, err := unix\.FcntlInt\(uintptr\(fd\), unix\.F_DUPFD_CLOEXEC, 3\)/);
+  assert.match(body, /FileDescriptor:\s+dupFd/);
+  assert.doesNotMatch(body, /syscall\.Dup\(|unix\.Dup\(|CloseOnExec\(/);
+  const regression = read("native/android/mihomo-bridge/bridge_integration_test.go");
+  assert.match(regression, /func TestAndroidBridgeConstructionWithClosedStdin\(/);
+  assert.match(regression, /syscall\.Close\(0\)/);
+  assert.match(regression, /listener\.fd >= 3/);
+  assert.match(regression, /flags&syscall\.FD_CLOEXEC != 0/);
 });

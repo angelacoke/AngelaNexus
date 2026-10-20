@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"syscall"
@@ -1132,5 +1134,95 @@ func TestAndroidBridgeFreshConstructionCommitsCallerFD(t *testing.T) {
 	}
 	if err := syscall.Fstat(listener.fd, &stat); !errors.Is(err, syscall.EBADF) {
 		t.Fatalf("committed duplicate survived stop: %v", err)
+	}
+}
+
+// Closing a process-wide standard fd must never affect other tests or workers.
+// The child exercises the real startup body with a synthetic pipe listener.
+func TestAndroidBridgeConstructionWithClosedStdin(t *testing.T) {
+	const childEnv = "ANGELANEXUS_TEST_CLOSED_STDIN"
+	mode := os.Getenv(childEnv)
+	if mode != "success" && mode != "failure" {
+		for _, childMode := range []string{"success", "failure"} {
+			cmd := exec.Command(os.Args[0], "-test.run=^TestAndroidBridgeConstructionWithClosedStdin$", "-test.timeout=20s")
+			cmd.Env = append(os.Environ(), childEnv+"="+childMode)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("closed-stdin %s child: %v\n%s", childMode, err, output)
+			}
+		}
+		return
+	}
+	androidRuntime = androidTunLifecycle{}
+	tunnel.OnSuspend()
+	var fds [2]int
+	if err := syscall.Pipe(fds[:]); err != nil {
+		t.Fatal(err)
+	}
+	callerOwned := true
+	defer func() {
+		if callerOwned {
+			_ = syscall.Close(fds[0])
+		}
+		_ = syscall.Close(fds[1])
+		_ = stopTunError()
+	}()
+	if err := syscall.Close(0); err != nil {
+		t.Fatal(err)
+	}
+	listener := &bridgeConstructedListener{fd: -1}
+	validFD, closeOnExec := false, false
+	accepted := startAndroidTUNWithConstructor(fds[0], "system", "172.19.0.1/30", "", androidRuntime.stopGeneration.Load(), func(options LC.Tun) (io.Closer, error) {
+		listener.fd = options.FileDescriptor
+		validFD = listener.fd >= 3
+		flags, _, errno := syscall.Syscall(syscall.SYS_FCNTL, uintptr(listener.fd), syscall.F_GETFD, 0)
+		closeOnExec = errno == 0 && flags&syscall.FD_CLOEXEC != 0
+		if mode == "failure" {
+			return nil, errors.New("synthetic failure before fd adoption")
+		}
+		return listener, nil
+	})
+	if accepted {
+		callerOwned = false
+	}
+	if !validFD {
+		t.Fatalf("constructor received sentinel/standard descriptor %d", listener.fd)
+	}
+	if !closeOnExec {
+		t.Fatal("TUN duplicate is inheritable across exec")
+	}
+	var stat syscall.Stat_t
+	if mode == "failure" {
+		if accepted || androidRuntime.listener != nil || androidRuntime.ready() {
+			t.Fatal("failed construction committed runtime state")
+		}
+		if err := syscall.Fstat(fds[0], &stat); err != nil {
+			t.Fatalf("failed construction consumed caller descriptor: %v", err)
+		}
+		if err := syscall.Fstat(listener.fd, &stat); !errors.Is(err, syscall.EBADF) {
+			t.Fatalf("unused duplicate survived failed construction: %v", err)
+		}
+		return
+	}
+	if !accepted {
+		t.Fatal("fresh construction was rejected with stdin closed")
+	}
+	if err := syscall.Fstat(fds[0], &stat); !errors.Is(err, syscall.EBADF) {
+		t.Fatalf("successful start did not consume caller fd: %v", err)
+	}
+	if _, err := syscall.Write(fds[1], []byte{42}); err != nil {
+		t.Fatal(err)
+	}
+	var data [1]byte
+	if n, err := syscall.Read(listener.fd, data[:]); err != nil || n != 1 || data[0] != 42 {
+		t.Fatalf("constructor did not retain the caller's pipe: n=%d err=%v", n, err)
+	}
+	if err := stopTunError(); err != nil {
+		t.Fatal(err)
+	}
+	if listener.closes != 1 || androidRuntime.listener != nil {
+		t.Fatal("stop did not release constructed listener exactly once")
+	}
+	if err := syscall.Fstat(listener.fd, &stat); !errors.Is(err, syscall.EBADF) {
+		t.Fatalf("duplicate survived stop: %v", err)
 	}
 }
