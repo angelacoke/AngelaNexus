@@ -4,6 +4,7 @@ import ctypes
 import json
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 
@@ -18,6 +19,7 @@ def main() -> None:
     for name, args in (
         ("angelaInit", [ctypes.c_char_p]),
         ("angelaApplyConfig", [ctypes.c_char_p]),
+        ("updateDns", [ctypes.c_char_p]),
         ("angelaStopTun", []),
     ):
         function = getattr(library, name)
@@ -56,6 +58,24 @@ def main() -> None:
         call("angelaStopTun")
         # Reconfiguration/retry after stop must remain callable through the ABI.
         call("angelaApplyConfig", config)
+        call("angelaStopTun")
+
+        # ctypes releases the GIL during CDLL calls: exercise the real exported
+        # entry points from concurrent host threads, not just Go test helpers.
+        # No TUN, network reachability, or complete shutdown is asserted here.
+        def concurrent_calls(worker):
+            for _ in range(4):
+                if worker == 0:
+                    call("angelaApplyConfig", config)
+                elif worker == 1:
+                    call("updateDns", b"127.0.0.1")
+                elif worker == 2:
+                    call("angelaInit", home.encode())
+                else:
+                    call("angelaStopTun")
+
+        with ThreadPoolExecutor(max_workers=4) as workers:
+            list(workers.map(concurrent_calls, range(4)))
         call("angelaStopTun")
     print("Host c-shared load/exports/config/invalid-start/repeated-stop smoke passed", flush=True)
 

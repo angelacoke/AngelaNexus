@@ -1,9 +1,14 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
+	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -11,9 +16,99 @@ import (
 	"github.com/metacubex/mihomo/adapter/outbound"
 	"github.com/metacubex/mihomo/config"
 	"github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/hub/executor"
 	"github.com/metacubex/mihomo/tunnel"
 	"github.com/metacubex/mihomo/tunnel/statistic"
 )
+
+func bridgeConfigJSON(mode string) []byte {
+	return []byte(fmt.Sprintf(`{"mode":%q,"log-level":"silent","geo-auto-update":false,"rules":["MATCH,DIRECT"],"dns":{"enable":false},"tun":{"enable":false},"ntp":{"enable":false}}`, mode))
+}
+
+// These calls use the same non-cgo bodies as the exported entry points. In the
+// pinned upstream Parse temporarily mutates globals; racing Parse against Apply
+// can undo the applied state even though Apply itself holds the lifecycle lock.
+func TestAndroidBridgeConcurrentConfigurationAndDNS(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	lastConfigJSON = nil
+	home := t.TempDir()
+	if err := initializeAndroid(home); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := stopTunError(); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := applyAndroidConfigJSON(bridgeConfigJSON("rule")); err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	var workers sync.WaitGroup
+	for worker := 0; worker < 4; worker++ {
+		workers.Add(1)
+		go func(worker int) {
+			defer workers.Done()
+			<-start
+			for iteration := 0; iteration < 4; iteration++ {
+				var err error
+				switch worker {
+				case 0, 1:
+					err = applyAndroidConfigJSON(bridgeConfigJSON([]string{"direct", "rule"}[worker]))
+				case 2:
+					err = updateAndroidDNS("127.0.0.1")
+				case 3:
+					err = initializeAndroid(home)
+					if err == nil {
+						err = stopTunError()
+					}
+				}
+				if err != nil {
+					t.Errorf("worker %d iteration %d: %v", worker, iteration, err)
+					return
+				}
+			}
+		}(worker)
+	}
+	close(start)
+	workers.Wait()
+	var saved struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.Unmarshal(lastConfigJSON, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if actual := executor.GetGeneral().Mode.String(); !strings.EqualFold(actual, saved.Mode) {
+		t.Fatalf("saved mode %q differs from upstream mode %q after concurrent operations", saved.Mode, actual)
+	}
+	if androidRuntime.protected.Load() || tunnel.Status() != tunnel.Suspend {
+		t.Fatal("concurrent configuration reopened an unattached runtime")
+	}
+}
+
+func TestAndroidBridgeRejectedConfigurationPreservesSavedState(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	lastConfigJSON = nil
+	if err := initializeAndroid(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stopTunError() })
+	if err := applyAndroidConfigJSON(bridgeConfigJSON("direct")); err != nil {
+		t.Fatal(err)
+	}
+	saved := append([]byte(nil), lastConfigJSON...)
+	for _, invalid := range [][]byte{nil, []byte(`{"mode":"not-a-mode"}`), []byte(`{"proxies":[{"name":"bad","type":"not-a-protocol"}]}`)} {
+		if err := applyAndroidConfigJSON(invalid); err == nil {
+			t.Fatalf("accepted invalid configuration %q", invalid)
+		}
+		if !bytes.Equal(lastConfigJSON, saved) || !strings.EqualFold(executor.GetGeneral().Mode.String(), "direct") {
+			t.Fatal("rejected configuration replaced committed configuration state")
+		}
+	}
+	if androidRuntime.protected.Load() || tunnel.Status() != tunnel.Suspend {
+		t.Fatal("rejected configuration reopened socket/tunnel admission")
+	}
+}
 
 type bridgeEpochRawConn struct {
 	controls int

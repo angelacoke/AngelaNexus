@@ -84,3 +84,21 @@ test("Mihomo hook captures its epoch before admission and invalidates it before 
   assert.ok(drain.indexOf("l.protected.Swap(false)") < drain.indexOf("l.epoch.Add(1)"));
   assert.ok(drain.indexOf("l.epoch.Add(1)") < drain.indexOf("l.admission.Lock()"));
 });
+
+test("Mihomo serializes upstream parsing, apply, DNS and home mutation through the exported paths", () => {
+  const bridge = read("native/android/mihomo-bridge/bridge.go");
+  assert.match(bridge, /func angelaInit\(homeDir \*C\.char\) \*C\.char \{\s*return resultString\(initializeAndroid\(cString\(homeDir\)\)\)/);
+  assert.match(bridge, /func angelaApplyConfig\(configJSON \*C\.char\) \*C\.char \{\s*return resultString\(applyAndroidConfigJSON/);
+  assert.match(bridge, /func updateDns\(dns \*C\.char\) \*C\.char \{\s*return resultString\(updateAndroidDNS/);
+  const apply = bridge.split("func applyAndroidConfigJSON(")[1].split("//export updateDns")[0];
+  assert.ok(apply.indexOf("androidTunMu.Lock()") < apply.indexOf("config.Parse(data)"));
+  assert.ok(apply.indexOf("config.Parse(data)") < apply.indexOf("applyAndroidConfiguration(cfg)"));
+  assert.ok(apply.indexOf("applyAndroidConfiguration(cfg)") < apply.indexOf("lastConfigJSON ="));
+  assert.match(apply, /defer androidTunMu\.Unlock\(\)/);
+  const initialize = bridge.split("func initializeAndroid(")[1].split("//export angelaApplyConfig")[0];
+  assert.ok(initialize.indexOf("androidTunMu.Lock()") < initialize.indexOf("constant.SetHomeDir(dir)"));
+  assert.match(initialize, /defer androidTunMu\.Unlock\(\)/);
+  const dns = bridge.split("func updateAndroidDNS(")[1].split("//export startTUN")[0];
+  assert.ok(dns.indexOf("androidTunMu.Lock()") < dns.indexOf("config.Parse(updated)"));
+  assert.match(dns, /defer androidTunMu\.Unlock\(\)/);
+});

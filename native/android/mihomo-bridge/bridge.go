@@ -114,53 +114,69 @@ func applyAndroidConfiguration(cfg *config.Config) {
 
 //export angelaInit
 func angelaInit(homeDir *C.char) *C.char {
-	dir := strings.TrimSpace(cString(homeDir))
+	return resultString(initializeAndroid(cString(homeDir)))
+}
+
+func initializeAndroid(homeDir string) error {
+	androidTunMu.Lock()
+	defer androidTunMu.Unlock()
+	dir := strings.TrimSpace(homeDir)
 	if dir == "" {
-		return C.CString("homeDir is required")
+		return errors.New("homeDir is required")
 	}
 	if err := os.MkdirAll(dir, 0700); err != nil {
-		return resultString(err)
+		return err
 	}
 	constant.SetHomeDir(dir)
-	return C.CString("")
+	return nil
 }
 
 //export angelaApplyConfig
 func angelaApplyConfig(configJSON *C.char) *C.char {
-	data := []byte(cString(configJSON))
+	return resultString(applyAndroidConfigJSON([]byte(cString(configJSON))))
+}
+
+func applyAndroidConfigJSON(data []byte) error {
+	// config.Parse temporarily changes upstream globals and rolls them back.
+	// Serialize parsing with apply, DNS updates, home changes and stop/start;
+	// locking only ApplyConfig lets a late parse rollback undo another apply.
+	androidTunMu.Lock()
+	defer androidTunMu.Unlock()
 	if len(data) == 0 {
-		return C.CString("config is empty")
+		return errors.New("config is empty")
 	}
 
 	cfg, err := config.Parse(data)
 	if err != nil {
-		return resultString(err)
+		return err
 	}
 
-	androidTunMu.Lock()
-	defer androidTunMu.Unlock()
 	applyAndroidConfiguration(cfg)
 	lastConfigJSON = append(lastConfigJSON[:0], data...)
-	return C.CString("")
+	return nil
 }
 
 //export updateDns
 func updateDns(dns *C.char) *C.char {
-	servers, err := parseDNS(cString(dns))
+	return resultString(updateAndroidDNS(cString(dns)))
+}
+
+func updateAndroidDNS(dns string) error {
+	servers, err := parseDNS(dns)
 	if err != nil {
-		return resultString(err)
+		return err
 	}
 
 	androidTunMu.Lock()
 	defer androidTunMu.Unlock()
 
 	if len(lastConfigJSON) == 0 {
-		return C.CString("no configuration has been applied")
+		return errors.New("no configuration has been applied")
 	}
 
 	var document map[string]any
 	if err := json.Unmarshal(lastConfigJSON, &document); err != nil {
-		return resultString(err)
+		return err
 	}
 	dnsSection, ok := document["dns"].(map[string]any)
 	if !ok {
@@ -172,15 +188,15 @@ func updateDns(dns *C.char) *C.char {
 
 	updated, err := json.Marshal(document)
 	if err != nil {
-		return resultString(err)
+		return err
 	}
 	cfg, err := config.Parse(updated)
 	if err != nil {
-		return resultString(err)
+		return err
 	}
 	applyAndroidConfiguration(cfg)
 	lastConfigJSON = append(lastConfigJSON[:0], updated...)
-	return C.CString("")
+	return nil
 }
 
 //export startTUN
