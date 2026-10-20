@@ -125,6 +125,18 @@ runtime handoff for text, local file content, URLs and structured configurations
 compilation does not start a kernel. Share links need an explicit compatible
 kernel binding before a runtime handoff can be produced.
 
+URL subscription downloads default to 5 MiB and a 30-second deadline covering
+redirects and body reads, with strict UTF-8 decoding. Both `importSource` and
+`importConfigurationAsync` accept explicit `maxBytes`, `timeoutMs` and
+`signal: abortController.signal` options to bound or cancel a download.
+
+Run `npm run kernel:traffic:test` with `NEXUS_MIHOMO_BIN`, `NEXUS_SING_BOX_BIN`
+and `NEXUS_XRAY_BIN` set to verified executables for real loopback HTTP/SOCKS
+forwarding and upstream-refusal checks. It does not change system networking
+or prove physical-device TUN, DNS/IPv6 leakage protection or encrypted protocol
+interoperability. Trusted text-only custom fetchers are checked after materializing
+their text and must enforce their own allocation and cancellation bounds.
+
 Full Android builds also require the Android SDK, Gradle 8.10.2 and the pinned
 native AARs/libraries prepared by CI. There is currently no Gradle Wrapper in
 the repository, so `./gradlew` is not an available entry point. See the

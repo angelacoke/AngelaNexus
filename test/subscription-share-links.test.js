@@ -48,3 +48,39 @@ test("imports share links end to end without dropping credentials", () => {
   assert.equal(result.config.nodes[0].auth.uuid, uuid);
   assert.equal(result.config.nodes[1].auth.password, "secret");
 });
+
+test("query extensions cannot overwrite URI identity, credentials or parsed security", () => {
+  const node = parseSubscription(`vless://${uuid}@edge.example:443?security=tls&type=ws&sni=cdn.example&path=%2Fsafe&server=override.example&address=override.example&port=80&server_port=80&protocol=trojan&uuid=changed&username=changed&password=changed&name=changed&id=changed&tls=false&transport=plain&auth=changed&endpoint=changed&flow=xtls-rprx-vision#trusted`)[0];
+  assert.equal(node.protocol, "vless");
+  assert.equal(node.server, "edge.example");
+  assert.equal(node.port, 443);
+  assert.deepEqual(node.endpoint, { server: "edge.example", port: 443 });
+  assert.equal(node.name, "trusted");
+  assert.match(node.id, /^share-[0-9a-f]+$/);
+  assert.equal(node.auth.uuid, uuid);
+  assert.equal(node.auth.username, uuid);
+  assert.equal(node.auth.password, null);
+  assert.equal(node.auth.flow, "xtls-rprx-vision");
+  assert.equal(node.tls.enabled, true);
+  assert.equal(node.tls.serverName, "cdn.example");
+  assert.equal(node.transport.type, "ws");
+  assert.equal(node.transport.path, "/safe");
+});
+
+test("query extensions cannot enable certificate bypass or replace Reality options", () => {
+  const node = parseSubscription(`vless://${uuid}@edge.example:443?security=reality&sni=cdn.example&pbk=public-key&sid=abcd&tls=false&reality=disabled&allowInsecure=true&fingerprint=changed&fp=chrome`)[0];
+  assert.equal(node.tls.enabled, true);
+  assert.equal(node.tls.insecure, false);
+  assert.equal(node.tls.fingerprint, "chrome");
+  assert.equal(node.tls.reality.publicKey, "public-key");
+  assert.equal(node.tls.reality.shortId, "abcd");
+});
+
+test("query prototype keys are ignored and supported extension fields survive", () => {
+  const node = parseSubscription(`trojan://original@edge.example:443?security=tls&password=changed&__proto__=changed&constructor=changed&prototype=changed&customOption=retained`)[0];
+  assert.equal(node.auth.password, "original");
+  assert.equal(Object.hasOwn(node, "__proto__"), false);
+  assert.equal(Object.hasOwn(node, "constructor"), false);
+  assert.equal(Object.hasOwn(node, "prototype"), false);
+  assert.equal(node.customOption, "retained");
+});

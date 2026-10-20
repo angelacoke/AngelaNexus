@@ -167,3 +167,30 @@ Implemented with regression coverage:
 - Kernel baseline tests validate registry consistency rather than duplicating version literals, allowing controlled upstream candidates to reach the existing verification gates without silently changing policy.
 
 Local verification includes the JavaScript test suite, generated Android bundle tests, pure Kotlin execution-state tests, and configuration checks against the pinned Mihomo, sing-box and Xray Linux binaries. This is not evidence of a full Android build, physical-device startup, proxy traffic, leak prevention or battery behavior. The Android build workflow and physical-device release gates remain necessary.
+
+## Subscription download and authority hardening
+
+Implemented with automated regression coverage:
+
+- Share-link query extensions cannot overwrite the URI's server, port, protocol, identity, credentials, or structured TLS/transport configuration. Supported extension fields such as VLESS flow remain available; prototype-related keys are ignored.
+- URL downloads have a 30-second default deadline covering redirects, headers and body reads. Both public URL import entry points forward explicit `timeoutMs`, `signal` and `maxBytes` options. Cancellation does not wait indefinitely for a non-cooperative custom fetcher or cleanup callback.
+- Redirect/error bodies are cancelled, stream reader locks and abort listeners are released, declared and actual byte limits are enforced, and invalid UTF-8 bytes are rejected instead of silently changing credentials.
+- The cancellation listener count is bounded by pending operations rather than the number of received chunks.
+
+Architecture audit: these changes remain in the platform-neutral import pipeline. They do not select a different kernel, alter user routing, bypass capability checks, change the pinned upstream baseline, or claim real-device traffic/leak validation. The unauthenticated HTTP development service remains local-only in intended use; download bounds do not turn it into a production API.
+
+The text-only custom-fetcher compatibility path is **not** a hard streaming memory boundary: `response.text()` materializes first, then the byte limit is checked. Such trusted adapters must bound their own allocation and honor cancellation; an outer deadline cannot forcibly stop arbitrary custom JavaScript. Standard Fetch responses use the bounded streaming path.
+
+### Mihomo native protocol names
+
+Real-process traffic testing exposed a gap that structural tests had accepted: canonical `socks` and `shadowsocks` must compile to Mihomo's native `socks5` and `ss` types. The adapter now performs this translation, and native structural validation rejects the canonical-only spellings and enforces SS cipher/password requirements. This is grounded in the official [SOCKS](https://wiki.metacubex.one/en/config/proxies/socks/) and [Shadowsocks](https://wiki.metacubex.one/en/config/proxies/ss/) configuration references, with real pinned-binary verification required alongside unit tests. The kernel-neutral protocol model and pinned versions are unchanged.
+
+## Real loopback proxy traffic and cleanup reliability
+
+`npm run kernel:traffic:test` runs the actual maintained Mihomo, sing-box and Xray executables against a controlled local HTTP target and SOCKS5 upstream. Set `NEXUS_MIHOMO_BIN`, `NEXUS_SING_BOX_BIN` and `NEXUS_XRAY_BIN` explicitly; the harness does not download binaries or assume a workspace/version-specific path. The normal kernel-conformance CI job now runs it after configuration validation.
+
+For each kernel, the harness compiles a canonical routing policy, adds only a test loopback inbound, and requires independent target-response plus upstream-connection evidence. It then refuses upstream connections and verifies that the request cannot reach the target directly. Ports are dynamic and local, logs and request times are bounded, sockets/temporary files/processes are cleaned up, and no system proxy, firewall or TUN configuration is changed. This is Linux loopback TCP forwarding evidence, not Android physical-device interception, encrypted-protocol interoperability, UDP, DNS/IPv6 leak prevention or battery validation.
+
+On Android, failed transparent-runtime health checks now clean up before releasing the handle. `stop()` can retry cleanup from `FAILED`, retaining the active transaction if cleanup fails. Regression coverage includes successful cleanup and a deliberately failed first rollback followed by a successful retry. JVM tests are not evidence that root commands ran on Android hardware.
+
+Follow-up local evidence: all three pinned Linux processes passed both forwarding and upstream-refusal scenarios, each with one independent successful upstream connection and one HTTP target request. Mihomo's actual binary also accepted compiler-generated SOCKS5 and Shadowsocks configurations. The seven selected Android transparent/root and execution-state test classes passed 35 JUnit tests when compiled from the real repository sources, including the real adapter; only the unused `android.content.Context` type was supplied as a compile-only JVM stub. No Android platform/API behavior is simulated by that stub, and this does not replace a Gradle/SDK application build or hardware verification. Foundation DNA and inheritance checks remain mandatory and unchanged.

@@ -15,7 +15,7 @@ function push(errors, message) {
   errors.push(message);
 }
 
-const MIHOMO_TYPES = new Set(["http","socks","shadowsocks","vmess","vless","trojan","hysteria","hysteria2","tuic","anytls","wireguard"]);
+const MIHOMO_TYPES = new Set(["http","socks5","ss","vmess","vless","trojan","hysteria","hysteria2","tuic","anytls","wireguard"]);
 const SING_BOX_TYPES = new Set(["http","socks","shadowsocks","vmess","vless","trojan","hysteria","hysteria2","tuic","anytls","wireguard","block","selector","urltest"]);
 const XRAY_TYPES = new Set(["http","socks","shadowsocks","vmess","vless","trojan","hysteria","wireguard","blackhole"]);
 
@@ -123,7 +123,7 @@ function validateMihomoProxy(proxy, index, errors) {
   if (!finitePort(proxy.port)) push(errors, label + " requires valid port");
   if (["vmess","vless","tuic"].includes(proxy.type) && !hasText(proxy.uuid)) push(errors, label + " requires uuid");
   if (["trojan","hysteria2","anytls"].includes(proxy.type) && !hasText(proxy.password)) push(errors, label + " requires password");
-  if (proxy.type === "shadowsocks" && (!hasText(proxy.cipher) || !hasText(proxy.password))) push(errors, label + " requires cipher and password");
+  if (proxy.type === "ss" && (!hasText(proxy.cipher) || !hasText(proxy.password))) push(errors, label + " requires cipher and password");
   if (proxy.tls && proxy["reality-opts"] && proxy["reality-opts"]["public-key"] === undefined) push(errors, label + " Reality requires public-key");
 }
 

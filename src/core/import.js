@@ -84,15 +84,15 @@ export function importConfiguration(input, { maxNodes = null } = {}) {
   };
 }
 
-export async function importConfigurationAsync(input, { maxNodes = null, fetcher = globalThis.fetch, maxBytes = 5 * 1024 * 1024 } = {}) {
+export async function importConfigurationAsync(input, { maxNodes = null, fetcher = globalThis.fetch, maxBytes = 5 * 1024 * 1024, timeoutMs = 30000, signal } = {}) {
   if (typeof input === "string" && /^https?:\/\//i.test(input.trim())) {
     const url = validateSubscriptionUrl(input.trim());
-    const content = await fetchSubscription(url, { fetcher, maxBytes });
+    const content = await fetchSubscription(url, { fetcher, maxBytes, timeoutMs, signal });
     return importConfiguration({ type: "file", name: url, content }, { maxNodes });
   }
   if (input && typeof input === "object" && input.type === "url" && typeof input.url === "string") {
     const url = validateSubscriptionUrl(input.url.trim());
-    const content = await fetchSubscription(url, { fetcher, maxBytes });
+    const content = await fetchSubscription(url, { fetcher, maxBytes, timeoutMs, signal });
     return importConfiguration({ type: "file", name: url, content }, { maxNodes });
   }
   return importConfiguration(input, { maxNodes });

@@ -76,7 +76,7 @@ function compileMihomo(config, hop, inboundEndpoints, upstream) {
     const linkName = uniqueTag(existing, "PipelineLink", hop.id);
     proxies.push({
       name: linkName,
-      type: "socks",
+      type: "socks5",
       server: upstream.host,
       port: upstream.port,
       udp: false,

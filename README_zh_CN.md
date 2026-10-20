@@ -123,6 +123,16 @@ npm run benchmark:smoke      # 小规模功能基准，不代表真机性能
 本地文件内容、URL 和结构化配置准备运行时交接数据；编译不等于启动内核。
 分享链接需要明确可兼容的内核绑定后才能生成交接配置。
 
+URL 订阅下载默认限制为 5 MiB、30 秒（覆盖重定向和响应体），严格校验 UTF-8。
+`importSource` 与 `importConfigurationAsync` 均可接收 `maxBytes`、`timeoutMs`
+及 `signal: abortController.signal`，以显式限制或取消下载。
+
+三内核真实流量验收使用 `npm run kernel:traffic:test`，需显式设置
+`NEXUS_MIHOMO_BIN`、`NEXUS_SING_BOX_BIN`、`NEXUS_XRAY_BIN` 为已验证的可执行文件。
+测试覆盖本地 HTTP/SOCKS 转发和上游拒绝时不得直连；不修改系统网络，也不等于真机
+TUN、DNS/IPv6 防泄漏或加密协议互通验证。自定义 text-only fetcher 的字节检查发生在
+文本读取之后；此类受信任适配器需自行限制内存并响应取消。
+
 Android 完整构建还需要 Android SDK、Gradle 8.10.2，以及 CI 固定版本的原生
 AAR / 库。仓库当前没有 Gradle Wrapper，不能直接运行 `./gradlew`。
 原生依赖准备、单元测试、APK 打包和模拟器验证步骤见

@@ -78,8 +78,18 @@ class AndroidTransparentRuntimeBridge(
         return try {
             active.healthCheck()
             LifecycleResult(true, "active", "verified")
-        } catch (_: Throwable) {
-            runtime = null
+        } catch (verificationError: Throwable) {
+            // A failed health check does not prove that the runtime stopped.
+            // Clean up before dropping our handle, or root rules can remain
+            // active while rollback() becomes a misleading noop.
+            try {
+                active.stop()
+                runtime = null
+            } catch (cleanupError: Throwable) {
+                verificationError.addSuppressed(cleanupError)
+                // Keep the handle so the caller can retry cleanup. This is
+                // fail-closed instead of silently leaking an active runtime.
+            }
             LifecycleResult(false, "failed", "verification-failed")
         }
     }

@@ -12,6 +12,7 @@
     "verify": "npm run syntax:check && npm test",
     "upstream:check": "node scripts/check-upstream.mjs",
     "kernel:conformance": "node scripts/kernel-conformance.mjs",
+    "kernel:traffic:test": "node scripts/kernel-traffic-smoke.mjs",
     "kernel:runtime:test": "node --test test/kernel-runtime.test.js",
     "core:server": "node scripts/core-runtime-server.mjs",
     "core:android:bundle": "node scripts/build-android-core-bundle.mjs",

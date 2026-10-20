@@ -92,8 +92,20 @@ function parseShareLink(link) {
   }
   if (url.password) node.password = decodeComponent(url.password);
   applyLinkOptions(node, url.searchParams);
+  // Query options may extend a node, but must never replace the URI authority,
+  // credentials, or the structured TLS/transport options parsed above. Keep
+  // unknown extensions for adapter diagnostics rather than blindly assigning
+  // attacker-controlled object keys (including __proto__).
+  const protectedFields = new Set([
+    ...Object.keys(node), "id", "name", "kind", "protocol", "server", "address",
+    "port", "server_port", "username", "user", "password", "uuid", "auth",
+    "authentication", "endpoint", "tls", "transport", "reality", "headers",
+    "network", "path", "service_name", "serviceName", "sni", "servername",
+    "serverName", "fingerprint", "client_fingerprint", "allowInsecure",
+    "security", "type", "encryption", "__proto__", "prototype", "constructor",
+  ]);
   for (const [key, value] of url.searchParams.entries()) {
-    if (key !== "security" && key !== "type" && key !== "encryption") node[key] = value;
+    if (!protectedFields.has(key)) node[key] = value;
   }
   return node;
 }
@@ -175,41 +187,99 @@ function responseHeader(response, name) {
   return response.headers.get(name);
 }
 
-export async function fetchSubscription(url, { fetcher = globalThis.fetch, maxBytes = 5 * 1024 * 1024 } = {}) {
+export async function fetchSubscription(url, {
+  fetcher = globalThis.fetch,
+  maxBytes = 5 * 1024 * 1024,
+  timeoutMs = 30000,
+  signal,
+} = {}) {
   let target = validateSubscriptionUrl(url);
   if (typeof fetcher !== "function") throw new Error("no HTTP fetch implementation available");
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) throw new RangeError("maxBytes must be a non-negative safe integer");
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2147483647) {
+    throw new RangeError("timeoutMs must be an integer between 1 and 2147483647");
+  }
+  if (signal !== undefined && (!signal || typeof signal.addEventListener !== "function" || typeof signal.removeEventListener !== "function" || typeof signal.aborted !== "boolean")) {
+    throw new TypeError("signal must be an AbortSignal");
+  }
 
-  for (let redirectCount = 0; ; redirectCount += 1) {
-    const response = await fetcher(target, { redirect: "manual" });
-    if (!response) throw new Error("subscription download failed");
-
-    if (response.status >= 300 && response.status < 400) {
-      if (redirectCount >= MAX_REDIRECTS) throw new Error("subscription redirect limit exceeded");
-      const location = responseHeader(response, "location");
-      if (!location) throw new Error("subscription redirect missing location");
-      target = validateSubscriptionUrl(new URL(location, target).toString());
-      continue;
+  const controller = new AbortController();
+  const abort = (error) => controller.abort(error);
+  const onAbort = () => abort(Object.assign(new Error("subscription download aborted"), { name: "AbortError" }));
+  const timer = setTimeout(() => abort(Object.assign(new Error("subscription download timed out"), { name: "TimeoutError", code: "SUBSCRIPTION_TIMEOUT" })), timeoutMs);
+  signal?.addEventListener("abort", onAbort, { once: true });
+  const wait = async (operation) => {
+    controller.signal.throwIfAborted();
+    let onInterrupt;
+    const interrupted = new Promise((_, reject) => {
+      onInterrupt = () => reject(controller.signal.reason);
+      controller.signal.addEventListener("abort", onInterrupt, { once: true });
+    });
+    try {
+      return await Promise.race([operation, interrupted]);
+    } finally {
+      // One listener per pending operation, not one retained promise reaction
+      // per received chunk. Tiny chunks must not cause unbounded memory growth.
+      controller.signal.removeEventListener("abort", onInterrupt);
     }
+  };
+  const cancel = (body) => {
+    // Cleanup must not let an uncooperative server extend the deadline.
+    try { Promise.resolve(body?.cancel()).catch(() => {}); } catch {}
+  };
 
-    if (!response.ok) throw new Error("subscription download failed");
-    if (response.body && typeof response.body.getReader === "function") {
-      const reader = response.body.getReader(); const chunks = []; let total = 0;
-      for (;;) {
-        const part = await reader.read();
-        if (part.done) break;
-        total += part.value.byteLength;
-        if (total > maxBytes) {
-          try { await reader.cancel(); } catch {}
-          throw new Error("subscription exceeds size limit");
+  try {
+    if (signal?.aborted) onAbort();
+    for (let redirectCount = 0; ; redirectCount += 1) {
+      controller.signal.throwIfAborted();
+      const pendingResponse = Promise.resolve(fetcher(target, { redirect: "manual", signal: controller.signal }));
+      // A custom fetcher may ignore cancellation and resolve after the deadline.
+      pendingResponse.then((response) => { if (controller.signal.aborted) cancel(response?.body); }, () => {});
+      const response = await wait(pendingResponse);
+      if (!response) throw new Error("subscription download failed");
+      let reader;
+      try {
+        if (response.status >= 300 && response.status < 400) {
+          if (redirectCount >= MAX_REDIRECTS) throw new Error("subscription redirect limit exceeded");
+          const location = responseHeader(response, "location");
+          if (!location) throw new Error("subscription redirect missing location");
+          target = validateSubscriptionUrl(new URL(location, target).toString());
+          continue;
         }
-        chunks.push(part.value);
+
+        if (!response.ok) throw new Error("subscription download failed");
+        const length = responseHeader(response, "content-length");
+        if (length !== null && /^\d+$/.test(length) && Number(length) > maxBytes) throw new Error("subscription exceeds size limit");
+        if (response.body && typeof response.body.getReader === "function") {
+          reader = response.body.getReader();
+          const chunks = []; let total = 0;
+          for (;;) {
+            const part = await wait(reader.read());
+            if (part.done) break;
+            total += part.value.byteLength;
+            if (total > maxBytes) throw new Error("subscription exceeds size limit");
+            chunks.push(part.value);
+          }
+          try {
+            return new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))));
+          } catch {
+            throw new Error("subscription is not valid UTF-8");
+          }
+        }
+        // Compatibility for trusted text-only fetchers. Unlike a streaming
+        // body, response.text() materializes before the byte check; the custom
+        // fetcher must enforce its own read/allocation bound and cancellation.
+        const text = await wait(response.text());
+        if (Buffer.byteLength(text, "utf8") > maxBytes) throw new Error("subscription exceeds size limit");
+        return text;
+      } finally {
+        cancel(reader || response.body);
+        try { reader?.releaseLock(); } catch {}
       }
-      return new TextDecoder().decode(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))));
     }
-    const text = await response.text();
-    if (Buffer.byteLength(text, "utf8") > maxBytes) throw new Error("subscription exceeds size limit");
-    return text;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
   }
 }
 
