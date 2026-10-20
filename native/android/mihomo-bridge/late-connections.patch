@@ -1,15 +1,16 @@
 --- tunnel/statistic/manager.go
 +++ tunnel/statistic/manager.go
-@@ -1,6 +1,8 @@
+@@ -1,6 +1,9 @@
  package statistic
  
  import (
++	"context"
 +	"errors"
 +	"net"
  	"os"
  	"sync"
  	"time"
-@@ -14,32 +16,101 @@
+@@ -14,32 +17,135 @@
  
  func init() {
  	DefaultManager = &Manager{
@@ -33,6 +34,12 @@
  	DefaultManager.StartStatistics()
  }
  
++type registrationGeneration struct {
++	epoch  uint64
++	ctx    context.Context
++	cancel context.CancelFunc
++}
++
  type Manager struct {
 -	connections   xsync.Map[string, Tracker]
 -	uploadTemp    atomic.Int64
@@ -50,6 +57,7 @@
 +	registrationMu    sync.Mutex
 +	registrationOpen  bool
 +	registrationEpoch uint64
++	registrationGen   *registrationGeneration
 +	connections       xsync.Map[string, Tracker]
 +	uploadTemp        atomic.Int64
 +	downloadTemp      atomic.Int64
@@ -65,25 +73,52 @@
 +	running           bool
 +}
 +
-+// RegistrationEpoch must be captured at setup entry, not after dialing.
-+func (m *Manager) RegistrationEpoch() uint64 {
++// Registration returns the setup generation and a context canceled by
++// StopRegistrations. The shared context owns no per-handler registration.
++func (m *Manager) Registration() (uint64, context.Context) {
 +	m.registrationMu.Lock()
-+	defer m.registrationMu.Unlock()
-+	return m.registrationEpoch
++	if m.registrationGen == nil {
++		ctx, cancel := context.WithCancel(context.Background())
++		if !m.registrationOpen {
++			cancel()
++		}
++		m.registrationGen = &registrationGeneration{epoch: m.registrationEpoch, ctx: ctx, cancel: cancel}
++	}
++	gen := m.registrationGen
++	m.registrationMu.Unlock()
++	return gen.epoch, gen.ctx
 +}
 +
-+// StopRegistrations invalidates old setup tokens, including across reopening.
-+// It neither cancels nor joins the dials that still own those tokens.
++// RegistrationEpoch is retained for callers that only need an admission token.
++func (m *Manager) RegistrationEpoch() uint64 {
++	epoch, _ := m.Registration()
++	return epoch
++}
++
++// StopRegistrations invalidates old setup tokens and cancels their context.
++// Cancellation is deliberately invoked after releasing registrationMu because
++// context cancellation runs arbitrary waiting callbacks synchronously.
 +func (m *Manager) StopRegistrations() {
 +	m.registrationMu.Lock()
 +	m.registrationEpoch++
 +	m.registrationOpen = false
++	gen := m.registrationGen
++	m.registrationGen = nil
 +	m.registrationMu.Unlock()
++	if gen != nil {
++		gen.cancel()
++	}
 +}
 +
 +func (m *Manager) StartRegistrations() {
 +	m.registrationMu.Lock()
++	if m.registrationOpen {
++		m.registrationMu.Unlock()
++		return
++	}
 +	m.registrationOpen = true
++	ctx, cancel := context.WithCancel(context.Background())
++	m.registrationGen = &registrationGeneration{epoch: m.registrationEpoch, ctx: ctx, cancel: cancel}
 +	m.registrationMu.Unlock()
 +}
 +
@@ -263,7 +298,7 @@
  }
  
  func handleUDPConn(packet C.PacketAdapter) {
-+	registrationEpoch := statistic.DefaultManager.RegistrationEpoch()
++	registrationEpoch, registrationCtx := statistic.DefaultManager.Registration()
  	if !isHandle(packet.Metadata().Type) {
  		packet.Drop()
  		return
@@ -279,6 +314,15 @@
  	sender, loaded := natTable.GetOrCreate(key, func() C.PacketSender {
  		sender := newPacketSender()
  		if sniffingEnable && snifferDispatcher.Enable() {
+@@ -464,7 +470,7 @@
+ 			}
+ 
+ 			dialMetadata := metadata.Pure()
+-			ctx, cancel := context.WithTimeout(context.Background(), C.DefaultUDPTimeout)
++			ctx, cancel := context.WithTimeout(registrationCtx, C.DefaultUDPTimeout)
+ 			defer cancel()
+ 			rawPc, err := retry(ctx, func(ctx context.Context) (C.PacketConn, error) {
+ 				return proxy.ListenPacketContext(ctx, dialMetadata)
 @@ -476,7 +482,10 @@
  			}
  			logMetadata(metadata, rule, rawPc)
@@ -304,7 +348,7 @@
  }
  
  func handleTCPConn(connCtx C.ConnContext) {
-+	registrationEpoch := statistic.DefaultManager.RegistrationEpoch()
++	registrationEpoch, registrationCtx := statistic.DefaultManager.Registration()
  	if !isHandle(connCtx.Metadata().Type) {
  		_ = connCtx.Conn().Close()
  		return
@@ -313,8 +357,10 @@
  
  	var peekBytes []byte
 -	var peekLen int
- 
- 	ctx, cancel := context.WithTimeout(context.Background(), C.DefaultTCPTimeout)
+-
+-	ctx, cancel := context.WithTimeout(context.Background(), C.DefaultTCPTimeout)
++
++	ctx, cancel := context.WithTimeout(registrationCtx, C.DefaultTCPTimeout)
  	defer cancel()
  	remoteConn, err := retry(ctx, func(ctx context.Context) (remoteConn C.Conn, err error) {
  		remoteConn, err = proxy.DialContext(ctx, dialMetadata)
@@ -347,6 +393,16 @@
  	defer func(remoteConn C.Conn) {
  		_ = remoteConn.Close()
  	}(remoteConn)
+@@ -739,6 +755,9 @@
+ func retry[T any](ctx context.Context, ft func(context.Context) (T, error), fe func(err error)) (t T, err error) {
+ 	s := slowdown.New()
+ 	for i := 0; i < 10; i++ {
++		if err = ctx.Err(); err != nil {
++			return
++		}
+ 		t, err = ft(ctx)
+ 		if err != nil {
+ 			if fe != nil {
 --- component/nat/table.go
 +++ component/nat/table.go
 @@ -29,6 +29,41 @@

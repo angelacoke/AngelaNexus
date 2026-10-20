@@ -23,11 +23,14 @@ import (
 // Global-mode handlers. The real connection wrappers still provide tracker data.
 type lateGateProxy struct {
 	C.Proxy
-	tcp         C.Conn
-	udp         C.PacketConn
-	entered     chan struct{}
-	release     chan struct{}
-	enteredOnce sync.Once
+	tcp           C.Conn
+	udp           C.PacketConn
+	entered       chan struct{}
+	release       chan struct{}
+	enteredOnce   sync.Once
+	canceled      chan struct{}
+	canceledOnce  sync.Once
+	ignoreContext bool
 }
 
 func (p *lateGateProxy) Name() string                  { return "late-gate-proxy" }
@@ -39,10 +42,17 @@ func (p *lateGateProxy) DialContext(ctx context.Context, metadata *C.Metadata) (
 		return p.Proxy.DialContext(ctx, metadata)
 	}
 	p.enteredOnce.Do(func() { close(p.entered) })
+	ctxDone := ctx.Done()
+	if p.ignoreContext {
+		ctxDone = nil
+	}
 	select {
 	case <-p.release:
 		return p.tcp, nil
-	case <-ctx.Done():
+	case <-ctxDone:
+		if p.canceled != nil {
+			p.canceledOnce.Do(func() { close(p.canceled) })
+		}
 		return nil, ctx.Err()
 	}
 }
@@ -51,10 +61,17 @@ func (p *lateGateProxy) ListenPacketContext(ctx context.Context, metadata *C.Met
 		return p.Proxy.ListenPacketContext(ctx, metadata)
 	}
 	p.enteredOnce.Do(func() { close(p.entered) })
+	ctxDone := ctx.Done()
+	if p.ignoreContext {
+		ctxDone = nil
+	}
 	select {
 	case <-p.release:
 		return p.udp, nil
-	case <-ctx.Done():
+	case <-ctxDone:
+		if p.canceled != nil {
+			p.canceledOnce.Do(func() { close(p.canceled) })
+		}
 		return nil, ctx.Err()
 	}
 }
@@ -119,16 +136,15 @@ func (c *lateGateTCPConn) AppendToChains(C.ProxyAdapter) {}
 func (c *lateGateTCPConn) RemoteDestination() string     { return "127.0.0.1:9" }
 
 func TestAngelaNexusLateTunnelTCP(t *testing.T) {
-	for _, stale := range []bool{true, false} {
-		name := "fresh-forwarding"
-		if stale {
-			name = "old-result-after-restart"
-		}
+	for _, mode := range []string{"fresh-forwarding", "canceled-dial", "old-result-after-restart"} {
+		name := mode
+		stale := mode != "fresh-forwarding"
+		ignoreContext := mode == "old-result-after-restart"
 		t.Run(name, func(t *testing.T) {
 			remote, remotePeer := net.Pipe()
 			inbound, inboundPeer := net.Pipe()
 			remoteConn := &lateGateTCPConn{ExtendedConn: N.NewExtendedConn(remote), needHandshake: true}
-			p := &lateGateProxy{tcp: remoteConn, entered: make(chan struct{}), release: make(chan struct{})}
+			p := &lateGateProxy{tcp: remoteConn, entered: make(chan struct{}), release: make(chan struct{}), canceled: make(chan struct{}), ignoreContext: ignoreContext}
 			lateGateSetup(t, p)
 			payload := []byte("already-peeked")
 			br := bufio.NewReader(inbound)
@@ -160,20 +176,25 @@ func TestAngelaNexusLateTunnelTCP(t *testing.T) {
 			if stale {
 				statistic.DefaultManager.StopRegistrations()
 				statistic.DefaultManager.StartRegistrations()
+				if !ignoreContext {
+					lateGateWait(t, p.canceled, "TCP setup context cancellation")
+				}
 			}
 			release()
-			_ = remotePeer.SetReadDeadline(time.Now().Add(3 * time.Second))
 			if stale {
-				var b [1]byte
-				if n, err := remotePeer.Read(b[:]); n != 0 || err != io.EOF {
-					t.Fatalf("stale TCP result forwarded data or remained open: n=%d err=%v", n, err)
-				}
 				lateGateWait(t, done, "rejected TCP handler exit")
+				if ignoreContext {
+					_ = remotePeer.SetReadDeadline(time.Now().Add(3 * time.Second))
+					var b [1]byte
+					if n, err := remotePeer.Read(b[:]); n != 0 || err != io.EOF {
+						t.Fatalf("stale TCP result forwarded data or remained open: n=%d err=%v", n, err)
+					}
+					if _, err := remote.Write([]byte("stale")); !errors.Is(err, io.ErrClosedPipe) {
+						t.Fatalf("underlying stale TCP socket not closed: %v", err)
+					}
+				}
 				if remoteConn.writes.Load() != 0 {
 					t.Fatalf("stale early TCP connection wrote %d times", remoteConn.writes.Load())
-				}
-				if _, err := remote.Write([]byte("stale")); !errors.Is(err, io.ErrClosedPipe) {
-					t.Fatalf("underlying stale TCP socket not closed: %v", err)
 				}
 				afterUpload, _ := statistic.DefaultManager.Total()
 				if afterUpload != beforeUpload {
@@ -241,11 +262,10 @@ func (p *lateGatePacket) WriteBack([]byte, net.Addr) (int, error) { return 0, ne
 func (p *lateGatePacket) Drop()                                   { p.once.Do(func() { close(p.dropped) }) }
 
 func TestAngelaNexusLateTunnelUDP(t *testing.T) {
-	for _, stale := range []bool{true, false} {
-		name := "fresh-forwarding"
-		if stale {
-			name = "old-result-after-restart"
-		}
+	for _, mode := range []string{"fresh-forwarding", "canceled-dial", "old-result-after-restart"} {
+		name := mode
+		stale := mode != "fresh-forwarding"
+		ignoreContext := mode == "old-result-after-restart"
 		t.Run(name, func(t *testing.T) {
 			raw, err := net.ListenPacket("udp4", "127.0.0.1:0")
 			if err != nil {
@@ -257,7 +277,7 @@ func TestAngelaNexusLateTunnelUDP(t *testing.T) {
 				t.Fatal(err)
 			}
 			conn := &lateGatePacketConn{EnhancePacketConn: N.NewEnhancePacketConn(raw), closed: make(chan struct{}), readDone: make(chan struct{})}
-			p := &lateGateProxy{udp: conn, entered: make(chan struct{}), release: make(chan struct{})}
+			p := &lateGateProxy{udp: conn, entered: make(chan struct{}), release: make(chan struct{}), canceled: make(chan struct{}), ignoreContext: ignoreContext}
 			lateGateSetup(t, p)
 			packet := &lateGatePacket{data: []byte("payload"), local: raw.LocalAddr(), dropped: make(chan struct{})}
 			adapter := C.NewPacketAdapter(packet, lateGateMetadata(C.UDP, uint16(peer.LocalAddr().(*net.UDPAddr).Port)))
@@ -277,16 +297,21 @@ func TestAngelaNexusLateTunnelUDP(t *testing.T) {
 			if stale {
 				statistic.DefaultManager.StopRegistrations()
 				statistic.DefaultManager.StartRegistrations()
+				if !ignoreContext {
+					lateGateWait(t, p.canceled, "UDP setup context cancellation")
+				}
 			}
 			release()
 			if stale {
-				lateGateWait(t, conn.closed, "rejected UDP connection close")
 				lateGateWait(t, packet.dropped, "stale UDP packet drop")
+				if ignoreContext {
+					lateGateWait(t, conn.closed, "rejected UDP connection close")
+					if _, err := raw.WriteTo([]byte("stale"), peer.LocalAddr()); !errors.Is(err, net.ErrClosed) {
+						t.Fatalf("underlying stale UDP socket not closed: %v", err)
+					}
+				}
 				if conn.reads.Load() != 0 || conn.writes.Load() != 0 {
 					t.Fatalf("stale UDP relay started: reads=%d writes=%d", conn.reads.Load(), conn.writes.Load())
-				}
-				if _, err := raw.WriteTo([]byte("stale"), peer.LocalAddr()); !errors.Is(err, net.ErrClosed) {
-					t.Fatalf("underlying stale UDP socket not closed: %v", err)
 				}
 			} else {
 				_ = peer.SetReadDeadline(time.Now().Add(3 * time.Second))
@@ -550,7 +575,7 @@ func lateNATRead(t *testing.T, peer *net.UDPConn, want string) {
 func TestAngelaNexusLateTunnelUDPReplacementSameRawKey(t *testing.T) {
 	oldConn, freshConn := lateNATConn(t), lateNATConn(t)
 	peer := lateNATPeer(t)
-	oldProxy := &lateGateProxy{udp: oldConn, entered: make(chan struct{}), release: make(chan struct{})}
+	oldProxy := &lateGateProxy{udp: oldConn, entered: make(chan struct{}), release: make(chan struct{}), ignoreContext: true}
 	freshProxy := &lateCountingUDPProxy{udp: freshConn}
 	lateGateSetup(t, oldProxy)
 	local := oldConn.LocalAddr()
@@ -671,4 +696,25 @@ func TestAngelaNexusLateTunnelTPROXYBareNATKey(t *testing.T) {
 	release()
 	lateNATRead(t, peer, "tproxy-bare-key")
 	lateGateWait(t, packet.dropped, "TPROXY forwarding complete")
+}
+
+func TestAngelaNexusLateTunnelRetryCanceledBeforeFirstAttempt(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	calls := 0
+	_, err := retry(ctx, func(context.Context) (int, error) { calls++; return 0, nil }, nil)
+	if !errors.Is(err, context.Canceled) || calls != 0 {
+		t.Fatalf("canceled retry: calls=%d err=%v", calls, err)
+	}
+}
+
+func TestAngelaNexusLateTunnelRetryCancelBetweenAttempts(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	calls := 0
+	reported := 0
+	_, err := retry(ctx, func(context.Context) (int, error) { calls++; return 0, errors.New("retryable") }, func(error) { reported++; cancel() })
+	if err == nil || calls != 1 || reported != 1 {
+		t.Fatalf("retry continued after cancellation: calls=%d reports=%d err=%v", calls, reported, err)
+	}
 }

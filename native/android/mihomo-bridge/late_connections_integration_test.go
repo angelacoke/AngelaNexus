@@ -222,6 +222,32 @@ func TestAngelaNexusLateConnectionsCloseFailures(t *testing.T) {
 	}
 }
 
+func TestAngelaNexusLateConnectionsRegistrationContextCancellation(t *testing.T) {
+	m := &Manager{}
+	m.StartRegistrations()
+	oldEpoch, oldCtx := m.Registration()
+	m.StopRegistrations()
+	select {
+	case <-oldCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("old registration context was not canceled")
+	}
+	m.StartRegistrations()
+	newEpoch, newCtx := m.Registration()
+	if newEpoch == oldEpoch {
+		t.Fatal("reopen reused the stopped registration epoch")
+	}
+	select {
+	case <-newCtx.Done():
+		t.Fatal("fresh registration context was canceled")
+	default:
+	}
+	stale := &angelaFakeTracker{id: "stale-context"}
+	if err := m.JoinAtEpoch(oldEpoch, stale); err == nil || m.Get(stale.id) != nil {
+		t.Fatal("stale setup was admitted after stop and reopen")
+	}
+}
+
 func TestAngelaNexusLateConnections(t *testing.T) {
 	t.Run("closed_gate_closes_real_tcp_and_udp_and_preserves_legacy_constructor", func(t *testing.T) {
 		m := &Manager{}
@@ -372,4 +398,43 @@ func TestAngelaNexusLateConnections(t *testing.T) {
 			t.Fatal("successful retry did not remove retained tracker")
 		}
 	})
+}
+
+func TestAngelaNexusLateConnectionsClosedContextAndConcurrentRestart(t *testing.T) {
+	m := &Manager{}
+	_, closed := m.Registration()
+	if !errors.Is(closed.Err(), context.Canceled) {
+		t.Fatal("closed gate supplied live context")
+	}
+	m.StartRegistrations()
+	epoch, first := m.Registration()
+	m.StartRegistrations()
+	sameEpoch, same := m.Registration()
+	if epoch != sameEpoch || first != same {
+		t.Fatal("idempotent start replaced live context")
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 25; j++ {
+				m.StopRegistrations()
+				m.StartRegistrations()
+				_, _ = m.Registration()
+			}
+		}()
+	}
+	wg.Wait()
+	m.StopRegistrations()
+	_, final := m.Registration()
+	if final.Err() == nil || first.Err() == nil {
+		t.Fatal("stopped generation retains live context")
+	}
+	m.StartRegistrations()
+	_, fresh := m.Registration()
+	if fresh.Err() != nil {
+		t.Fatal("fresh generation inherited cancellation")
+	}
+	m.StopRegistrations()
 }

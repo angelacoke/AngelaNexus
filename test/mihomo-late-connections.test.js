@@ -128,3 +128,26 @@ test("UDP NAT keys are generation-scoped and cleanup is sender-owned", () => {
   assert.match(patch, /func \(t \*Table\) DetachLocalConnsIf\(key string, sender C\.PacketSender\) \\*\[\]\*net\.UDPConn/);
   assert.match(patch, /closeAllLocalCoon\(key, sender\)/);
 });
+
+test("ordinary TCP and UDP setup timeouts inherit registration cancellation", () => {
+  const patch = read("native/android/mihomo-bridge/late-connections.patch");
+  assert.equal((patch.match(/\+\s*registrationEpoch, registrationCtx := statistic\.DefaultManager\.Registration\(\)/g) || []).length, 2);
+  for (const protocol of ["TCP", "UDP"]) {
+    assert.ok(patch.split("\n").some(line => line.startsWith("+") && line.slice(1).trim() === `ctx, cancel := context.WithTimeout(registrationCtx, C.Default${protocol}Timeout)`));
+  }
+  assert.match(patch, /\+\s*if err = ctx\.Err\(\); err != nil/);
+  assert.match(patch, /\+func \(m \*Manager\) Registration\(\) \(uint64, context\.Context\)/);
+  assert.doesNotMatch(patch, /releaseRegistration/);
+});
+
+test("cancellation regressions remain in CI-selected groups and retain ignoring-proxy coverage", () => {
+  const manager = read("native/android/mihomo-bridge/late_connections_integration_test.go");
+  const tunnel = read("native/android/mihomo-bridge/late_tunnel_integration_test.go");
+  assert.match(manager, /func TestAngelaNexusLateConnectionsRegistrationContextCancellation\(/);
+  assert.match(tunnel, /func TestAngelaNexusLateTunnelRetryCanceledBeforeFirstAttempt\(/);
+  assert.match(tunnel, /ignoreContext/);
+  assert.match(tunnel, /TCP setup context cancellation/);
+  assert.match(tunnel, /UDP setup context cancellation/);
+  assert.match(tunnel, /underlying stale TCP socket not closed/);
+  assert.match(tunnel, /underlying stale UDP socket not closed/);
+});
