@@ -71,11 +71,14 @@ def main() -> None:
                     call("updateDns", b"127.0.0.1")
                 elif worker == 2:
                     call("angelaInit", home.encode())
-                else:
+                elif worker == 3:
                     call("angelaStopTun")
+                else:
+                    resume(1)
+                    resume(0)
 
-        with ThreadPoolExecutor(max_workers=4) as workers:
-            list(workers.map(concurrent_calls, range(4)))
+        with ThreadPoolExecutor(max_workers=5) as workers:
+            list(workers.map(concurrent_calls, range(5)))
         call("angelaStopTun")
     print("Host c-shared load/exports/config/invalid-start/repeated-stop smoke passed", flush=True)
 

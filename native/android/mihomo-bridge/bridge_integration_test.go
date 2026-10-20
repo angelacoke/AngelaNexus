@@ -620,3 +620,62 @@ func TestAndroidBridgeApplyCannotResumePendingStop(t *testing.T) {
 		t.Fatal("replacement ignored a pending stop")
 	}
 }
+
+// Suspending the packet ingress alone does not stop provider/DNS/background
+// dialers from reaching DefaultSocketHook. Explicit pause must also gate hooks.
+func TestAndroidBridgeSuspendClosesSocketAdmission(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	androidRuntime.protected.Store(true)
+	tunnel.OnRunning()
+	t.Cleanup(func() { _ = stopTunError() })
+	oldEpoch := androidRuntime.epoch.Load()
+	suspend(1)
+	conn := &bridgeEpochRawConn{}
+	protects := 0
+	protect := func(int) bool { protects++; return true }
+	if err := androidRuntime.socketHook(conn, protect); err == nil || conn.controls != 0 || protects != 0 {
+		t.Fatal("explicit suspend admitted a new socket")
+	}
+	if tunnel.Status() != tunnel.Suspend {
+		t.Fatal("explicit suspend left tunnel running")
+	}
+	constant.SetHomeDir(t.TempDir())
+	cfg, err := config.Parse(bridgeConfigJSON("rule"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyAndroidConfiguration(cfg)
+	if androidRuntime.ready() || tunnel.Status() != tunnel.Suspend {
+		t.Fatal("configuration reopened explicitly suspended admission")
+	}
+	suspend(0)
+	if !androidRuntime.ready() || tunnel.Status() != tunnel.Running {
+		t.Fatal("explicit resume did not restore a ready runtime")
+	}
+	assertAndroidBridgeEpochAdmission(t, oldEpoch)
+	if err := stopTunError(); err != nil {
+		t.Fatal(err)
+	}
+	suspend(0)
+	if androidRuntime.ready() || tunnel.Status() != tunnel.Suspend {
+		t.Fatal("resume after stop invented readiness")
+	}
+}
+
+func TestAndroidBridgePausedFailedReplacementDoesNotResume(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	androidRuntime.protected.Store(true)
+	tunnel.OnRunning()
+	t.Cleanup(func() { _ = stopTunError() })
+	suspend(1)
+	if startTUN(-1, nil, nil, nil) != 0 {
+		t.Fatal("invalid replacement was accepted")
+	}
+	if !androidRuntime.suspended.Load() || androidRuntime.ready() || tunnel.Status() != tunnel.Suspend {
+		t.Fatal("failed replacement cleared explicit pause or reopened admission")
+	}
+	suspend(0)
+	if androidRuntime.ready() || tunnel.Status() != tunnel.Suspend {
+		t.Fatal("resume after failed replacement invented readiness")
+	}
+}

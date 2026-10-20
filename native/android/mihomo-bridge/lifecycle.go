@@ -19,6 +19,9 @@ import (
 type androidTunLifecycle struct {
 	listener  io.Closer
 	protected atomic.Bool
+	// Explicit pause is independent of listener/protection ownership. Applying
+	// configuration must not clear it or invent readiness when resuming.
+	suspended atomic.Bool
 	// Stop announces itself before waiting for the control mutex. Count requests
 	// so one completed stop cannot reopen admission while another is queued.
 	pendingStops atomic.Int64
@@ -67,7 +70,24 @@ func (l *androidTunLifecycle) socketHookAtEpoch(epoch uint64, conn syscall.RawCo
 }
 
 func (l *androidTunLifecycle) ready() bool {
-	return l.protected.Load() && l.pendingStops.Load() == 0
+	return l.protected.Load() && !l.suspended.Load() && l.pendingStops.Load() == 0
+}
+
+// Callers serialize explicit pause/resume and start with androidTunMu. Pause
+// closes admission before draining callbacks and invalidates stale entries;
+// resume changes only the pause flag, never protection/cleanup ownership.
+// Stop may concurrently announce itself and is still authoritative in ready().
+func (l *androidTunLifecycle) setSuspended(suspended bool) {
+	if suspended {
+		l.suspended.Store(true)
+		l.epoch.Add(1)
+		l.admission.Lock()
+		l.admission.Unlock()
+		return
+	}
+	l.admission.Lock()
+	l.suspended.Store(false)
+	l.admission.Unlock()
 }
 
 // beginStop does not need the control mutex: callers must announce the stop

@@ -116,3 +116,26 @@ test("Mihomo stop announces admission closure before waiting for serialized cont
   assert.ok(restore.indexOf("l.admission.Lock()") < restore.indexOf("l.pendingStops.Load()"));
   assert.match(restore, /defer l\.admission\.Unlock\(\)/);
 });
+
+test("Mihomo suspension state is wired before tunnel transitions and readiness", () => {
+  const bridge = read("native/android/mihomo-bridge/bridge.go");
+  const suspend = bridge.split("func suspend(")[1].split("//export forceGC")[0];
+  assert.match(suspend, /androidTunMu\.Lock\(\)/);
+  assert.match(suspend, /defer androidTunMu\.Unlock\(\)/);
+  assert.match(suspend, /androidRuntime\.setSuspended\(suspended != 0\)/);
+  const lock = suspend.indexOf("androidTunMu.Lock()");
+  const setSuspended = suspend.indexOf("androidRuntime.setSuspended(suspended != 0)");
+  assert.ok(lock < setSuspended);
+  assert.ok(setSuspended < suspend.indexOf("tunnel.OnSuspend()"));
+  assert.ok(setSuspended < suspend.indexOf("tunnel.OnRunning()"));
+
+  const start = bridge.split("func startTUN(")[1].split("func closeAndroidResources")[0];
+  const listener = start.indexOf("androidRuntime.listener = listener");
+  assert.ok(listener >= 0);
+  assert.ok(listener < start.indexOf("androidRuntime.setSuspended(false)"));
+  assert.ok(start.indexOf("androidRuntime.setSuspended(false)") < start.indexOf("androidRuntime.restoreAdmission(true)"));
+
+  const lifecycle = read("native/android/mihomo-bridge/lifecycle.go");
+  const ready = lifecycle.split("func (l *androidTunLifecycle) ready()")[1].split("func (l *androidTunLifecycle) beginStop")[0];
+  assert.match(ready, /!l\.suspended\.Load\(\)/);
+});

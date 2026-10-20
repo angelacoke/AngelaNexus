@@ -603,3 +603,121 @@ func TestStopDrainReassertsClosureAfterAlreadyEnteredRestore(t *testing.T) {
 		t.Fatal("stop drain did not reassert closure after late readiness publication")
 	}
 }
+
+func TestExplicitSuspendPreservesOwnershipAndInvalidatesEpoch(t *testing.T) {
+	for _, protected := range []bool{false, true} {
+		var lifecycle androidTunLifecycle
+		lifecycle.protected.Store(protected)
+		oldEpoch := lifecycle.epoch.Load()
+		lifecycle.setSuspended(true)
+		lifecycle.setSuspended(true) // Idempotent pause must never resume.
+		if lifecycle.ready() || lifecycle.protected.Load() != protected {
+			t.Fatal("pause lost protection ownership or left admission open")
+		}
+		conn := &testRawConn{}
+		protect := func(int) bool { return true }
+		if err := lifecycle.socketHook(conn, protect); err == nil || conn.controls != 0 {
+			t.Fatal("pause admitted a new callback")
+		}
+		lifecycle.applyConfiguration(func() {})
+		if lifecycle.ready() || !lifecycle.suspended.Load() {
+			t.Fatal("configuration cleared explicit pause")
+		}
+		lifecycle.setSuspended(false)
+		if lifecycle.ready() != protected {
+			t.Fatal("resume invented or lost readiness")
+		}
+		if err := lifecycle.socketHookAtEpoch(oldEpoch, conn, protect); err == nil || conn.controls != 0 {
+			t.Fatal("stale pre-pause hook borrowed resumed readiness")
+		}
+		if err := lifecycle.socketHook(conn, protect); (err == nil) != protected {
+			t.Fatalf("fresh hook after resume: protected=%t err=%v", protected, err)
+		}
+		lifecycle.beginStop()
+		lifecycle.setSuspended(false)
+		lifecycle.restoreAdmission(true)
+		if lifecycle.ready() {
+			t.Fatal("resume overrode pending stop")
+		}
+		lifecycle.endStop()
+		if lifecycle.ready() {
+			t.Fatal("resume reopened completed stop")
+		}
+	}
+}
+
+func TestExplicitSuspendDrainsInFlightProtection(t *testing.T) {
+	var lifecycle androidTunLifecycle
+	lifecycle.protected.Store(true)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	defer unblock()
+	hookDone := make(chan error, 1)
+	go func() {
+		hookDone <- lifecycle.socketHook(&testRawConn{}, func(int) bool {
+			close(entered)
+			<-release
+			return true
+		})
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("protect did not enter")
+	}
+	paused := make(chan struct{})
+	go func() { lifecycle.setSuspended(true); close(paused) }()
+	deadline := time.Now().Add(5 * time.Second)
+	for !lifecycle.suspended.Load() {
+		if time.Now().After(deadline) {
+			t.Fatal("pause did not close admission")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	select {
+	case <-paused:
+		t.Fatal("pause returned before in-flight protect drained")
+	default:
+	}
+	if err := lifecycle.socketHook(&testRawConn{}, func(int) bool {
+		t.Error("paused gate invoked protect")
+		return true
+	}); err == nil {
+		t.Fatal("pause admitted another socket")
+	}
+	unblock()
+	select {
+	case err := <-hookDone:
+		if err == nil {
+			t.Fatal("in-flight callback reported stale successful admission")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("protect did not exit")
+	}
+	select {
+	case <-paused:
+	case <-time.After(5 * time.Second):
+		t.Fatal("pause barrier deadlocked")
+	}
+	lifecycle.setSuspended(false)
+	if !lifecycle.ready() {
+		t.Fatal("resume lost attached runtime readiness")
+	}
+}
+
+func TestExplicitSuspendInvalidatesEpochWithoutConfiguration(t *testing.T) {
+	var lifecycle androidTunLifecycle
+	lifecycle.protected.Store(true)
+	oldEpoch := lifecycle.epoch.Load()
+	lifecycle.setSuspended(true)
+	lifecycle.setSuspended(false)
+	conn := &testRawConn{}
+	if err := lifecycle.socketHookAtEpoch(oldEpoch, conn, func(int) bool { return true }); err == nil || conn.controls != 0 {
+		t.Fatal("pre-pause hook borrowed readiness after resume")
+	}
+	if err := lifecycle.socketHook(conn, func(int) bool { return true }); err != nil || conn.controls != 1 {
+		t.Fatalf("fresh post-resume hook failed: %v", err)
+	}
+}

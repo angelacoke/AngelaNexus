@@ -55,6 +55,12 @@ A replacement TUN start attempts the same listener/tracker cleanup before valida
 - Three-ABI NDK builds check every required exported symbol and record artifact, bridge, lifecycle and library-entry SHA-256 provenance plus the dedicated build package.
 - Ordinary `android-build` prepares Xray/sing-box AARs. Passing that workflow alone does not prove it included the latest Mihomo `.so` or executed `angelaStopTun`.
 
+## Explicit pause and resume
+
+The exported `suspend(1)` closes new socket-hook admission with a separate pause flag, invalidates pre-pause epochs and drains already-entered protection callbacks before returning. Suspending tunnel ingress alone is insufficient: background dialers can still reach the socket hook. Reconfiguration preserves explicit pause. `suspend(0)` clears only pause, cannot invent readiness after stop/failed attachment and cannot override queued stops. A successful new TUN attachment retains the prior startup behavior of starting unpaused; a failed attachment does not clear pause.
+
+Pause/resume remains serialized with configuration and listener changes. Unlike stop announcement, pause does not close admission before waiting for the control mutex. There is no parsing/application/protector deadline, dial-completion barrier, existing-socket close, late-registration barrier or background-task shutdown here. The synchronous protection callback must not re-enter lifecycle exports while holding its hook's read-side barrier. Host helper/bridge tests cover pause, callback draining, stale entries, reconfiguration and failed replacement; concurrent ctypes calls establish export callability, not Android TUN acceptance.
+
 ## Dedicated shared-library entry
 
 Native builds and host package tests now stage the same `bridge.go`, `lifecycle.go` and minimal `library.go` in `./angelanexus_android` inside the fixed upstream module. The shared library no longer builds the upstream module root: its CLI `main.go` registers and parses process arguments in `init()`, an inappropriate side effect for an embedded runtime. The dedicated `main()` is empty; runtime startup remains explicit through the bridge exports. Imported core package initialization is unchanged and can still create upstream background tasks.

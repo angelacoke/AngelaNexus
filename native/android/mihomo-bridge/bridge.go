@@ -268,6 +268,8 @@ func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
 	// unambiguous at the JNI/service boundary.
 	_ = syscall.Close(int(fd))
 	androidRuntime.listener = listener
+	// A newly attached runtime starts unpaused; failed starts never clear pause.
+	androidRuntime.setSuspended(false)
 	androidRuntime.restoreAdmission(true)
 	// A stop may have been announced while constructing the listener. It owns
 	// the queued cleanup; do not resume tunnel admission before it gets the lock.
@@ -318,6 +320,7 @@ func stopTun() {
 func suspend(suspended C.uchar) {
 	androidTunMu.Lock()
 	defer androidTunMu.Unlock()
+	androidRuntime.setSuspended(suspended != 0)
 	if suspended != 0 || !androidRuntime.ready() {
 		tunnel.OnSuspend()
 	} else {
