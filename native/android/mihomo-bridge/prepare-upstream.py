@@ -33,6 +33,8 @@ EXPECTED = {
     "tunnel/statistic/tracker.go": "80e8cc0df115c35a62baea5aec4c3ad4a28c1cf9c47c52a78e76523520c83a6f",
     "component/sniffer/quic_sniffer.go": "1b7cb7990ae0667885d2977d002c72422c5f36f61b5dca9616b71ece97e586a5",
     "tunnel/tunnel.go": "bd0818dddd04779aad3f078819b3ca050bd8bdce29ba57e5a377770539278596",
+    "adapter/provider/healthcheck.go": "b3108ef1530c2bb28ff75928c64dc7150e68e2bb38f4f82e110ebdaff1801c64",
+    "adapter/provider/provider.go": "69cb24313f68cc457c5f4e45ecab0d1355c1f5d22e3e2ec0559a7d753ee1672f",
 }
 # sing-tun is supplied by Go's module cache; verify the implementation that
 # accepts an already-open fd, not merely the version string in go.mod.
@@ -40,7 +42,7 @@ SING_TUN_TUN_LINUX_SHA256 = "34d3c504a859006bf2981709d86e104c9a2b7c9542ef5895201
 PATCHED_SERVER_SHA256 = "1a77f3a7416b8074bc5e91c4944079c059fe766991bccfaa921780ad0068b8e1"
 PATCHED_STATISTICS_SHA256 = "316e372b7de3735a9a44c8f2357092ee1023fb21c6bbb899ea6a5228cc1dbb09"
 STATISTICS_PATCH_SHA256 = "293330f8b4ba6ed0fb318ea43f5bb759b0946fa98f44c563131135441d4c124b"
-LATE_CONNECTIONS_PATCH_SHA256 = "ca0570c729c3cb0b98249b01d51e32926c2391c760fef1b9046632f12bbb5fb7"
+LATE_CONNECTIONS_PATCH_SHA256 = "2bb5e2fca3e8412461e5adb37ee415139df23c7d36d7b316980c5097a22a86be"
 PATCHED_LATE_MANAGER_SHA256 = "3b72343588f7d84cd6665798dc454fee02af2caaf9afe27177c337f9b6dc02ca"
 PATCHED_TPROXY_PACKET_SHA256 = "f417e4776d8dcdeb97b194fff2de83b76f3cf8e181ae01ee3fc15218fb376c5f"
 PATCHED_NAT_TABLE_SHA256 = "a024e1281fea19bdfcf67d4b8b72f9924d87bcd45a0d603a4e7555e05dd447d4"
@@ -55,6 +57,9 @@ PATCHED_DNS_RESOLVER_SHA256 = "4d72255d1e672cba762752dfd732353d55ada80a6bfc5bbfd
 PATCHED_LOG_SHA256 = "0e81036280690bc39feabdb54181f805663706dc17c7c42060b7db4249b3e70b"
 
 PATCHED_PROVIDER_FETCHER_SHA256 = "9712e8b28c32345bd186696e2cd6b6048a91a3f7904eb4f4b13da2a742a062b9"
+# Exact reviewed outputs for the joinable provider health-check adapter.
+PATCHED_PROVIDER_HEALTHCHECK_SHA256 = "ec8bbc125c942b0aab0e2953e9eef070f5d2a9f3c54092388f3c80efe9ce6e1a"
+PATCHED_PROXY_PROVIDER_SHA256 = "3bb335935a0599ef6c4f05d72e52a13ee7fa35f9dee79f093a7e340685800a06"
 
 def sha256(path: Path) -> str:
     h = hashlib.sha256()
@@ -102,17 +107,23 @@ def verify_source(root: Path) -> None:
     dns_resolver_hash = sha256(dns_resolver) if dns_resolver.is_file() else None
     provider_fetcher = root / "component/resource/fetcher.go"
     provider_fetcher_hash = sha256(provider_fetcher) if provider_fetcher.is_file() else None
+    provider_healthcheck = root / "adapter/provider/healthcheck.go"
+    provider_healthcheck_hash = sha256(provider_healthcheck) if provider_healthcheck.is_file() else None
+    proxy_provider = root / "adapter/provider/provider.go"
+    proxy_provider_hash = sha256(proxy_provider) if proxy_provider.is_file() else None
     log_source = root / "log/log.go"
     log_hash = sha256(log_source) if log_source.is_file() else None
     # Existing adapter output is allowed only when it is exactly our output.
     allowed = {
         "log/angelanexus_log_level_integration_test.go",
         "component/resource/angelanexus_provider_lifecycle_integration_test.go",
+        "adapter/provider/angelanexus_healthcheck_lifecycle_integration_test.go",
         "dns/angelanexus_dns_reset_integration_test.go",
         "angelanexus_android/bridge.go",
         "angelanexus_android/lifecycle.go",
         "angelanexus_android/library.go",
         "angelanexus_android/bridge_integration_test.go",
+        "angelanexus_android/bridge_healthcheck_integration_test.go",
         "angelanexus_android/library_integration_test.go",
         "tunnel/statistic/angelanexus_statistics_test.go",
         "tunnel/statistic/angelanexus_late_connections_test.go",
@@ -139,6 +150,10 @@ def verify_source(root: Path) -> None:
         if path == "log/log.go" and log_hash == PATCHED_LOG_SHA256:
             continue
         if path == "component/resource/fetcher.go" and provider_fetcher_hash == PATCHED_PROVIDER_FETCHER_SHA256:
+            continue
+        if path == "adapter/provider/healthcheck.go" and provider_healthcheck_hash == PATCHED_PROVIDER_HEALTHCHECK_SHA256:
+            continue
+        if path == "adapter/provider/provider.go" and proxy_provider_hash == PATCHED_PROXY_PROVIDER_SHA256:
             continue
         if path == "dns/resolver.go" and dns_resolver_hash == PATCHED_DNS_RESOLVER_SHA256:
             continue
@@ -171,6 +186,10 @@ def verify_source(root: Path) -> None:
             if rel == "log/log.go" and log_hash == PATCHED_LOG_SHA256:
                 continue
             if rel == "component/resource/fetcher.go" and provider_fetcher_hash == PATCHED_PROVIDER_FETCHER_SHA256:
+                continue
+            if rel == "adapter/provider/healthcheck.go" and provider_healthcheck_hash == PATCHED_PROVIDER_HEALTHCHECK_SHA256:
+                continue
+            if rel == "adapter/provider/provider.go" and proxy_provider_hash == PATCHED_PROXY_PROVIDER_SHA256:
                 continue
             if rel == "dns/resolver.go" and dns_resolver_hash == PATCHED_DNS_RESOLVER_SHA256:
                 continue
@@ -297,7 +316,9 @@ def apply_late(root: Path) -> None:
              "listener/tproxy/packet.go": PATCHED_TPROXY_PACKET_SHA256,
              "dns/resolver.go": PATCHED_DNS_RESOLVER_SHA256,
              "component/resource/fetcher.go": PATCHED_PROVIDER_FETCHER_SHA256,
-             "log/log.go": PATCHED_LOG_SHA256}
+             "log/log.go": PATCHED_LOG_SHA256,
+             "adapter/provider/healthcheck.go": PATCHED_PROVIDER_HEALTHCHECK_SHA256,
+             "adapter/provider/provider.go": PATCHED_PROXY_PROVIDER_SHA256}
     if all(sha256(root / rel) == digest for rel, digest in paths.items()):
         return
     inputs = {"tunnel/statistic/manager.go": PATCHED_STATISTICS_SHA256,
@@ -309,7 +330,9 @@ def apply_late(root: Path) -> None:
               "listener/tproxy/packet.go": EXPECTED["listener/tproxy/packet.go"],
               "dns/resolver.go": EXPECTED["dns/resolver.go"],
               "component/resource/fetcher.go": EXPECTED["component/resource/fetcher.go"],
-              "log/log.go": EXPECTED["log/log.go"]}
+              "log/log.go": EXPECTED["log/log.go"],
+             "adapter/provider/healthcheck.go": EXPECTED["adapter/provider/healthcheck.go"],
+             "adapter/provider/provider.go": EXPECTED["adapter/provider/provider.go"]}
     for rel, digest in inputs.items():
         if sha256(root / rel) != digest:
             fail(f"late patch input {rel} does not match reviewed source")

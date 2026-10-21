@@ -33,6 +33,8 @@ function verifierFixture() {
   const patchedSourceHash = digest("fixture patched source");
   const patchedDnsResolverHash = digest("fixture patched DNS resolver");
   const patchedProviderFetcherHash = digest("fixture patched provider fetcher");
+  const patchedProviderHealthcheckHash = digest("fixture patched provider healthcheck");
+  const patchedProxyProviderHash = digest("fixture patched proxy provider");
   const patchedLogHash = digest("fixture patched log source");
   const patchedStatistics = "fixture patched statistics";
   const patchedStatisticsHash = digest(patchedStatistics);
@@ -58,7 +60,7 @@ function verifierFixture() {
   writeFileSync(join(repo, "tunnel/tunnel.go"), patchedTunnel);
   writeFileSync(join(sourceDir, "statistics.patch"), statisticsPatch);
   writeFileSync(join(sourceDir, "late-connections.patch"), lateConnectionsPatch);
-  writeFileSync(join(sourceDir, "prepare-upstream.py"), `PATCHED_SERVER_SHA256 = "${patchedSourceHash}"\nPATCHED_DNS_RESOLVER_SHA256 = "${patchedDnsResolverHash}"\nPATCHED_PROVIDER_FETCHER_SHA256 = "${patchedProviderFetcherHash}"\nPATCHED_STATISTICS_SHA256 = "${patchedStatisticsHash}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${patchedStatisticsHash}"\nPATCHED_TRACKER_SHA256 = "${patchedTrackerHash}"\nPATCHED_TUNNEL_SHA256 = "${patchedTunnelHash}"\nPATCHED_NAT_TABLE_SHA256 = "${patchedNatTableHash}"\nPATCHED_CONNECTION_SHA256 = "${patchedConnectionHash}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${patchedQuicSnifferHash}"\nPATCHED_TPROXY_PACKET_SHA256 = "${patchedTproxyPacketHash}"\nPATCHED_LOG_SHA256 = "${patchedLogHash}"\n`);
+  writeFileSync(join(sourceDir, "prepare-upstream.py"), `PATCHED_SERVER_SHA256 = "${patchedSourceHash}"\nPATCHED_DNS_RESOLVER_SHA256 = "${patchedDnsResolverHash}"\nPATCHED_PROVIDER_FETCHER_SHA256 = "${patchedProviderFetcherHash}"\nPATCHED_PROVIDER_HEALTHCHECK_SHA256 = "${patchedProviderHealthcheckHash}"\nPATCHED_PROXY_PROVIDER_SHA256 = "${patchedProxyProviderHash}"\nPATCHED_STATISTICS_SHA256 = "${patchedStatisticsHash}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${patchedStatisticsHash}"\nPATCHED_TRACKER_SHA256 = "${patchedTrackerHash}"\nPATCHED_TUNNEL_SHA256 = "${patchedTunnelHash}"\nPATCHED_NAT_TABLE_SHA256 = "${patchedNatTableHash}"\nPATCHED_CONNECTION_SHA256 = "${patchedConnectionHash}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${patchedQuicSnifferHash}"\nPATCHED_TPROXY_PACKET_SHA256 = "${patchedTproxyPacketHash}"\nPATCHED_LOG_SHA256 = "${patchedLogHash}"\n`);
   const abis = ["arm64-v8a", "armeabi-v7a", "x86_64"];
   const commit = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36";
   const specs = abis.map(abi => `MihomoNativeLibrarySpec(abi = "${abi}", sha256 = "${"a".repeat(64)}")`).join(",\n");
@@ -83,6 +85,8 @@ function verifierFixture() {
       bridge: evidence("bridge.go"), lifecycle: evidence("lifecycle.go"), libraryEntry: evidence("library.go"),
       dnsResolver: { path: "dns/resolver.go", sha256: patchedDnsResolverHash },
       providerFetcher: { path: "component/resource/fetcher.go", sha256: patchedProviderFetcherHash },
+      providerHealthCheck: { path: "adapter/provider/healthcheck.go", sha256: patchedProviderHealthcheckHash },
+      proxyProvider: { path: "adapter/provider/provider.go", sha256: patchedProxyProviderHash },
       logSource: { path: "log/log.go", sha256: patchedLogHash },
       ownershipAdapter: { ...evidence("prepare-upstream.py"), patchedSource: { path: "listener/sing_tun/server.go", sha256: patchedSourceHash } },
       statisticsPatch: { ...evidence("statistics.patch"), patchedSource: { path: "tunnel/statistic/manager.go", sha256: patchedStatisticsHash } },

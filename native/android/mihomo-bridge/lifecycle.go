@@ -248,8 +248,8 @@ type androidProviderWaiter interface {
 }
 
 // Cancel every provider before joining any one. One shared deadline bounds the
-// whole Fetcher drain; timed-out/failed resources remain owned for stop retry.
-// Compatible/inline proxy Close cancels health checks but does NOT join them.
+// Fetcher and health-check drain; failed resources remain owned for stop retry.
+// This does not join DNS services or establish complete kernel shutdown.
 func (l *androidTunLifecycle) closeProviders(ctx context.Context) error {
 	if len(l.providers) != 0 {
 		l.providersStopped = true

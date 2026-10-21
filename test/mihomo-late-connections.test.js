@@ -22,6 +22,10 @@ test("CI stages and runs manager and actual tunnel regressions, rejecting empty 
   assert.ok(host.run.includes("-list '^TestAngelaNexusProviderLifecycle'"));
   assert.ok(host.run.includes("grep '^TestAngelaNexusProviderLifecycle'"));
   assert.match(host.run, /-race -run '\^TestAngelaNexusProviderLifecycle' -count=20 -timeout=120s \.\/component\/resource/);
+  assert.match(host.run, /healthcheck_lifecycle_integration_test\.go.*adapter\/provider\/angelanexus_healthcheck_lifecycle_integration_test\.go/);
+  assert.ok(host.run.includes("-list '^TestAngelaNexusHealthCheck'"));
+  assert.ok(host.run.includes("grep '^TestAngelaNexusHealthCheck'"));
+  assert.match(host.run, /-race -run '\^TestAngelaNexusHealthCheck' -count=20 -timeout=120s \.\/adapter\/provider/);
   assert.match(host.run, /log_level_integration_test\.go.*log\/angelanexus_log_level_integration_test\.go/);
   assert.match(host.run, /-list '\^TestAngelaNexusLogLevel'.*log/);
   assert.match(host.run, /grep '\^TestAngelaNexusLogLevel'/);
@@ -49,13 +53,15 @@ test("the source adapter alone applies the reviewed late patch before bridge sta
   const prepare = read("native/android/mihomo-bridge/prepare-upstream.py");
   assert.ok(prepare.indexOf("apply_statistics(root)\n    apply_late(root)") > 0);
   const provenance = steps.find(step => step.name === "Generate native build provenance evidence");
-  for (const path of ["late-connections.patch", "tunnel/statistic/manager.go", "tunnel/statistic/tracker.go", "tunnel/tunnel.go", "component/nat/table.go", "tunnel/connection.go", "component/sniffer/quic_sniffer.go"]) {
+  for (const path of ["late-connections.patch", "tunnel/statistic/manager.go", "tunnel/statistic/tracker.go", "tunnel/tunnel.go", "component/nat/table.go", "tunnel/connection.go", "component/sniffer/quic_sniffer.go", "listener/tproxy/packet.go", "dns/resolver.go", "component/resource/fetcher.go", "adapter/provider/healthcheck.go", "adapter/provider/provider.go", "log/log.go"]) {
     assert.ok(provenance.run.includes(path), `missing build evidence: ${path}`);
   }
   assert.match(provenance.run, /"lateConnectionsPatch"/);
   assert.match(provenance.run, /"manager": \{"path": "tunnel\/statistic\/manager\.go"/);
   assert.ok(provenance.run.includes("PATCHED_LOG_SHA256"));
   assert.match(provenance.run, /"logSource": \{"path": "log\/log\.go", "sha256": "\$PATCHED_LOG_SHA256"\}/);
+  assert.match(provenance.run, /"providerHealthCheck": \{"path": "adapter\/provider\/healthcheck\.go", "sha256": "\$PATCHED_PROVIDER_HEALTHCHECK_SHA256"\}/);
+  assert.match(provenance.run, /"proxyProvider": \{"path": "adapter\/provider\/provider\.go", "sha256": "\$PATCHED_PROXY_PROVIDER_SHA256"\}/);
   assert.match(provenance.run, /"tracker": \{"path": "tunnel\/statistic\/tracker\.go"/);
   assert.match(provenance.run, /"tunnel": \{"path": "tunnel\/tunnel\.go"/);
 });
@@ -100,6 +106,8 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
         tproxyPacket: "listener/tproxy/packet.go",
         dnsResolver: "dns/resolver.go",
         providerFetcher: "component/resource/fetcher.go",
+        providerHealthCheck: "adapter/provider/healthcheck.go",
+        proxyProvider: "adapter/provider/provider.go",
         log: "log/log.go",
       };
       for (const [name, path] of Object.entries(sources)) put(join(root, "mihomo", path), `reviewed final ${name} output\n`);
@@ -115,6 +123,9 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
       assert.equal(evidence.dnsResolver.sha256, hash(join(root, "mihomo/dns/resolver.go")));
       assert.equal(evidence.providerFetcher.path, "component/resource/fetcher.go");
       assert.equal(evidence.providerFetcher.sha256, hash(join(root, "mihomo/component/resource/fetcher.go")));
+      for (const name of ["providerHealthCheck", "proxyProvider"]) {
+        assert.deepEqual(evidence[name], { path: sources[name], sha256: hash(join(root, "mihomo", sources[name])) });
+      }
       assert.equal(evidence.abi, matrix.abi);
       assert.equal(evidence.toolchain.goarch, matrix.goarch);
       assert.equal(evidence.toolchain.goarm, matrix.goarch === "arm" ? "7" : null);

@@ -1462,3 +1462,227 @@
 +	// Sample under the same lock as SetLevel; never hold it while logging,
 +	// which can invoke user hooks or run from a proxy finalizer.
 +	if data.LogLevel < Level() {
+--- adapter/provider/healthcheck.go
++++ adapter/provider/healthcheck.go
+@@ -4,0 +5 @@
++	"errors"
+@@ -29,0 +31,7 @@
++	// mu also serializes admission, startup, snapshots and close. No proxy or
++	// external callback runs under it. Close cancels; waitClosed is the barrier.
++	closed  bool
++	started bool
++	active  int
++	drained chan struct{}
++
+@@ -44,3 +52,23 @@
+-func (hc *HealthCheck) process() {
+-	ticker := time.NewTicker(hc.interval)
+-	go hc.check()
++// start registers the loop before spawning it, so Close cannot miss a queued
++// goroutine. Repeated Initial calls must not create duplicate ticker owners.
++func (hc *HealthCheck) start() error {
++	hc.mu.Lock()
++	defer hc.mu.Unlock()
++	if hc.closed {
++		return context.Canceled
++	}
++	if hc.started || hc.interval == 0 {
++		return nil
++	}
++	hc.started = true
++	hc.active++
++	interval := hc.interval
++	go hc.process(interval)
++	return nil
++}
++
++func (hc *HealthCheck) process(interval time.Duration) {
++	defer hc.endWork()
++	ticker := time.NewTicker(interval)
++	defer ticker.Stop()
++	hc.startCheck()
+@@ -48,0 +77,2 @@
++		case <-hc.ctx.Done():
++			return
+@@ -50,3 +80 @@
+-			lastTouch := hc.lastTouch.Load()
+-			since := time.Since(lastTouch)
+-			if !hc.lazy || since < hc.interval {
++			if !hc.lazy || time.Since(hc.lastTouch.Load()) < interval {
+@@ -57,5 +85,29 @@
+-		case <-hc.ctx.Done():
+-			ticker.Stop()
+-			return
+-		}
+-	}
++		}
++	}
++}
++
++func (hc *HealthCheck) beginWork() bool {
++	hc.mu.Lock()
++	defer hc.mu.Unlock()
++	if hc.closed {
++		return false
++	}
++	hc.active++
++	return true
++}
++
++func (hc *HealthCheck) endWork() {
++	hc.mu.Lock()
++	defer hc.mu.Unlock()
++	hc.active--
++	if hc.closed && hc.active == 0 {
++		close(hc.drained)
++	}
++}
++
++// Admit asynchronous updates before spawning, not from inside the goroutine.
++func (hc *HealthCheck) startCheck() {
++	if !hc.beginWork() {
++		return
++	}
++	go func() { defer hc.endWork(); hc.checkWork() }()
+@@ -65 +117,5 @@
+-	hc.proxies = proxies
++	hc.mu.Lock()
++	defer hc.mu.Unlock()
++	if !hc.closed {
++		hc.proxies = append([]C.Proxy(nil), proxies...)
++	}
+@@ -76,0 +133,3 @@
++	if hc.closed {
++		return
++	}
+@@ -94 +152,0 @@
+-		log.Debugln("health check url: %s exists", url)
+@@ -116 +174,3 @@
+-	return hc.interval != 0
++	hc.mu.Lock()
++	defer hc.mu.Unlock()
++	return !hc.closed && hc.interval != 0
+@@ -124,4 +184,8 @@
+-	if len(hc.proxies) == 0 {
+-		return
+-	}
+-
++	if !hc.beginWork() {
++		return
++	}
++	defer hc.endWork()
++	hc.checkWork()
++}
++
++func (hc *HealthCheck) checkWork() {
+@@ -128,0 +193,18 @@
++		hc.mu.Lock()
++		if hc.closed {
++			hc.mu.Unlock()
++			return struct{}{}, context.Canceled
++		}
++		proxies := append([]C.Proxy(nil), hc.proxies...)
++		extra := make(map[string]*extraOption, len(hc.extra))
++		for url, option := range hc.extra {
++			copyOption := &extraOption{expectedStatus: option.expectedStatus, filters: map[string]struct{}{}}
++			for filter := range option.filters {
++				copyOption.filters[filter] = struct{}{}
++			}
++			extra[url] = copyOption
++		}
++		hc.mu.Unlock()
++		if len(proxies) == 0 {
++			return struct{}{}, nil
++		}
+@@ -133,10 +215,3 @@
+-
+-		// execute default health check
+-		option := &extraOption{filters: nil, expectedStatus: hc.expectedStatus}
+-		hc.execute(b, hc.url, id, option)
+-
+-		// execute extra health check
+-		if len(hc.extra) != 0 {
+-			for url, option := range hc.extra {
+-				hc.execute(b, url, id, option)
+-			}
++		hc.execute(b, proxies, hc.url, id, &extraOption{expectedStatus: hc.expectedStatus})
++		for url, option := range extra {
++			hc.execute(b, proxies, url, id, option)
+@@ -150 +225 @@
+-func (hc *HealthCheck) execute(b *errgroup.Group, url, uid string, option *extraOption) {
++func (hc *HealthCheck) execute(b *errgroup.Group, proxies []C.Proxy, url, uid string, option *extraOption) {
+@@ -171 +246,4 @@
+-	for _, proxy := range hc.proxies {
++	for _, proxy := range proxies {
++		if hc.ctx.Err() != nil {
++			return
++		}
+@@ -180,0 +259,3 @@
++			if hc.ctx.Err() != nil {
++				return nil
++			}
+@@ -190,0 +272 @@
++// close is deliberately non-blocking and may be invoked by a URLTest callback.
+@@ -191,0 +274,6 @@
++	hc.mu.Lock()
++	defer hc.mu.Unlock()
++	if hc.closed {
++		return
++	}
++	hc.closed = true
+@@ -192,0 +281,25 @@
++	if hc.active == 0 {
++		close(hc.drained)
++	}
++}
++
++// An uncooperative URLTest may outlive its cancellation. Keep ownership and let
++// the caller retry instead of declaring that a timed-out drain succeeded.
++func (hc *HealthCheck) waitClosed(ctx context.Context) error {
++	hc.mu.Lock()
++	closed, drained := hc.closed, hc.drained
++	hc.mu.Unlock()
++	if !closed {
++		return errors.New("health check must be closed before waiting")
++	}
++	select {
++	case <-drained:
++		return nil
++	default:
++	}
++	select {
++	case <-drained:
++		return nil
++	case <-ctx.Done():
++		return ctx.Err()
++	}
+@@ -208 +321,2 @@
+-		proxies:        proxies,
++		proxies:        append([]C.Proxy(nil), proxies...),
++		drained:        make(chan struct{}),
+--- adapter/provider/provider.go
++++ adapter/provider/provider.go
+@@ -3,0 +4 @@
++	"context"
+@@ -65,4 +66 @@
+-	if bp.healthCheck.auto() {
+-		go bp.healthCheck.process()
+-	}
+-	return nil
++	return bp.healthCheck.start()
+@@ -110 +108 @@
+-		go bp.healthCheck.check()
++		bp.healthCheck.startCheck()
+@@ -116,0 +115,5 @@
++}
++
++// WaitClosed joins health checks for compatible and inline providers as well.
++func (bp *baseProvider) WaitClosed(ctx context.Context) error {
++	return bp.healthCheck.waitClosed(ctx)
+@@ -181,0 +185,6 @@
++}
++
++// Override both embedded waiters: promoted Fetcher.WaitClosed alone does not
++// cover health checks. Both components share the Android stop drain deadline.
++func (pp *proxySetProvider) WaitClosed(ctx context.Context) error {
++	return errors.Join(pp.Fetcher.WaitClosed(ctx), pp.baseProvider.WaitClosed(ctx))

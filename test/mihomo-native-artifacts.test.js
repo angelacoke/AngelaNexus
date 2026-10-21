@@ -22,6 +22,8 @@ function fixture() {
   const patchedSource = Buffer.from("fixture patched server\n");
   const patchedDnsResolver = Buffer.from("fixture patched DNS resolver\n");
   const patchedProviderFetcher = Buffer.from("fixture patched provider fetcher\n");
+  const patchedProviderHealthcheck = Buffer.from("fixture patched provider healthcheck\n");
+  const patchedProxyProvider = Buffer.from("fixture patched proxy provider\n");
   const patchedLog = Buffer.from("fixture patched log source\n");
   const statisticsPatch = Buffer.from("fixture statistics patch\n");
   const patchedStatistics = Buffer.from("fixture patched statistics manager\n");
@@ -36,6 +38,9 @@ function fixture() {
   mkdirSync(join(root, "dns"), { recursive: true });
   writeFileSync(join(root, "dns/resolver.go"), patchedDnsResolver);
   mkdirSync(join(root, "component/resource"), { recursive: true });
+  mkdirSync(join(root, "adapter/provider"), { recursive: true });
+  writeFileSync(join(root, "adapter/provider/healthcheck.go"), patchedProviderHealthcheck);
+  writeFileSync(join(root, "adapter/provider/provider.go"), patchedProxyProvider);
   writeFileSync(join(root, "component/resource/fetcher.go"), patchedProviderFetcher);
   mkdirSync(join(root, "log"), { recursive: true });
   writeFileSync(join(root, "log/log.go"), patchedLog);
@@ -54,7 +59,7 @@ function fixture() {
   writeFileSync(join(sourceDir, "bridge.go"), bridge);
   writeFileSync(join(sourceDir, "lifecycle.go"), lifecycle);
   writeFileSync(join(sourceDir, "library.go"), libraryEntry);
-  const adapterSource = `PATCHED_SERVER_SHA256 = "${digest(patchedSource)}"\nPATCHED_DNS_RESOLVER_SHA256 = "${digest(patchedDnsResolver)}"\nPATCHED_PROVIDER_FETCHER_SHA256 = "${digest(patchedProviderFetcher)}"\nPATCHED_STATISTICS_SHA256 = "${digest(patchedStatistics)}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${digest(patchedStatistics)}"\nPATCHED_TRACKER_SHA256 = "${digest(patchedTracker)}"\nPATCHED_TUNNEL_SHA256 = "${digest(patchedTunnel)}"\nPATCHED_NAT_TABLE_SHA256 = "${digest(patchedNatTable)}"\nPATCHED_CONNECTION_SHA256 = "${digest(patchedConnection)}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${digest(patchedQuicSniffer)}"\nPATCHED_TPROXY_PACKET_SHA256 = "${digest(patchedTproxyPacket)}"\nPATCHED_LOG_SHA256 = "${digest(patchedLog)}"\n`;
+  const adapterSource = `PATCHED_SERVER_SHA256 = "${digest(patchedSource)}"\nPATCHED_DNS_RESOLVER_SHA256 = "${digest(patchedDnsResolver)}"\nPATCHED_PROVIDER_FETCHER_SHA256 = "${digest(patchedProviderFetcher)}"\nPATCHED_PROVIDER_HEALTHCHECK_SHA256 = "${digest(patchedProviderHealthcheck)}"\nPATCHED_PROXY_PROVIDER_SHA256 = "${digest(patchedProxyProvider)}"\nPATCHED_STATISTICS_SHA256 = "${digest(patchedStatistics)}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${digest(patchedStatistics)}"\nPATCHED_TRACKER_SHA256 = "${digest(patchedTracker)}"\nPATCHED_TUNNEL_SHA256 = "${digest(patchedTunnel)}"\nPATCHED_NAT_TABLE_SHA256 = "${digest(patchedNatTable)}"\nPATCHED_CONNECTION_SHA256 = "${digest(patchedConnection)}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${digest(patchedQuicSniffer)}"\nPATCHED_TPROXY_PACKET_SHA256 = "${digest(patchedTproxyPacket)}"\nPATCHED_LOG_SHA256 = "${digest(patchedLog)}"\n`;
   writeFileSync(join(sourceDir, "prepare-upstream.py"), adapterSource);
   const adapterSha = digest(adapterSource);
   const records = {};
@@ -93,6 +98,8 @@ ${ABIS.map((abi) => ` val ${abi.replaceAll("-", "_")} = MihomoNativeLibrarySpec(
       libraryEntry: { path: "native/android/mihomo-bridge/library.go", sha256: digest(libraryEntry) },
       dnsResolver: { path: "dns/resolver.go", sha256: digest(patchedDnsResolver) },
       providerFetcher: { path: "component/resource/fetcher.go", sha256: digest(patchedProviderFetcher) },
+      providerHealthCheck: { path: "adapter/provider/healthcheck.go", sha256: digest(patchedProviderHealthcheck) },
+      proxyProvider: { path: "adapter/provider/provider.go", sha256: digest(patchedProxyProvider) },
       logSource: { path: "log/log.go", sha256: digest(patchedLog) },
       ownershipAdapter: {
         path: "native/android/mihomo-bridge/prepare-upstream.py",
@@ -431,6 +438,13 @@ test("packaging does not require an upstream source checkout in the app reposito
   assert.equal(result.status, 0, result.stderr);
 }));
 
+test("provider and log source directories may be absent from the packaging checkout", () => withFixture((fx) => {
+  rmSync(join(fx.root, "adapter/provider"), { recursive: true });
+  rmSync(join(fx.root, "log"), { recursive: true });
+  const result = run(fx);
+  assert.equal(result.status, 0, result.stderr);
+}));
+
 test("rejects TProxy packet provenance tampering", () => withFixture((fx) => {
   mutate(fx, "arm64-v8a", (p) => {
     p.lateConnectionsPatch.patchedSources.tproxyPacket.sha256 = "0".repeat(64);
@@ -484,3 +498,41 @@ test("rejects tampered log source and duplicate/missing/invalid adapter log hash
     } finally { rmSync(fresh.root, { recursive: true, force: true }); }
   }
 }));
+
+
+test("rejects provider healthcheck/proxy provenance omission, path, hash, and nonliteral adapter constants", () => withFixture((fx) => {
+  const constants = {
+    providerHealthCheck: "PATCHED_PROVIDER_HEALTHCHECK_SHA256",
+    proxyProvider: "PATCHED_PROXY_PROVIDER_SHA256",
+  };
+  for (const [field, constant] of Object.entries(constants)) {
+    for (const abi of ABIS) {
+      const missing = fixture(); try { mutate(missing, abi, (p) => { delete p[field]; }); const r = run(missing); assert.equal(r.status, 1); assert.match(r.stderr, new RegExp(`missing required field '${field}'`)); } finally { rmSync(missing.root, { recursive: true, force: true }); }
+      const pathFx = fixture(); try { mutate(pathFx, abi, (p) => { p[field].path = "tampered.go"; }); const r = run(pathFx); assert.equal(r.status, 1); assert.match(r.stderr, new RegExp(`${field} path mismatch`)); } finally { rmSync(pathFx.root, { recursive: true, force: true }); }
+      const hashFx = fixture(); try { mutate(hashFx, abi, (p) => { p[field].sha256 = "0".repeat(64); }); const r = run(hashFx); assert.equal(r.status, 1); assert.match(r.stderr, new RegExp(`${field} SHA-256 mismatch`)); } finally { rmSync(hashFx.root, { recursive: true, force: true }); }
+    }
+    for (const [replacement, expected] of [
+      [`${constant} = str("literal")`, new RegExp(`upstream adapter ${constant} must be a literal string`)],
+      ["", new RegExp(`exactly one ${constant} constant`)],
+      [`${constant} = "${"a".repeat(63)}"`, new RegExp(`${constant} must be a 64-character SHA-256 hex string`)],
+      [`${constant} = "${"a".repeat(64)}"\n${constant} = "${"b".repeat(64)}"`, new RegExp(`exactly one ${constant} constant`)],
+    ]) {
+      const constantFx = fixture();
+      try {
+        const path = join(constantFx.root, "native/android/mihomo-bridge/prepare-upstream.py");
+        const original = readFileSync(path, "utf8");
+        writeFileSync(path, original.replace(new RegExp(`${constant} = "[0-9a-f]+"\n?`), () => replacement + "\n"));
+        const r = run(constantFx); assert.equal(r.status, 1); assert.match(r.stderr, expected);
+      } finally { rmSync(constantFx.root, { recursive: true, force: true }); }
+    }
+  }
+}));
+
+for (const [field, relative] of [["providerHealthCheck", "adapter/provider/healthcheck.go"], ["proxyProvider", "adapter/provider/provider.go"]]) {
+  test(`rejects changed ${field} source when the upstream checkout is present`, () => withFixture((fx) => {
+    writeFileSync(join(fx.root, relative), "tampered reviewed source\n");
+    const result = run(fx);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, new RegExp(`${field} SHA-256 mismatch: checkout source differs`));
+  }));
+}
