@@ -1052,3 +1052,185 @@
  }
  
  // this function listen at rAddr
+--- dns/resolver.go
++++ dns/resolver.go
+@@ -4,6 +4,7 @@
+ 	"context"
+ 	"errors"
+ 	"net/netip"
++	"reflect"
+ 	"time"
+ 
+ 	"github.com/metacubex/mihomo/common/arc"
+@@ -47,7 +48,9 @@
+ 	group                 singleflight.Group[*D.Msg]
+ 	cache                 dnsCache
+ 	policy                []dnsPolicy
+-	defaultResolver       *Resolver
++	// Immutable ownership inventory for clients reachable only through policies.
++	policyClients   []dnsClient
++	defaultResolver *Resolver
+ }
+ 
+ func (r *Resolver) LookupIPPrimaryIPv4(ctx context.Context, host string) (ips []netip.Addr, err error) {
+@@ -396,17 +399,62 @@
+ 	}
+ }
+ 
++// ResetConnection resets transports, not in-flight query or worker ownership.
+ func (r *Resolver) ResetConnection() {
+-	if r != nil {
+-		for _, c := range r.main {
+-			c.ResetConnection()
+-		}
+-		for _, c := range r.fallback {
+-			c.ResetConnection()
+-		}
+-		if dr := r.defaultResolver; dr != nil {
+-			dr.ResetConnection()
+-		}
++	resetResolverConnections(r)
++}
++
++// Keep deduplication local to one reset. Policies may share a client with each
++// other, main/fallback or another resolver. Callbacks run without a global lock.
++func resetResolverConnections(roots ...*Resolver) {
++	seenResolvers := make(map[*Resolver]struct{})
++	seenClients := make(map[dnsClient]struct{})
++	var visit func(*Resolver)
++	reset := func(clients []dnsClient) {
++		for _, client := range clients {
++			// Query-only wrappers inherit ResetConnection unchanged. Reset the
++			// shared transport once, not once per wrapper parameter set.
++			for {
++				switch wrapper := client.(type) {
++				case clientWithDisableTypes:
++					client = wrapper.dnsClient
++				case clientWithEdns0Subnet:
++					client = wrapper.dnsClient
++				default:
++					goto unwrapped
++				}
++			}
++		unwrapped:
++			if client == nil {
++				continue
++			}
++			// A custom value client can contain slices or interface fields whose
++			// dynamic values are uncomparable. Such values remain safe to reset,
++			// but cannot be deduplicated by interface identity.
++			if reflect.ValueOf(client).Comparable() {
++				if _, seen := seenClients[client]; seen {
++					continue
++				}
++				seenClients[client] = struct{}{}
++			}
++			client.ResetConnection()
++		}
++	}
++	visit = func(r *Resolver) {
++		if r == nil {
++			return
++		}
++		if _, seen := seenResolvers[r]; seen {
++			return
++		}
++		seenResolvers[r] = struct{}{}
++		reset(r.main)
++		reset(r.fallback)
++		reset(r.policyClients)
++		visit(r.defaultResolver)
++	}
++	for _, root := range roots {
++		visit(root)
+ 	}
+ }
+ 
+@@ -510,9 +558,7 @@
+ }
+ 
+ func (rs Resolvers) ResetConnection() {
+-	rs.Resolver.ResetConnection()
+-	rs.ProxyResolver.ResetConnection()
+-	rs.DirectResolver.ResetConnection()
++	resetResolverConnections(rs.Resolver, rs.ProxyResolver, rs.DirectResolver)
+ }
+ 
+ func NewResolverFromClient(client dnsClient) *Resolver {
+@@ -565,7 +611,12 @@
+ 		return
+ 	}
+ 
+-	makePolicy := func(policies []Policy) (dnsPolicies []dnsPolicy) {
++	makePolicy := func(policies []Policy) (dnsPolicies []dnsPolicy, clients []dnsClient) {
++		policyTransform := func(servers []NameServer) []dnsClient {
++			transformed := cacheTransform(servers)
++			clients = append(clients, transformed...)
++			return transformed
++		}
+ 		var triePolicy *trie.DomainTrie[[]dnsClient]
+ 		insertPolicy := func(policy dnsPolicy) {
+ 			if triePolicy != nil {
+@@ -580,12 +631,12 @@
+ 
+ 		for _, policy := range policies {
+ 			if policy.Matcher != nil {
+-				insertPolicy(domainMatcherPolicy{matcher: policy.Matcher, dnsClients: cacheTransform(policy.NameServers)})
++				insertPolicy(domainMatcherPolicy{matcher: policy.Matcher, dnsClients: policyTransform(policy.NameServers)})
+ 			} else {
+ 				if triePolicy == nil {
+ 					triePolicy = trie.New[[]dnsClient]()
+ 				}
+-				if err := triePolicy.Insert(policy.Domain, cacheTransform(policy.NameServers)); err != nil {
++				if err := triePolicy.Insert(policy.Domain, policyTransform(policy.NameServers)); err != nil {
+ 					log.Warnln("[DNS] skip invalid nameserver policy: %s", err)
+ 				}
+ 			}
+@@ -594,23 +645,29 @@
+ 		return
+ 	}
+ 
++	mainClients := cacheTransform(config.Main)
++	policies, policyClients := makePolicy(config.Policy)
+ 	r := &Resolver{
+-		ipv6:        config.IPv6,
+-		main:        cacheTransform(config.Main),
+-		cache:       config.newCache(),
+-		ipv6Timeout: time.Duration(config.IPv6Timeout) * time.Millisecond,
+-		policy:      makePolicy(config.Policy),
++		ipv6:          config.IPv6,
++		main:          mainClients,
++		cache:         config.newCache(),
++		ipv6Timeout:   time.Duration(config.IPv6Timeout) * time.Millisecond,
++		policy:        policies,
++		policyClients: policyClients,
+ 	}
+ 	r.defaultResolver = defaultResolver
+ 	rs.Resolver = r
+ 
+ 	if len(config.ProxyServer) != 0 {
++		proxyMain := cacheTransform(config.ProxyServer)
++		proxyPolicies, proxyClients := makePolicy(config.ProxyServerPolicy)
+ 		rs.ProxyResolver = &Resolver{
+-			ipv6:        config.IPv6,
+-			main:        cacheTransform(config.ProxyServer),
+-			cache:       config.newCache(),
+-			ipv6Timeout: time.Duration(config.IPv6Timeout) * time.Millisecond,
+-			policy:      makePolicy(config.ProxyServerPolicy),
++			ipv6:          config.IPv6,
++			main:          proxyMain,
++			cache:         config.newCache(),
++			ipv6Timeout:   time.Duration(config.IPv6Timeout) * time.Millisecond,
++			policy:        proxyPolicies,
++			policyClients: proxyClients,
+ 		}
+ 	}
+ 
+@@ -623,6 +680,7 @@
+ 		}
+ 		if config.DirectFollowPolicy {
+ 			rs.DirectResolver.policy = r.policy
++			rs.DirectResolver.policyClients = r.policyClients
+ 		}
+ 	}
+ 

@@ -31,6 +31,7 @@ function verifierFixture() {
     writeFileSync(join(sourceDir, name), readFileSync(join(root, bridgeDir, name)));
   }
   const patchedSourceHash = digest("fixture patched source");
+  const patchedDnsResolverHash = digest("fixture patched DNS resolver");
   const patchedStatistics = "fixture patched statistics";
   const patchedStatisticsHash = digest(patchedStatistics);
   const patchedTracker = "fixture patched tracker";
@@ -44,12 +45,14 @@ function verifierFixture() {
   const statisticsPatch = "fixture statistics patch\n";
   const lateConnectionsPatch = "fixture late connections patch\n";
   mkdirSync(join(repo, "tunnel/statistic"), { recursive: true });
+  mkdirSync(join(repo, "dns"), { recursive: true });
+  writeFileSync(join(repo, "dns/resolver.go"), "fixture patched DNS resolver");
   writeFileSync(join(repo, "tunnel/statistic/manager.go"), patchedStatistics);
   writeFileSync(join(repo, "tunnel/statistic/tracker.go"), patchedTracker);
   writeFileSync(join(repo, "tunnel/tunnel.go"), patchedTunnel);
   writeFileSync(join(sourceDir, "statistics.patch"), statisticsPatch);
   writeFileSync(join(sourceDir, "late-connections.patch"), lateConnectionsPatch);
-  writeFileSync(join(sourceDir, "prepare-upstream.py"), `PATCHED_SERVER_SHA256 = "${patchedSourceHash}"\nPATCHED_STATISTICS_SHA256 = "${patchedStatisticsHash}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${patchedStatisticsHash}"\nPATCHED_TRACKER_SHA256 = "${patchedTrackerHash}"\nPATCHED_TUNNEL_SHA256 = "${patchedTunnelHash}"\nPATCHED_NAT_TABLE_SHA256 = "${patchedNatTableHash}"\nPATCHED_CONNECTION_SHA256 = "${patchedConnectionHash}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${patchedQuicSnifferHash}"\nPATCHED_TPROXY_PACKET_SHA256 = "${patchedTproxyPacketHash}"\n`);
+  writeFileSync(join(sourceDir, "prepare-upstream.py"), `PATCHED_SERVER_SHA256 = "${patchedSourceHash}"\nPATCHED_DNS_RESOLVER_SHA256 = "${patchedDnsResolverHash}"\nPATCHED_STATISTICS_SHA256 = "${patchedStatisticsHash}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${patchedStatisticsHash}"\nPATCHED_TRACKER_SHA256 = "${patchedTrackerHash}"\nPATCHED_TUNNEL_SHA256 = "${patchedTunnelHash}"\nPATCHED_NAT_TABLE_SHA256 = "${patchedNatTableHash}"\nPATCHED_CONNECTION_SHA256 = "${patchedConnectionHash}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${patchedQuicSnifferHash}"\nPATCHED_TPROXY_PACKET_SHA256 = "${patchedTproxyPacketHash}"\n`);
   const abis = ["arm64-v8a", "armeabi-v7a", "x86_64"];
   const commit = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36";
   const specs = abis.map(abi => `MihomoNativeLibrarySpec(abi = "${abi}", sha256 = "${"a".repeat(64)}")`).join(",\n");
@@ -72,6 +75,7 @@ function verifierFixture() {
       toolchain: { go: "go version go1.24.8 linux/amd64", androidNdk: "28.0.13004108", compiler: "Android clang", goos: "android", goarch, goarm: abi === "armeabi-v7a" ? "7" : null, cgoEnabled: true },
       build: { trimpath: true, buildmode: "c-shared", package: "./angelanexus_android", tags: ["with_gvisor", "cmfa"], versionLdflag: "github.com/metacubex/mihomo/constant.Version=v1.19.32" },
       bridge: evidence("bridge.go"), lifecycle: evidence("lifecycle.go"), libraryEntry: evidence("library.go"),
+      dnsResolver: { path: "dns/resolver.go", sha256: patchedDnsResolverHash },
       ownershipAdapter: { ...evidence("prepare-upstream.py"), patchedSource: { path: "listener/sing_tun/server.go", sha256: patchedSourceHash } },
       statisticsPatch: { ...evidence("statistics.patch"), patchedSource: { path: "tunnel/statistic/manager.go", sha256: patchedStatisticsHash } },
       lateConnectionsPatch: {

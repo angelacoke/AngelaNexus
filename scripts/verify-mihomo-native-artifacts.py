@@ -22,6 +22,7 @@ EXPECTED_GOARCH = {"arm64-v8a": "arm64", "armeabi-v7a": "arm", "x86_64": "amd64"
 HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
 ADAPTER_PATH = "native/android/mihomo-bridge/prepare-upstream.py"
 PATCHED_SOURCE_PATH = "listener/sing_tun/server.go"
+DNS_RESOLVER_PATH = "dns/resolver.go"
 STATISTICS_PATCH_PATH = "native/android/mihomo-bridge/statistics.patch"
 PATCHED_STATISTICS_PATH = "tunnel/statistic/manager.go"
 LATE_CONNECTIONS_PATCH_PATH = "native/android/mihomo-bridge/late-connections.patch"
@@ -99,7 +100,7 @@ def adapter_values(repo: Path) -> tuple[str, ...]:
         tree = ast.parse(text, filename=str(path))
     except (SyntaxError, ValueError) as exc:
         fail(f"invalid upstream adapter script {path}: {exc}")
-    wanted = {"PATCHED_SERVER_SHA256": [], "PATCHED_STATISTICS_SHA256": [], "STATISTICS_PATCH_SHA256": [], "LATE_CONNECTIONS_PATCH_SHA256": [], "PATCHED_LATE_MANAGER_SHA256": [], "PATCHED_TRACKER_SHA256": [], "PATCHED_TUNNEL_SHA256": [], "PATCHED_NAT_TABLE_SHA256": [], "PATCHED_CONNECTION_SHA256": [], "PATCHED_QUIC_SNIFFER_SHA256": [], "PATCHED_TPROXY_PACKET_SHA256": []}
+    wanted = {"PATCHED_SERVER_SHA256": [], "PATCHED_DNS_RESOLVER_SHA256": [], "PATCHED_STATISTICS_SHA256": [], "STATISTICS_PATCH_SHA256": [], "LATE_CONNECTIONS_PATCH_SHA256": [], "PATCHED_LATE_MANAGER_SHA256": [], "PATCHED_TRACKER_SHA256": [], "PATCHED_TUNNEL_SHA256": [], "PATCHED_NAT_TABLE_SHA256": [], "PATCHED_CONNECTION_SHA256": [], "PATCHED_QUIC_SNIFFER_SHA256": [], "PATCHED_TPROXY_PACKET_SHA256": []}
     for node in tree.body:
         if isinstance(node, ast.Assign):
             targets = node.targets
@@ -121,7 +122,7 @@ def adapter_values(repo: Path) -> tuple[str, ...]:
     for name, values in wanted.items():
         if len(values) != 1:
             fail(f"upstream adapter must define exactly one {name} constant")
-    return (sha256(path), wanted["PATCHED_SERVER_SHA256"][0], wanted["STATISTICS_PATCH_SHA256"][0], wanted["PATCHED_STATISTICS_SHA256"][0], wanted["LATE_CONNECTIONS_PATCH_SHA256"][0], wanted["PATCHED_LATE_MANAGER_SHA256"][0], wanted["PATCHED_TRACKER_SHA256"][0], wanted["PATCHED_TUNNEL_SHA256"][0], wanted["PATCHED_NAT_TABLE_SHA256"][0], wanted["PATCHED_CONNECTION_SHA256"][0], wanted["PATCHED_QUIC_SNIFFER_SHA256"][0], wanted["PATCHED_TPROXY_PACKET_SHA256"][0])
+    return (sha256(path), wanted["PATCHED_SERVER_SHA256"][0], wanted["PATCHED_DNS_RESOLVER_SHA256"][0], wanted["STATISTICS_PATCH_SHA256"][0], wanted["PATCHED_STATISTICS_SHA256"][0], wanted["LATE_CONNECTIONS_PATCH_SHA256"][0], wanted["PATCHED_LATE_MANAGER_SHA256"][0], wanted["PATCHED_TRACKER_SHA256"][0], wanted["PATCHED_TUNNEL_SHA256"][0], wanted["PATCHED_NAT_TABLE_SHA256"][0], wanted["PATCHED_CONNECTION_SHA256"][0], wanted["PATCHED_QUIC_SNIFFER_SHA256"][0], wanted["PATCHED_TPROXY_PACKET_SHA256"][0])
 
 
 def manifest_values(repo: Path) -> tuple[str, str, str, dict[str, str]]:
@@ -160,7 +161,7 @@ def manifest_values(repo: Path) -> tuple[str, str, str, dict[str, str]]:
 
 def verify(artifacts_root: Path, repo: Path) -> None:
     version, commit, manifest_tproxy_hash, manifest_hashes = manifest_values(repo)
-    adapter_hash, patched_source_hash, statistics_patch_hash, patched_statistics_hash, late_patch_hash, late_manager_hash, tracker_hash, tunnel_hash, nat_table_hash, connection_hash, quic_sniffer_hash, tproxy_packet_hash = adapter_values(repo)
+    adapter_hash, patched_source_hash, dns_resolver_hash, statistics_patch_hash, patched_statistics_hash, late_patch_hash, late_manager_hash, tracker_hash, tunnel_hash, nat_table_hash, connection_hash, quic_sniffer_hash, tproxy_packet_hash = adapter_values(repo)
     if manifest_tproxy_hash != tproxy_packet_hash:
         fail(f"Kotlin manifest TProxy packet SHA-256 mismatch: manifest {manifest_tproxy_hash}, adapter {tproxy_packet_hash}")
     actual_statistics_patch_hash = sha256(repo / STATISTICS_PATCH_PATH)
@@ -236,6 +237,11 @@ def verify(artifacts_root: Path, repo: Path) -> None:
             fail(f"provenance {abi} patchedSource path mismatch")
         if require_hash(patched, "sha256", f"provenance.ownershipAdapter.patchedSource {abi}") != patched_source_hash:
             fail(f"provenance {abi} patchedSource SHA-256 mismatch")
+        dns_resolver = require_object(record, "dnsResolver", f"provenance {abi}")
+        if require(dns_resolver, "path", f"provenance.dnsResolver {abi}") != DNS_RESOLVER_PATH:
+            fail(f"provenance {abi} dnsResolver path mismatch")
+        if require_hash(dns_resolver, "sha256", f"provenance.dnsResolver {abi}") != dns_resolver_hash:
+            fail(f"provenance {abi} dnsResolver SHA-256 mismatch")
         statistics = require_object(record, "statisticsPatch", f"provenance {abi}")
         if require(statistics, "path", f"provenance.statisticsPatch {abi}") != STATISTICS_PATCH_PATH:
             fail(f"provenance {abi} statisticsPatch path mismatch")

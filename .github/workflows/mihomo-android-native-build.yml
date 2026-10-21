@@ -100,9 +100,12 @@ jobs:
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/late_tunnel_integration_test.go" ./tunnel/angelanexus_late_tunnel_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/quic_sender_integration_test.go" ./component/sniffer/angelanexus_quic_sender_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/nat_local_integration_test.go" ./component/nat/angelanexus_nat_local_integration_test.go
+          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/dns_reset_integration_test.go" ./dns/angelanexus_dns_reset_integration_test.go
           # go test exits successfully for an empty -run selection: reject it.
           go test -tags=with_gvisor,cmfa -list '^TestAngelaNexusNATLocal' ./component/nat | grep '^TestAngelaNexusNATLocal'
           go test -race -tags=with_gvisor,cmfa -run '^TestAngelaNexusNATLocal' -count=20 -timeout=90s ./component/nat
+          go test -list '^TestAngelaNexusDNSReset' ./dns | grep '^TestAngelaNexusDNSReset'
+          go test -race -run '^TestAngelaNexusDNSReset' -count=20 -timeout=120s ./dns
           go test -list '^TestAngelaNexusLateConnections' ./tunnel/statistic | grep '^TestAngelaNexusLateConnections'
           go test -tags=with_gvisor,cmfa -list '^TestAngelaNexusLateTunnel' ./tunnel | grep '^TestAngelaNexusLateTunnel'
           go test -list '^TestAngelaNexusQUICSender' ./component/sniffer | grep '^TestAngelaNexusQUICSender'
@@ -178,6 +181,7 @@ jobs:
           PATCHED_QUIC_SNIFFER_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/component/sniffer/quic_sniffer.go" | awk '{print $1}')"
           PATCHED_TPROXY_PACKET_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/listener/tproxy/packet.go" | awk '{print $1}')"
           PATCHED_CONNECTION_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/tunnel/connection.go" | awk '{print $1}')"
+          PATCHED_DNS_RESOLVER_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/dns/resolver.go" | awk '{print $1}')"
           GO_VERSION="$(go version | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
           NDK_BIN="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
           CC_PATH="$NDK_BIN/${{ matrix.cc }}"
@@ -202,6 +206,7 @@ jobs:
               "lifecycle": {"path": "native/android/mihomo-bridge/lifecycle.go", "sha256": "$LIFECYCLE_SHA256"},
               "libraryEntry": {"path": "native/android/mihomo-bridge/library.go", "sha256": "$LIBRARY_ENTRY_SHA256"},
               "ownershipAdapter": {"path": "native/android/mihomo-bridge/prepare-upstream.py", "sha256": "$ADAPTER_SHA256", "patchedSource": {"path": "listener/sing_tun/server.go", "sha256": "$PATCHED_SERVER_SHA256"}},
+              "dnsResolver": {"path": "dns/resolver.go", "sha256": "$PATCHED_DNS_RESOLVER_SHA256"},
               "statisticsPatch": {"path": "native/android/mihomo-bridge/statistics.patch", "sha256": "$STATISTICS_PATCH_SHA256", "patchedSource": {"path": "tunnel/statistic/manager.go", "sha256": "$PATCHED_LATE_MANAGER_SHA256"}},
               "lateConnectionsPatch": {"path": "native/android/mihomo-bridge/late-connections.patch", "sha256": "$LATE_CONNECTIONS_PATCH_SHA256", "patchedSources": {"manager": {"path": "tunnel/statistic/manager.go", "sha256": "$PATCHED_LATE_MANAGER_SHA256"}, "tracker": {"path": "tunnel/statistic/tracker.go", "sha256": "$PATCHED_TRACKER_SHA256"}, "tunnel": {"path": "tunnel/tunnel.go", "sha256": "$PATCHED_TUNNEL_SHA256"}, "natTable": {"path": "component/nat/table.go", "sha256": "$PATCHED_NAT_TABLE_SHA256"}, "connection": {"path": "tunnel/connection.go", "sha256": "$PATCHED_CONNECTION_SHA256"}, "quicSniffer": {"path": "component/sniffer/quic_sniffer.go", "sha256": "$PATCHED_QUIC_SNIFFER_SHA256"}, "tproxyPacket": {"path": "listener/tproxy/packet.go", "sha256": "$PATCHED_TPROXY_PACKET_SHA256"}}},
               "artifact": {"name": "libclash-${{ matrix.abi }}.so", "sha256": "$ARTIFACT_SHA256"},

@@ -14,6 +14,10 @@ const bridge = read("native/android/mihomo-bridge/bridge.go");
 test("CI stages and runs manager and actual tunnel regressions, rejecting empty selections", () => {
   const host = steps.find(step => step.name === "Test bridge state against pinned Mihomo on host (not Android TUN)");
   assert.equal(host.if, "matrix.abi == 'x86_64'");
+  assert.match(host.run, /dns_reset_integration_test\.go.*dns\/angelanexus_dns_reset_integration_test\.go/);
+  assert.match(host.run, /-list '\^TestAngelaNexusDNSReset'[^\n]*dns/);
+  assert.ok(host.run.includes("grep '^TestAngelaNexusDNSReset'"));
+  assert.match(host.run, /-race -run '\^TestAngelaNexusDNSReset' -count=20 -timeout=120s \.\/dns/);
   assert.match(host.run, /quic_sender_integration_test\.go.*component\/sniffer\/angelanexus_quic_sender_integration_test\.go/);
   assert.ok(host.run.includes("-list '^TestAngelaNexusQUICSender'"));
   assert.match(host.run, /-list '\^TestAngelaNexusNATLocal'[^\n]*component\/nat/);
@@ -84,6 +88,7 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
         connection: "tunnel/connection.go",
         quicSniffer: "component/sniffer/quic_sniffer.go",
         tproxyPacket: "listener/tproxy/packet.go",
+        dnsResolver: "dns/resolver.go",
       };
       for (const [name, path] of Object.entries(sources)) put(join(root, "mihomo", path), `reviewed final ${name} output\n`);
       const run = step.run.replace(/\$\{\{ matrix\.(\w+) \}\}/g, (_, key) => matrix[key]);
@@ -94,6 +99,8 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
       });
       assert.equal(result.status, 0, result.stderr || result.error?.message);
       const evidence = JSON.parse(readFileSync(join(root, `mihomo-provenance-${matrix.abi}.json`), "utf8"));
+      assert.equal(evidence.dnsResolver.path, "dns/resolver.go");
+      assert.equal(evidence.dnsResolver.sha256, hash(join(root, "mihomo/dns/resolver.go")));
       assert.equal(evidence.abi, matrix.abi);
       assert.equal(evidence.toolchain.goarch, matrix.goarch);
       assert.equal(evidence.toolchain.goarm, matrix.goarch === "arm" ? "7" : null);
