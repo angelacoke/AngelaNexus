@@ -238,12 +238,13 @@ func TestAngelaNexusLateTunnelTCP(t *testing.T) {
 
 type lateGatePacketConn struct {
 	N.EnhancePacketConn
-	reads     atomic.Int32
-	writes    atomic.Int32
-	closed    chan struct{}
-	readDone  chan struct{}
-	closeOnce sync.Once
-	readOnce  sync.Once
+	reads       atomic.Int32
+	writes      atomic.Int32
+	closed      chan struct{}
+	readStarted chan struct{}
+	readDone    chan struct{}
+	closeOnce   sync.Once
+	readOnce    sync.Once
 }
 
 func (c *lateGatePacketConn) Close() error {
@@ -252,7 +253,9 @@ func (c *lateGatePacketConn) Close() error {
 	return err
 }
 func (c *lateGatePacketConn) WaitReadFrom() ([]byte, func(), net.Addr, error) {
-	c.reads.Add(1)
+	if c.reads.Add(1) == 1 && c.readStarted != nil {
+		close(c.readStarted)
+	}
 	defer c.readOnce.Do(func() { close(c.readDone) })
 	return c.EnhancePacketConn.WaitReadFrom()
 }
@@ -294,7 +297,7 @@ func TestAngelaNexusLateTunnelUDP(t *testing.T) {
 				_ = raw.Close()
 				t.Fatal(err)
 			}
-			conn := &lateGatePacketConn{EnhancePacketConn: N.NewEnhancePacketConn(raw), closed: make(chan struct{}), readDone: make(chan struct{})}
+			conn := &lateGatePacketConn{EnhancePacketConn: N.NewEnhancePacketConn(raw), closed: make(chan struct{}), readStarted: make(chan struct{}), readDone: make(chan struct{})}
 			p := &lateGateProxy{udp: conn, entered: make(chan struct{}), release: make(chan struct{}), canceled: make(chan struct{}), ignoreContext: ignoreContext}
 			lateGateSetup(t, p)
 			packet := &lateGatePacket{data: []byte("payload"), local: raw.LocalAddr(), dropped: make(chan struct{})}
@@ -349,6 +352,10 @@ func TestAngelaNexusLateTunnelUDP(t *testing.T) {
 				if err != nil || string(b[:n]) != "payload" {
 					t.Fatalf("fresh UDP forwarding failed: %q %v", b[:n], err)
 				}
+				// A received outbound request does not prove the reverse goroutine
+				// entered its read. Cancellation before entry now correctly skips it.
+				// This control specifically tests setup-only drain with a blocked read.
+				lateGateWait(t, conn.readStarted, "fresh UDP reverse read entry")
 				statistic.DefaultManager.StopRegistrations()
 				lateGateWaitSetups(t)
 				select {
@@ -1078,5 +1085,369 @@ func TestAngelaNexusLateTunnelSenderInFlightWrite(t *testing.T) {
 	lateGateWait(t, done, "admitted write completion")
 	if c.writes.Load() != 1 || c.deadlines.Load() != 0 || p.drops.Load() != 1 {
 		t.Fatalf("in-flight ownership: writes=%d deadlines=%d drops=%d", c.writes.Load(), c.deadlines.Load(), p.drops.Load())
+	}
+}
+
+type lateLocalReadConn struct {
+	C.PacketConn
+	readStarted    chan struct{}
+	release        chan struct{}
+	readOnce       sync.Once
+	closeOnce      sync.Once
+	closeCalls     atomic.Int32
+	reads          atomic.Int32
+	deadlines      atomic.Int32
+	putCalls       *atomic.Int32
+	deadlineCancel func()
+	waitErr        error
+	errorPut       bool
+}
+
+func (c *lateLocalReadConn) SetReadDeadline(time.Time) error {
+	c.deadlines.Add(1)
+	if c.deadlineCancel != nil {
+		c.deadlineCancel()
+	}
+	return nil
+}
+
+func (c *lateLocalReadConn) WaitReadFrom() ([]byte, func(), net.Addr, error) {
+	if c.reads.Add(1) > 1 {
+		return nil, nil, nil, io.EOF
+	}
+	c.readOnce.Do(func() { close(c.readStarted) })
+	if c.release != nil {
+		<-c.release
+	}
+	if c.waitErr != nil {
+		if !c.errorPut {
+			return nil, nil, nil, c.waitErr
+		}
+		return nil, c.putFunc(), nil, c.waitErr
+	}
+	return []byte("reply"), c.putFunc(), &net.UDPAddr{IP: net.ParseIP("192.0.2.1"), Port: 5353}, nil
+}
+
+func (c *lateLocalReadConn) putFunc() func() {
+	return func() {
+		if c.putCalls != nil {
+			c.putCalls.Add(1)
+		}
+	}
+}
+
+func (c *lateLocalReadConn) Close() error {
+	c.closeOnce.Do(func() { c.closeCalls.Add(1) })
+	return nil
+}
+
+type lateLocalSender struct {
+	C.PacketSender
+	closeOnce  sync.Once
+	closeCalls atomic.Int32
+	restores   atomic.Int32
+	restore    func(netip.Addr)
+}
+
+func (s *lateLocalSender) Close() {
+	s.closeOnce.Do(func() { s.closeCalls.Add(1) })
+}
+
+func (s *lateLocalSender) RestoreReadFrom(addr netip.Addr) netip.Addr {
+	s.restores.Add(1)
+	if s.restore != nil {
+		s.restore(addr)
+	}
+	return addr
+}
+
+type lateLocalWriteBack struct {
+	calls   atomic.Int32
+	onWrite func()
+	err     error
+}
+
+func (w *lateLocalWriteBack) WriteBack([]byte, net.Addr) (int, error) {
+	w.calls.Add(1)
+	if w.onWrite != nil {
+		w.onWrite()
+	}
+	return 1, w.err
+}
+
+func TestAngelaNexusLateTunnelReplyLocalWriteBackCancellation(t *testing.T) {
+	t.Run("blocked-read-late-buffer-is-dropped", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		readStarted, release := make(chan struct{}), make(chan struct{})
+		putCalls := atomic.Int32{}
+		pc := &lateLocalReadConn{readStarted: readStarted, release: release, putCalls: &putCalls}
+		sender := &lateLocalSender{}
+		wb := &lateLocalWriteBack{}
+		// A blocked reader deliberately ignores Close/cancellation and returns a
+		// valid buffer later. The post-read check must own it and call put once.
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			handleUDPToLocal(ctx, wb, pc, sender, "late-local-blocked", netip.MustParseAddrPort("127.0.0.1:9"))
+		}()
+		lateGateWait(t, readStarted, "blocked local UDP read")
+		cancel()
+		close(release)
+		lateGateWait(t, done, "blocked local UDP cleanup")
+		if pc.reads.Load() != 1 || sender.restores.Load() != 0 || wb.calls.Load() != 0 || putCalls.Load() != 1 {
+			t.Fatalf("late read forwarded: reads=%d restores=%d writes=%d puts=%d", pc.reads.Load(), sender.restores.Load(), wb.calls.Load(), putCalls.Load())
+		}
+		if sender.closeCalls.Load() != 1 || pc.closeCalls.Load() != 1 {
+			t.Fatalf("cleanup calls: sender=%d pc=%d", sender.closeCalls.Load(), pc.closeCalls.Load())
+		}
+	})
+
+	t.Run("restore-reentrant-cancel", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		putCalls := atomic.Int32{}
+		pc := &lateLocalReadConn{readStarted: make(chan struct{}), putCalls: &putCalls}
+		sender := &lateLocalSender{}
+		wb := &lateLocalWriteBack{}
+		sender.restore = func(netip.Addr) {
+			cancel()
+			sender.Close() // re-enter cleanup while RestoreReadFrom is executing
+			_ = pc.Close()
+		}
+		pc.release = make(chan struct{})
+		close(pc.release)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			handleUDPToLocal(ctx, wb, pc, sender, "late-local-restore", netip.MustParseAddrPort("127.0.0.1:9"))
+		}()
+		lateGateWait(t, done, "restore cancellation cleanup")
+		if wb.calls.Load() != 0 || putCalls.Load() != 1 || sender.closeCalls.Load() != 1 || pc.closeCalls.Load() != 1 {
+			t.Fatalf("restore cancellation: writes=%d puts=%d senderClose=%d pcClose=%d", wb.calls.Load(), putCalls.Load(), sender.closeCalls.Load(), pc.closeCalls.Load())
+		}
+	})
+
+	t.Run("fresh-success", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		putCalls := atomic.Int32{}
+		pc := &lateLocalReadConn{readStarted: make(chan struct{}), putCalls: &putCalls}
+		sender := &lateLocalSender{}
+		wb := &lateLocalWriteBack{}
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			handleUDPToLocal(ctx, wb, pc, sender, "late-local-fresh", netip.MustParseAddrPort("127.0.0.1:9"))
+		}()
+		lateGateWait(t, done, "fresh local UDP cleanup")
+		if wb.calls.Load() != 1 || putCalls.Load() != 1 || sender.closeCalls.Load() != 1 || pc.closeCalls.Load() != 1 {
+			t.Fatalf("fresh result: writes=%d puts=%d senderClose=%d pcClose=%d", wb.calls.Load(), putCalls.Load(), sender.closeCalls.Load(), pc.closeCalls.Load())
+		}
+	})
+
+	t.Run("in-flight-writeback", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		putCalls := atomic.Int32{}
+		pc := &lateLocalReadConn{readStarted: make(chan struct{}), putCalls: &putCalls}
+		sender := &lateLocalSender{}
+		wb := &lateLocalWriteBack{onWrite: cancel}
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			handleUDPToLocal(ctx, wb, pc, sender, "late-local-inflight", netip.MustParseAddrPort("127.0.0.1:9"))
+		}()
+		lateGateWait(t, done, "in-flight write-back cleanup")
+		if wb.calls.Load() != 1 || putCalls.Load() != 1 || sender.closeCalls.Load() != 1 || pc.closeCalls.Load() != 1 {
+			t.Fatalf("in-flight write-back: writes=%d puts=%d senderClose=%d pcClose=%d", wb.calls.Load(), putCalls.Load(), sender.closeCalls.Load(), pc.closeCalls.Load())
+		}
+	})
+
+	t.Run("blocked-writeback-retains-buffer", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		entered, release := make(chan struct{}), make(chan struct{})
+		var releaseOnce sync.Once
+		unblock := func() { releaseOnce.Do(func() { close(release) }) }
+		defer unblock()
+		var putCalls atomic.Int32
+		pc := &lateLocalReadConn{readStarted: make(chan struct{}), putCalls: &putCalls}
+		sender := &lateLocalSender{}
+		wb := &lateLocalWriteBack{onWrite: func() { close(entered); <-release }}
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			handleUDPToLocal(ctx, wb, pc, sender, "late-reply-blocked-write", netip.MustParseAddrPort("127.0.0.1:9"))
+		}()
+		lateGateWait(t, entered, "blocked write-back entry")
+		cancel()
+		if putCalls.Load() != 0 || sender.closeCalls.Load() != 0 || pc.closeCalls.Load() != 0 {
+			t.Fatal("in-flight write-back buffer released before callback return")
+		}
+		select {
+		case <-done:
+			t.Fatal("cancellation incorrectly joined or abandoned blocked write-back")
+		default:
+		}
+		unblock()
+		lateGateWait(t, done, "blocked write-back return")
+		if wb.calls.Load() != 1 || putCalls.Load() != 1 || pc.reads.Load() != 1 || sender.closeCalls.Load() != 1 || pc.closeCalls.Load() != 1 {
+			t.Fatalf("blocked write-back ownership: writes=%d puts=%d reads=%d", wb.calls.Load(), putCalls.Load(), pc.reads.Load())
+		}
+	})
+
+	t.Run("deadline-cancel-skips-read", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		pc := &lateLocalReadConn{readStarted: make(chan struct{}), deadlineCancel: cancel}
+		sender := &lateLocalSender{}
+		wb := &lateLocalWriteBack{}
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			handleUDPToLocal(ctx, wb, pc, sender, "late-reply-deadline", netip.MustParseAddrPort("127.0.0.1:9"))
+		}()
+		lateGateWait(t, done, "deadline cancellation cleanup")
+		if pc.deadlines.Load() != 1 || pc.reads.Load() != 0 || wb.calls.Load() != 0 {
+			t.Fatalf("deadline cancellation: deadlines=%d reads=%d writes=%d", pc.deadlines.Load(), pc.reads.Load(), wb.calls.Load())
+		}
+	})
+
+	for _, tc := range []struct {
+		name     string
+		errorPut bool
+	}{
+		{name: "wait-error-returns-put", errorPut: true},
+		{name: "wait-error-nil-put"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			putCalls := atomic.Int32{}
+			pc := &lateLocalReadConn{readStarted: make(chan struct{}), putCalls: &putCalls, waitErr: io.ErrUnexpectedEOF, errorPut: tc.errorPut}
+			sender := &lateLocalSender{}
+			wb := &lateLocalWriteBack{}
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				handleUDPToLocal(ctx, wb, pc, sender, "late-reply-error", netip.MustParseAddrPort("127.0.0.1:9"))
+			}()
+			lateGateWait(t, done, "wait error cleanup")
+			wantPut := int32(0)
+			if tc.errorPut {
+				wantPut = 1
+			}
+			if putCalls.Load() != wantPut || wb.calls.Load() != 0 {
+				t.Fatalf("wait error: puts=%d want=%d writes=%d", putCalls.Load(), wantPut, wb.calls.Load())
+			}
+		})
+	}
+
+	t.Run("writeback-error-still-puts", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		putCalls := atomic.Int32{}
+		pc := &lateLocalReadConn{readStarted: make(chan struct{}), putCalls: &putCalls}
+		sender := &lateLocalSender{}
+		wb := &lateLocalWriteBack{err: io.ErrClosedPipe}
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			handleUDPToLocal(ctx, wb, pc, sender, "late-reply-write-error", netip.MustParseAddrPort("127.0.0.1:9"))
+		}()
+		lateGateWait(t, done, "write-back error cleanup")
+		if wb.calls.Load() != 1 || putCalls.Load() != 1 || pc.reads.Load() != 1 {
+			t.Fatalf("write-back error ownership: writes=%d puts=%d reads=%d", wb.calls.Load(), putCalls.Load(), pc.reads.Load())
+		}
+	})
+
+	t.Run("canceled-at-entry", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		putCalls := atomic.Int32{}
+		pc := &lateLocalReadConn{readStarted: make(chan struct{}), putCalls: &putCalls}
+		sender := &lateLocalSender{}
+		wb := &lateLocalWriteBack{}
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			handleUDPToLocal(ctx, wb, pc, sender, "late-local-entry", netip.MustParseAddrPort("127.0.0.1:9"))
+		}()
+		lateGateWait(t, done, "entry cancellation cleanup")
+		if pc.reads.Load() != 0 || wb.calls.Load() != 0 || sender.closeCalls.Load() != 1 || pc.closeCalls.Load() != 1 {
+			t.Fatalf("entry cancellation: reads=%d writes=%d senderClose=%d pcClose=%d", pc.reads.Load(), wb.calls.Load(), sender.closeCalls.Load(), pc.closeCalls.Load())
+		}
+	})
+}
+
+type lateReplyPacket struct {
+	lateGatePacket
+	replies chan []byte
+}
+
+func (p *lateReplyPacket) WriteBack(data []byte, _ net.Addr) (int, error) {
+	p.replies <- append([]byte(nil), data...)
+	return len(data), nil
+}
+
+func TestAngelaNexusLateTunnelReplyHandlerContextLifetime(t *testing.T) {
+	raw, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		_ = raw.Close()
+		t.Fatal(err)
+	}
+	conn := &lateGatePacketConn{
+		EnhancePacketConn: N.NewEnhancePacketConn(raw),
+		closed:            make(chan struct{}),
+		readDone:          make(chan struct{}),
+	}
+	proxy := &lateGateProxy{
+		udp:     conn,
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	lateGateSetup(t, proxy)
+	packet := &lateReplyPacket{
+		lateGatePacket: lateGatePacket{
+			data:    []byte("request"),
+			local:   raw.LocalAddr(),
+			dropped: make(chan struct{}),
+		},
+		replies: make(chan []byte, 1),
+	}
+	adapter := C.NewPacketAdapter(packet, lateGateMetadata(C.UDP, uint16(peer.LocalAddr().(*net.UDPAddr).Port)))
+	t.Cleanup(func() {
+		_ = conn.Close()
+		_ = peer.Close()
+		lateGateWait(t, packet.dropped, "reply packet release")
+		lateGateWait(t, conn.readDone, "reply UDP reader exit")
+	})
+	close(proxy.release)
+	handleUDPConn(adapter)
+	lateGateWait(t, proxy.entered, "reply UDP proxy dial")
+
+	_ = peer.SetReadDeadline(time.Now().Add(3 * time.Second))
+	var request [32]byte
+	n, addr, err := peer.ReadFrom(request[:])
+	if err != nil || string(request[:n]) != "request" {
+		t.Fatalf("fresh UDP request forwarding failed: %q %v", request[:n], err)
+	}
+	if _, err := peer.WriteTo([]byte("reply"), addr); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-packet.replies:
+		if string(got) != "reply" {
+			t.Fatalf("unexpected UDP reply payload: %q", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for fresh UDP write-back")
+	}
+	if conn.writes.Load() != 1 {
+		t.Fatalf("fresh UDP sent %d times", conn.writes.Load())
 	}
 }

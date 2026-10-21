@@ -376,7 +376,7 @@
  			defer cancel()
  			rawPc, err := retry(ctx, func(ctx context.Context) (C.PacketConn, error) {
  				return proxy.ListenPacketContext(ctx, dialMetadata)
-@@ -476,7 +482,10 @@
+@@ -476,23 +482,34 @@
  			}
  			logMetadata(metadata, rule, rawPc)
  
@@ -388,7 +388,11 @@
  
  			sender.AddMapping(originMetadata, dialMetadata)
  			oAddrPort := dialMetadata.AddrPort()
-@@ -487,12 +496,20 @@
+ 			writeBackProxy := nat.NewWriteBackProxy(packet)
+ 
+-			go handleUDPToLocal(writeBackProxy, pc, sender, key, oAddrPort)
++			go handleUDPToLocal(registrationCtx, writeBackProxy, pc, sender, key, oAddrPort)
+ 			return pc, writeBackProxy, nil
  		}
  
  		go func() {
@@ -634,7 +638,12 @@
  		return err
  	}
  	// reset timeout
-@@ -169,8 +203,7 @@
+@@ -165,18 +199,28 @@
+ 	return nil
+ }
+ 
+-func handleUDPToLocal(writeBack C.WriteBack, pc C.PacketConn, sender C.PacketSender, key string, oAddrPort netip.AddrPort) {
++func handleUDPToLocal(ctx context.Context, writeBack C.WriteBack, pc C.PacketConn, sender C.PacketSender, key string, oAddrPort netip.AddrPort) {
  	defer func() {
  		sender.Close()
  		_ = pc.Close()
@@ -644,7 +653,41 @@
  	}()
  
  	for {
-@@ -207,16 +240,12 @@
++		if ctx.Err() != nil {
++			return
++		}
+ 		_ = pc.SetReadDeadline(time.Now().Add(udpTimeout))
++		if ctx.Err() != nil {
++			return
++		}
+ 		data, put, from, err := pc.WaitReadFrom()
+-		if err != nil {
++		// A reader may ignore Close/cancellation and return a successful buffer
++		// from the stopped generation. Release ownership without writing it back.
++		if err != nil || ctx.Err() != nil {
++			if put != nil {
++				put()
++			}
+ 			return
+ 		}
+ 
+@@ -196,7 +240,14 @@
+ 		fromAddr = sender.RestoreReadFrom(fromAddr).Unmap()
+ 
+ 		fromAddrPort = netip.AddrPortFrom(fromAddr, fromAddrPort.Port())
+-
++		// RestoreReadFrom can re-enter stop. Do not hold a lock over callbacks.
++		// This checkpoint is not a join: an admitted WriteBack may still finish.
++		if ctx.Err() != nil {
++			if put != nil {
++				put()
++			}
++			return
++		}
+ 		_, err = writeBack.WriteBack(data, net.UDPAddrFromAddrPort(fromAddrPort))
+ 		if put != nil {
+ 			put()
+@@ -207,16 +258,12 @@
  	}
  }
  

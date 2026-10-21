@@ -217,3 +217,33 @@ test("UDP processing cancellation has late-result, reentry and fresh-forwarding 
   assert.match(source, /Close independent of blocked write-back/);
   assert.match(source, /canceled resolution installed a NAT mapping/);
 });
+
+test("UDP replies retain the registration context rather than the short-lived dial timeout", () => {
+  const patch = read("native/android/mihomo-bridge/late-connections.patch");
+  assert.match(patch, /go handleUDPToLocal\(registrationCtx, writeBackProxy, pc, sender, key, oAddrPort\)/);
+  assert.doesNotMatch(patch, /go handleUDPToLocal\(ctx, writeBackProxy/);
+  assert.match(patch, /func handleUDPToLocal\(ctx context\.Context, writeBack C\.WriteBack/);
+});
+
+test("UDP replies recheck cancellation after reads and mapping with buffer returns", () => {
+  const patch = read("native/android/mihomo-bridge/late-connections.patch");
+  const reply = patch.slice(patch.indexOf("func handleUDPToLocal(ctx"));
+  assert.match(reply, /if err != nil \|\| ctx\.Err\(\) != nil/);
+  assert.match(reply, /if put != nil \{\n\+\s+put\(\)/);
+  assert.ok(reply.indexOf("ctx.Err()") < reply.indexOf("pc.SetReadDeadline"));
+  assert.ok(reply.lastIndexOf("if ctx.Err() != nil") < reply.indexOf("_, err = writeBack.WriteBack"));
+  assert.match(reply, /checkpoint is not a join: an admitted WriteBack may still finish/);
+});
+
+test("reverse UDP regressions cover stale reads, reentry, buffer ownership and real replies", () => {
+  const source = read("native/android/mihomo-bridge/late_tunnel_integration_test.go");
+  for (const name of ["LocalWriteBackCancellation", "HandlerContextLifetime"]) {
+    assert.ok(source.includes(`func TestAngelaNexusLateTunnelReply${name}(`));
+  }
+  for (const mode of ["blocked-read-late-buffer-is-dropped", "restore-reentrant-cancel", "fresh-success", "in-flight-writeback", "blocked-writeback-retains-buffer", "deadline-cancel-skips-read", "wait-error-returns-put", "wait-error-nil-put", "writeback-error-still-puts", "canceled-at-entry"]) {
+    assert.ok(source.includes(`"${mode}"`));
+  }
+  assert.match(source, /return 1, w\.err/);
+  assert.match(source, /fresh UDP write-back/);
+  assert.match(source, /lateGateWait\(t, conn\.readStarted, "fresh UDP reverse read entry"\)/);
+});
