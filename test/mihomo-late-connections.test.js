@@ -18,6 +18,10 @@ test("CI stages and runs manager and actual tunnel regressions, rejecting empty 
   assert.match(host.run, /-list '\^TestAngelaNexusDNSReset'[^\n]*dns/);
   assert.ok(host.run.includes("grep '^TestAngelaNexusDNSReset'"));
   assert.match(host.run, /-race -run '\^TestAngelaNexusDNSReset' -count=20 -timeout=120s \.\/dns/);
+  assert.match(host.run, /provider_lifecycle_integration_test\.go.*component\/resource\/angelanexus_provider_lifecycle_integration_test\.go/);
+  assert.ok(host.run.includes("-list '^TestAngelaNexusProviderLifecycle'"));
+  assert.ok(host.run.includes("grep '^TestAngelaNexusProviderLifecycle'"));
+  assert.match(host.run, /-race -run '\^TestAngelaNexusProviderLifecycle' -count=20 -timeout=120s \.\/component\/resource/);
   assert.match(host.run, /quic_sender_integration_test\.go.*component\/sniffer\/angelanexus_quic_sender_integration_test\.go/);
   assert.ok(host.run.includes("-list '^TestAngelaNexusQUICSender'"));
   assert.match(host.run, /-list '\^TestAngelaNexusNATLocal'[^\n]*component\/nat/);
@@ -89,6 +93,7 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
         quicSniffer: "component/sniffer/quic_sniffer.go",
         tproxyPacket: "listener/tproxy/packet.go",
         dnsResolver: "dns/resolver.go",
+        providerFetcher: "component/resource/fetcher.go",
       };
       for (const [name, path] of Object.entries(sources)) put(join(root, "mihomo", path), `reviewed final ${name} output\n`);
       const run = step.run.replace(/\$\{\{ matrix\.(\w+) \}\}/g, (_, key) => matrix[key]);
@@ -101,6 +106,8 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
       const evidence = JSON.parse(readFileSync(join(root, `mihomo-provenance-${matrix.abi}.json`), "utf8"));
       assert.equal(evidence.dnsResolver.path, "dns/resolver.go");
       assert.equal(evidence.dnsResolver.sha256, hash(join(root, "mihomo/dns/resolver.go")));
+      assert.equal(evidence.providerFetcher.path, "component/resource/fetcher.go");
+      assert.equal(evidence.providerFetcher.sha256, hash(join(root, "mihomo/component/resource/fetcher.go")));
       assert.equal(evidence.abi, matrix.abi);
       assert.equal(evidence.toolchain.goarch, matrix.goarch);
       assert.equal(evidence.toolchain.goarm, matrix.goarch === "arm" ? "7" : null);

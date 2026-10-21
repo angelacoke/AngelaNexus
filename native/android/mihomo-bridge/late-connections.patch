@@ -1234,3 +1234,31 @@
  		}
  	}
  
+--- component/resource/fetcher.go
++++ component/resource/fetcher.go
+@@ -35,0 +36,2 @@
++	lifecycleMu  sync.Mutex
++	started      bool
+@@ -169,0 +172,2 @@
++	f.lifecycleMu.Lock()
++	defer f.lifecycleMu.Unlock()
+@@ -212,0 +217,9 @@
++	f.lifecycleMu.Lock()
++	defer f.lifecycleMu.Unlock()
++	if err := f.ctx.Err(); err != nil {
++		return err
++	}
++	if f.started {
++		return nil
++	}
++
+@@ -215 +228 @@
+-		f.watcher, err = fswatch.NewWatcher(fswatch.Options{
++		watcher, err := fswatch.NewWatcher(fswatch.Options{
+@@ -222 +235 @@
+-		err = f.watcher.Start()
++		err = watcher.Start()
+@@ -225,0 +239 @@
++		f.watcher = watcher
+@@ -228,0 +243 @@
++	f.started = true

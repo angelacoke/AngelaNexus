@@ -17,8 +17,8 @@ const workflow = yaml.load(read(".github/workflows/mihomo-android-native-build.y
   assert.match(provenance.run, /sha256sum "\$RUNNER_TEMP\/mihomo\/listener\/sing_tun\/server\.go"/);
 });
 
-// Exercise the real verification function with a complete ten-file pinned fixture.
-for (const mode of ["clean", "exact-dns", "exact-server", "exact-statistics", "exact-late", "exact-quic", "marker-server", "modified-tracker", "modified-nat", "modified-connection", "modified-quic", "exact-tproxy", "modified-tproxy", "modified-dns", "unknown-dirty", "wrong-commit"]) {
+// Exercise the real verification function with a complete pinned source fixture.
+for (const mode of ["clean", "exact-fetcher", "modified-fetcher", "exact-dns", "exact-server", "exact-statistics", "exact-late", "exact-quic", "marker-server", "modified-tracker", "modified-nat", "modified-connection", "modified-quic", "exact-tproxy", "modified-tproxy", "modified-dns", "unknown-dirty", "wrong-commit"]) {
   test(`owned-fd source verification is fail-closed: ${mode}`, () => {
     const result = spawnSync("python3", ["-B", "-c", `
 import hashlib, importlib.util, json, pathlib, sys, tempfile
@@ -30,14 +30,15 @@ with tempfile.TemporaryDirectory() as tmp:
     pristine = {
       "go.mod": "github.com/metacubex/sing-tun v0.4.27\\n", "go.sum": "github.com/metacubex/sing-tun v0.4.27 h1:fixture\\n",
       "listener/sing_tun/server.go": "pristine server\\n", "listener/sing_tun/server_notwindows.go": "pristine notwindows\\n",
-      "tunnel/statistic/manager.go": "pristine manager\\n", "tunnel/statistic/tracker.go": "pristine tracker\\n", "tunnel/tunnel.go": "pristine tunnel\\n", "component/nat/table.go": "pristine nat\\n", "tunnel/connection.go": "pristine connection\\n", "component/sniffer/quic_sniffer.go": "pristine QUIC\\n", "listener/tproxy/packet.go": "pristine TProxy packet\\n", "dns/resolver.go": "pristine DNS resolver\\n"}
+      "tunnel/statistic/manager.go": "pristine manager\\n", "tunnel/statistic/tracker.go": "pristine tracker\\n", "tunnel/tunnel.go": "pristine tunnel\\n", "component/nat/table.go": "pristine nat\\n", "tunnel/connection.go": "pristine connection\\n", "component/sniffer/quic_sniffer.go": "pristine QUIC\\n", "listener/tproxy/packet.go": "pristine TProxy packet\\n", "dns/resolver.go": "pristine DNS resolver\\n", "component/resource/fetcher.go": "pristine fetcher\\n"}
     for rel, text in pristine.items():
         p = root / rel; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(text)
-    final = {"listener/sing_tun/server.go": "reviewed server\\n", "tunnel/statistic/manager.go": "reviewed manager\\n", "tunnel/statistic/tracker.go": "reviewed tracker\\n", "tunnel/tunnel.go": "reviewed tunnel\\n", "component/nat/table.go": "reviewed nat\\n", "tunnel/connection.go": "reviewed connection\\n", "component/sniffer/quic_sniffer.go": "reviewed QUIC\\n", "listener/tproxy/packet.go": "reviewed TProxy packet\\n", "dns/resolver.go": "reviewed DNS resolver\\n"}
+    final = {"listener/sing_tun/server.go": "reviewed server\\n", "tunnel/statistic/manager.go": "reviewed manager\\n", "tunnel/statistic/tracker.go": "reviewed tracker\\n", "tunnel/tunnel.go": "reviewed tunnel\\n", "component/nat/table.go": "reviewed nat\\n", "tunnel/connection.go": "reviewed connection\\n", "component/sniffer/quic_sniffer.go": "reviewed QUIC\\n", "listener/tproxy/packet.go": "reviewed TProxy packet\\n", "dns/resolver.go": "reviewed DNS resolver\\n", "component/resource/fetcher.go": "reviewed fetcher\\n"}
     m.EXPECTED = {rel: m.sha256(root / rel) for rel in pristine}
     for rel, text in final.items():
         p = root / rel; p.write_text(text)
     m.PATCHED_SERVER_SHA256 = m.sha256(root / "listener/sing_tun/server.go")
+    m.PATCHED_PROVIDER_FETCHER_SHA256 = m.sha256(root / "component/resource/fetcher.go")
     m.PATCHED_DNS_RESOLVER_SHA256 = m.sha256(root / "dns/resolver.go")
     m.PATCHED_STATISTICS_SHA256 = m.sha256(root / "tunnel/statistic/manager.go")
     m.PATCHED_LATE_MANAGER_SHA256 = m.PATCHED_STATISTICS_SHA256
@@ -49,7 +50,11 @@ with tempfile.TemporaryDirectory() as tmp:
     m.PATCHED_TPROXY_PACKET_SHA256 = m.sha256(root / "listener/tproxy/packet.go")
     for rel in final: (root / rel).write_text(pristine[rel])
     status = ""; commit = m.COMMIT
-    if mode == "exact-server":
+    if mode == "exact-fetcher":
+        (root / "component/resource/fetcher.go").write_text(final["component/resource/fetcher.go"]); status = " M component/resource/fetcher.go\\n"
+    elif mode == "modified-fetcher":
+        (root / "component/resource/fetcher.go").write_text("modified fetcher\\n"); status = " M component/resource/fetcher.go\\n"
+    elif mode == "exact-server":
         (root / "listener/sing_tun/server.go").write_text(final["listener/sing_tun/server.go"]); status = " M listener/sing_tun/server.go\\n"
     elif mode == "exact-statistics":
         (root / "tunnel/statistic/manager.go").write_text(final["tunnel/statistic/manager.go"]); status = " M tunnel/statistic/manager.go\\n"
@@ -91,16 +96,16 @@ with tempfile.TemporaryDirectory() as tmp:
     m.subprocess.check_output = output
     try: m.verify_source(root)
     except SystemExit:
-        assert mode not in ("clean", "exact-dns", "exact-server", "exact-statistics", "exact-late", "exact-quic", "exact-tproxy"), mode
-    else: assert mode in ("clean", "exact-dns", "exact-server", "exact-statistics", "exact-late", "exact-quic", "exact-tproxy"), "accepted incompatible source: " + mode
+        assert mode not in ("clean", "exact-fetcher", "exact-dns", "exact-server", "exact-statistics", "exact-late", "exact-quic", "exact-tproxy"), mode
+    else: assert mode in ("clean", "exact-fetcher", "exact-dns", "exact-server", "exact-statistics", "exact-late", "exact-quic", "exact-tproxy"), "accepted incompatible source: " + mode
 `, adapter.pathname, mode], { encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr || result.stdout);
   });
 }
 
-// Directly exercise the eight-file late patch. Every rejected input/output/path
-// must leave all eight upstream files byte-for-byte untouched.
-for (const mode of ["clean", "all-final", "late-patch-tampered", "manager-input-tampered", "tracker-input-tampered", "tunnel-input-tampered", "nat-input-tampered", "connection-input-tampered", "quic-input-tampered", "quic-partial-final-mixed", "tproxy-input-tampered", "dns-input-tampered", "dns-output-hash-error", "tproxy-output-hash-error", "connection-output-hash-error", "nat-output-hash-error", "last-output-hash-error", "last-section-invalid", "path-traversal-section", "partial-final-mixed"]) {
+// Directly exercise the nine-file late patch. Every rejected input/output/path
+// must leave all nine upstream files byte-for-byte untouched.
+for (const mode of ["clean", "all-final", "late-patch-tampered", "manager-input-tampered", "tracker-input-tampered", "tunnel-input-tampered", "nat-input-tampered", "connection-input-tampered", "quic-input-tampered", "quic-partial-final-mixed", "tproxy-input-tampered", "dns-input-tampered", "dns-output-hash-error", "fetcher-input-tampered", "fetcher-output-hash-error", "fetcher-partial-final-mixed", "fetcher-path-traversal", "fetcher-section-invalid", "tproxy-output-hash-error", "connection-output-hash-error", "nat-output-hash-error", "last-output-hash-error", "last-section-invalid", "path-traversal-section", "partial-final-mixed"]) {
   test(`late patch application is exact and atomic: ${mode}`, () => {
     const result = spawnSync("python3", ["-B", "-c", `
 import difflib, hashlib, importlib.util, pathlib, sys, tempfile
@@ -108,15 +113,17 @@ spec = importlib.util.spec_from_file_location("adapter", sys.argv[1]); m = impor
 mode = sys.argv[2]
 with tempfile.TemporaryDirectory() as tmp:
     root = pathlib.Path(tmp); m.__file__ = str(root / "prepare-upstream.py")
-    rels = ["tunnel/statistic/manager.go", "tunnel/statistic/tracker.go", "tunnel/tunnel.go", "component/nat/table.go", "tunnel/connection.go", "component/sniffer/quic_sniffer.go", "listener/tproxy/packet.go", "dns/resolver.go"]
+    rels = ["tunnel/statistic/manager.go", "tunnel/statistic/tracker.go", "tunnel/tunnel.go", "component/nat/table.go", "tunnel/connection.go", "component/sniffer/quic_sniffer.go", "listener/tproxy/packet.go", "dns/resolver.go", "component/resource/fetcher.go"]
     pristine = {rels[0]: "package statistic\\n// pristine manager\\n", rels[1]: "package statistic\\n// pristine tracker\\n", rels[2]: "package tunnel\\n// pristine tunnel\\n"}
     pristine.update({rels[3]: "package nat\\n// pristine NAT\\n", rels[4]: "package tunnel\\n// pristine connection\\n"})
     pristine[rels[5]] = "package sniffer\\n// pristine quic\\n";
     pristine[rels[6]] = "package tproxy\\n// pristine packet\\n"; pristine[rels[7]] = "package dns\\n// pristine resolver\\n";
+    pristine[rels[8]] = "package resource\\n// pristine fetcher\\n"
     final = {rels[0]: "package statistic\\n// final manager\\n", rels[1]: "package statistic\\n// final tracker\\n", rels[2]: "package tunnel\\n// final tunnel\\n"}
     final.update({rels[3]: "package nat\\n// final NAT\\n", rels[4]: "package tunnel\\n// final connection\\n"})
     final[rels[5]] = "package sniffer\\n// final quic\\n";
     final[rels[6]] = "package tproxy\\n// final packet\\n"; final[rels[7]] = "package dns\\n// final resolver\\n";
+    final[rels[8]] = "package resource\\n// final fetcher\\n"
     for rel in rels:
         p = root / rel; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(pristine[rel])
     patch = root / "late-connections.patch"
@@ -135,6 +142,7 @@ with tempfile.TemporaryDirectory() as tmp:
     m.PATCHED_QUIC_SNIFFER_SHA256 = hashlib.sha256(final[rels[5]].encode()).hexdigest()
     m.PATCHED_TPROXY_PACKET_SHA256 = hashlib.sha256(final[rels[6]].encode()).hexdigest()
     m.PATCHED_DNS_RESOLVER_SHA256 = hashlib.sha256(final[rels[7]].encode()).hexdigest()
+    m.PATCHED_PROVIDER_FETCHER_SHA256 = hashlib.sha256(final[rels[8]].encode()).hexdigest()
     m.EXPECTED[rels[0]] = m.sha256(root / rels[0])
     m.EXPECTED[rels[7]] = m.sha256(root / rels[7])
     # Generate manager section from the actual statistics output so patching is valid.
@@ -153,6 +161,13 @@ with tempfile.TemporaryDirectory() as tmp:
     elif mode == "dns-input-tampered": (root / rels[7]).write_text("wrong DNS resolver\
 ")
     elif mode == "dns-output-hash-error": m.PATCHED_DNS_RESOLVER_SHA256 = "0" * 64
+    elif mode == "fetcher-input-tampered": (root / rels[8]).write_text("wrong fetcher\\n")
+    elif mode == "fetcher-output-hash-error": m.PATCHED_PROVIDER_FETCHER_SHA256 = "0" * 64
+    elif mode == "fetcher-partial-final-mixed": (root / rels[8]).write_text(final[rels[8]])
+    elif mode == "fetcher-path-traversal":
+        sections[8] = sections[8].replace("--- component/resource/fetcher.go\\n+++ component/resource/fetcher.go\\n", "--- ../escape.go\\n+++ ../escape.go\\n", 1); patch.write_text("".join(sections)); m.LATE_CONNECTIONS_PATCH_SHA256 = m.sha256(patch)
+    elif mode == "fetcher-section-invalid":
+        sections[8] = "--- component/resource/fetcher.go\\n+++ component/resource/fetcher.go\\n@@ invalid\\nnot a patch\\n"; patch.write_text("".join(sections)); m.LATE_CONNECTIONS_PATCH_SHA256 = m.sha256(patch)
     elif mode == "quic-partial-final-mixed": (root / rels[5]).write_text(final[rels[5]])
     elif mode == "connection-output-hash-error": m.PATCHED_CONNECTION_SHA256 = "0" * 64
     elif mode == "nat-output-hash-error": m.PATCHED_NAT_TABLE_SHA256 = "0" * 64

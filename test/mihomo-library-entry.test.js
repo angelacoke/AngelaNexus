@@ -32,6 +32,7 @@ function verifierFixture() {
   }
   const patchedSourceHash = digest("fixture patched source");
   const patchedDnsResolverHash = digest("fixture patched DNS resolver");
+  const patchedProviderFetcherHash = digest("fixture patched provider fetcher");
   const patchedStatistics = "fixture patched statistics";
   const patchedStatisticsHash = digest(patchedStatistics);
   const patchedTracker = "fixture patched tracker";
@@ -47,12 +48,14 @@ function verifierFixture() {
   mkdirSync(join(repo, "tunnel/statistic"), { recursive: true });
   mkdirSync(join(repo, "dns"), { recursive: true });
   writeFileSync(join(repo, "dns/resolver.go"), "fixture patched DNS resolver");
+  mkdirSync(join(repo, "component/resource"), { recursive: true });
+  writeFileSync(join(repo, "component/resource/fetcher.go"), "fixture patched provider fetcher");
   writeFileSync(join(repo, "tunnel/statistic/manager.go"), patchedStatistics);
   writeFileSync(join(repo, "tunnel/statistic/tracker.go"), patchedTracker);
   writeFileSync(join(repo, "tunnel/tunnel.go"), patchedTunnel);
   writeFileSync(join(sourceDir, "statistics.patch"), statisticsPatch);
   writeFileSync(join(sourceDir, "late-connections.patch"), lateConnectionsPatch);
-  writeFileSync(join(sourceDir, "prepare-upstream.py"), `PATCHED_SERVER_SHA256 = "${patchedSourceHash}"\nPATCHED_DNS_RESOLVER_SHA256 = "${patchedDnsResolverHash}"\nPATCHED_STATISTICS_SHA256 = "${patchedStatisticsHash}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${patchedStatisticsHash}"\nPATCHED_TRACKER_SHA256 = "${patchedTrackerHash}"\nPATCHED_TUNNEL_SHA256 = "${patchedTunnelHash}"\nPATCHED_NAT_TABLE_SHA256 = "${patchedNatTableHash}"\nPATCHED_CONNECTION_SHA256 = "${patchedConnectionHash}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${patchedQuicSnifferHash}"\nPATCHED_TPROXY_PACKET_SHA256 = "${patchedTproxyPacketHash}"\n`);
+  writeFileSync(join(sourceDir, "prepare-upstream.py"), `PATCHED_SERVER_SHA256 = "${patchedSourceHash}"\nPATCHED_DNS_RESOLVER_SHA256 = "${patchedDnsResolverHash}"\nPATCHED_PROVIDER_FETCHER_SHA256 = "${patchedProviderFetcherHash}"\nPATCHED_STATISTICS_SHA256 = "${patchedStatisticsHash}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${patchedStatisticsHash}"\nPATCHED_TRACKER_SHA256 = "${patchedTrackerHash}"\nPATCHED_TUNNEL_SHA256 = "${patchedTunnelHash}"\nPATCHED_NAT_TABLE_SHA256 = "${patchedNatTableHash}"\nPATCHED_CONNECTION_SHA256 = "${patchedConnectionHash}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${patchedQuicSnifferHash}"\nPATCHED_TPROXY_PACKET_SHA256 = "${patchedTproxyPacketHash}"\n`);
   const abis = ["arm64-v8a", "armeabi-v7a", "x86_64"];
   const commit = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36";
   const specs = abis.map(abi => `MihomoNativeLibrarySpec(abi = "${abi}", sha256 = "${"a".repeat(64)}")`).join(",\n");
@@ -76,6 +79,7 @@ function verifierFixture() {
       build: { trimpath: true, buildmode: "c-shared", package: "./angelanexus_android", tags: ["with_gvisor", "cmfa"], versionLdflag: "github.com/metacubex/mihomo/constant.Version=v1.19.32" },
       bridge: evidence("bridge.go"), lifecycle: evidence("lifecycle.go"), libraryEntry: evidence("library.go"),
       dnsResolver: { path: "dns/resolver.go", sha256: patchedDnsResolverHash },
+      providerFetcher: { path: "component/resource/fetcher.go", sha256: patchedProviderFetcherHash },
       ownershipAdapter: { ...evidence("prepare-upstream.py"), patchedSource: { path: "listener/sing_tun/server.go", sha256: patchedSourceHash } },
       statisticsPatch: { ...evidence("statistics.patch"), patchedSource: { path: "tunnel/statistic/manager.go", sha256: patchedStatisticsHash } },
       lateConnectionsPatch: {
@@ -137,6 +141,8 @@ test("provenance records the dedicated package and library entry digest", () => 
   assert.match(provenance.run, /sha256sum .*mihomo-bridge\/library\.go/);
   assert.match(provenance.run, /"package": "\.\/angelanexus_android"/);
   assert.match(provenance.run, /PATCHED_TPROXY_PACKET_SHA256/);
+  assert.match(provenance.run, /PATCHED_PROVIDER_FETCHER_SHA256/);
+  assert.match(provenance.run, /"providerFetcher": \{"path": "component\/resource\/fetcher\.go", "sha256": "\$PATCHED_PROVIDER_FETCHER_SHA256"\}/);
   assert.match(provenance.run, /"tproxyPacket": \{\"path\": \"listener\/tproxy\/packet\.go\", \"sha256\": \"\$PATCHED_TPROXY_PACKET_SHA256\"\}/);
   assert.match(provenance.run, /"libraryEntry": \{"path": "native\/android\/mihomo-bridge\/library\.go", "sha256": "\$LIBRARY_ENTRY_SHA256"\}/);
 });
