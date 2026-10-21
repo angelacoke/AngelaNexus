@@ -679,6 +679,86 @@ func TestAngelaNexusLateTunnelUDPReplacementSameRawKey(t *testing.T) {
 	}
 }
 
+// Process termination, rather than a potentially stuck reverse reader, owns
+// NAT retirement. Reopen only after observing that retirement: immediate restart
+// before Process returns and in-flight TProxy local creators remain out of scope.
+func TestAngelaNexusLateTunnelSenderProcessRetiresNATWhileReaderBlocked(t *testing.T) {
+	for _, inboundType := range []C.Type{C.TUN, C.TPROXY} {
+		t.Run(inboundType.String(), func(t *testing.T) {
+			oldConn, freshConn := lateNATConn(t), lateNATConn(t)
+			oldConn.readStarted = make(chan struct{})
+			peer := lateNATPeer(t)
+			oldProxy := &lateCountingUDPProxy{udp: oldConn}
+			freshProxy := &lateCountingUDPProxy{udp: freshConn}
+			lateGateSetup(t, &lateGateProxy{Proxy: oldProxy})
+			metadata := lateGateMetadata(C.UDP, uint16(peer.LocalAddr().(*net.UDPAddr).Port))
+			metadata.Type = inboundType
+			packet := func(payload string) *lateGatePacket {
+				return &lateGatePacket{data: []byte(payload), local: oldConn.LocalAddr(), dropped: make(chan struct{})}
+			}
+			oldPacket, freshPacket, second := packet("before-stop"), packet("after-process-exit"), packet("after-old-cleanup")
+			oldAdapter := C.NewPacketAdapter(oldPacket, metadata.Clone())
+			epoch, _ := statistic.DefaultManager.Registration()
+			key := oldAdapter.Key()
+			if inboundType == C.TUN {
+				key = fmt.Sprintf("%d:%s", epoch, key)
+			}
+			t.Cleanup(func() {
+				_ = oldConn.Close()
+				_ = freshConn.Close()
+				lateGateWait(t, oldPacket.dropped, "old forwarded packet release")
+				lateGateWait(t, oldConn.readDone, "old reader release")
+			})
+			handleUDPConn(oldAdapter)
+			lateNATRead(t, peer, "before-stop")
+			lateGateWait(t, oldPacket.dropped, "old forwarding completed")
+			lateGateWait(t, oldConn.readStarted, "old blocked reverse reader")
+			oldSender, loaded := natTable.GetOrCreate(key, func() C.PacketSender { t.Error("old NAT owner absent"); return newPacketSender() })
+			if !loaded {
+				t.Fatal("old NAT owner not reused")
+			}
+			oldLocal := lateNATPeer(t)
+			if !natTable.AddForLocalConn(key, "retirement-marker", oldLocal) {
+				t.Fatal("old local map missing")
+			}
+			statistic.DefaultManager.StopRegistrations()
+			deadline := time.Now().Add(3 * time.Second)
+			for natTable.GetForLocalConn(key, "retirement-marker") != nil && time.Now().Before(deadline) {
+				runtime.Gosched()
+			}
+			if natTable.GetForLocalConn(key, "retirement-marker") != nil {
+				t.Fatal("Process exit retained NAT while reverse reader was blocked")
+			}
+			_ = oldLocal.SetReadDeadline(time.Now().Add(3 * time.Second))
+			var b [1]byte
+			if _, _, err := oldLocal.ReadFromUDP(b[:]); !errors.Is(err, net.ErrClosed) {
+				t.Fatalf("retired local socket not closed: %v", err)
+			}
+			select {
+			case <-oldConn.readDone:
+				t.Fatal("test did not retain blocked old reader")
+			default:
+			}
+			statistic.DefaultManager.StartRegistrations()
+			UpdateProxies(map[string]C.Proxy{"GLOBAL": freshProxy, "DIRECT": freshProxy}, nil)
+			handleUDPConn(C.NewPacketAdapter(freshPacket, metadata.Clone()))
+			lateNATRead(t, peer, "after-process-exit")
+			lateGateWait(t, freshPacket.dropped, "fresh forwarded packet release")
+			// Model the old reverse-reader cleanup at the exact helper boundary.
+			// It must not remove a new same-bare-key TProxy owner.
+			closeAllLocalCoon(key, oldSender)
+			_ = oldConn.Close()
+			handleUDPConn(C.NewPacketAdapter(second, metadata.Clone()))
+			lateNATRead(t, peer, "after-old-cleanup")
+			lateGateWait(t, second.dropped, "second fresh packet release")
+			if freshProxy.calls.Load() != 1 {
+				t.Fatal("old cleanup deleted fresh sender")
+			}
+			t.Cleanup(func() { _ = freshConn.Close(); lateGateWait(t, freshConn.readDone, "fresh reader release") })
+		})
+	}
+}
+
 func TestAngelaNexusLateTunnelNATReplacementOwnsCleanup(t *testing.T) {
 	local, peer := lateNATPeer(t), lateNATPeer(t)
 	key := "round22-replacement-" + local.LocalAddr().String()
@@ -2144,6 +2224,18 @@ func TestAngelaNexusLateTunnelEarlyHandshakeSuccessUnregistersCancel(t *testing.
 	payload := []byte("early-success")
 	remote, rp := r31RemotePair(t)
 	_, in, ip, done := r31Fixture(t, payload, remote)
+	writeInbound := func(p []byte, label string) {
+		_ = ip.SetWriteDeadline(time.Now().Add(3 * time.Second))
+		written := make(chan error, 1)
+		go func() { _, err := ip.Write(p); written <- err }()
+		got := make([]byte, len(p))
+		if _, err := io.ReadFull(rp, got); err != nil || string(got) != string(p) {
+			t.Fatalf("%s: %q %v", label, got, err)
+		}
+		if err := <-written; err != nil {
+			t.Fatalf("%s write: %v", label, err)
+		}
+	}
 	_ = rp.SetReadDeadline(time.Now().Add(3 * time.Second))
 	got := make([]byte, len(payload))
 	if _, err := io.ReadFull(rp, got); err != nil || string(got) != string(payload) {
@@ -2152,11 +2244,7 @@ func TestAngelaNexusLateTunnelEarlyHandshakeSuccessUnregistersCancel(t *testing.
 	// Reading early bytes alone does not prove Write returned or setup released.
 	// A second actual relay exchange establishes the ownership transfer first.
 	relay := []byte("relay-after-setup")
-	go func() { _, _ = ip.Write(relay) }()
-	got = make([]byte, len(relay))
-	if _, err := io.ReadFull(rp, got); err != nil || string(got) != string(relay) {
-		t.Fatalf("relay success: %q %v", got, err)
-	}
+	writeInbound(relay, "relay success")
 	statistic.DefaultManager.StopRegistrations()
 	lateGateWaitSetups(t)
 	select {
@@ -2171,8 +2259,5 @@ func TestAngelaNexusLateTunnelEarlyHandshakeSuccessUnregistersCancel(t *testing.
 	}
 	// Continue real traffic after generation cancellation to prove no callback
 	// closed an established relay; existing relay ownership remains separate.
-	go func() { _, _ = ip.Write(relay) }()
-	if _, err := io.ReadFull(rp, got); err != nil || string(got) != string(relay) {
-		t.Fatalf("relay after stop: %q %v", got, err)
-	}
+	writeInbound(relay, "relay after stop")
 }

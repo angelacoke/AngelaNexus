@@ -391,7 +391,7 @@
  			defer cancel()
  			rawPc, err := retry(ctx, func(ctx context.Context) (C.PacketConn, error) {
  				return proxy.ListenPacketContext(ctx, dialMetadata)
-@@ -476,23 +482,34 @@
+@@ -476,23 +482,38 @@
  			}
  			logMetadata(metadata, rule, rawPc)
  
@@ -425,11 +425,15 @@
 +				natTable.DeleteIf(key, sender)
  				return
  			}
++			// Process may exit on generation cancellation while the reverse reader
++			// is still blocked. Retire only this sender's NAT/local-socket entry
++			// after forwarding returns, without waiting for that reader to finish.
++			defer closeAllLocalCoon(key, sender)
 +			releaseSetup()
  			sender.Process(pc, proxy)
  		}()
  	}
-@@ -500,6 +517,7 @@
+@@ -500,6 +521,7 @@
  }
  
  func handleTCPConn(connCtx C.ConnContext) {
@@ -437,7 +441,7 @@
  	if !isHandle(connCtx.Metadata().Type) {
  		_ = connCtx.Conn().Close()
  		return
-@@ -523,11 +541,26 @@
+@@ -523,11 +545,26 @@
  	}
  
  	conn := connCtx.Conn()
@@ -465,7 +469,7 @@
  			// we now have a domain name
  			preHandleFailed = false
  		}
-@@ -569,13 +602,29 @@
+@@ -569,13 +606,29 @@
  	}
  
  	var peekBytes []byte
@@ -498,7 +502,7 @@
  			return
  		}
  
-@@ -594,12 +643,24 @@
+@@ -594,12 +647,24 @@
  			}()
  			peekMutex.Lock()
  			defer peekMutex.Unlock()
@@ -524,7 +528,7 @@
  				_, _ = conn.Discard(peekLen)
  			}
  		}
-@@ -610,9 +671,16 @@
+@@ -610,9 +675,16 @@
  	if err != nil {
  		return
  	}
@@ -542,7 +546,7 @@
  	defer func(remoteConn C.Conn) {
  		_ = remoteConn.Close()
  	}(remoteConn)
-@@ -739,6 +807,9 @@
+@@ -739,6 +811,9 @@
  func retry[T any](ctx context.Context, ft func(context.Context) (T, error), fe func(err error)) (t T, err error) {
  	s := slowdown.New()
  	for i := 0; i < 10; i++ {

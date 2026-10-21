@@ -365,3 +365,26 @@ test("handshake retry observes tracker cleanup completion rather than the inner 
   assert.ok(retry.indexOf("retry dial after tracker cleanup") < retry.indexOf("if got := lateHandshakeTrackerCount()"));
   assert.ok(retry.indexOf("if got := lateHandshakeTrackerCount()") < retry.indexOf("\n\trelease()"));
 });
+
+test("UDP forwarding termination retires only its sender-owned NAT entry without joining the reverse reader", () => {
+  const patch = read("native/android/mihomo-bridge/late-connections.patch");
+  assert.match(patch, /defer closeAllLocalCoon\(key, sender\)\n\+\s*releaseSetup\(\)/);
+  assert.match(patch, /sender\.Process\(pc, proxy\)/);
+  assert.match(patch, /natTable\.DetachLocalConnsIf\(lAddr, sender\)/);
+  assert.doesNotMatch(patch, /GetOrCreateAtEpoch/);
+  const source = read("native/android/mihomo-bridge/late_tunnel_integration_test.go");
+  assert.match(source, /func TestAngelaNexusLateTunnelSenderProcessRetiresNATWhileReaderBlocked\(/);
+  assert.match(source, /\[\]C\.Type\{C\.TUN, C\.TPROXY\}/);
+  assert.match(source, /Process exit retained NAT while reverse reader was blocked/);
+  assert.match(source, /lateNATRead\(t, peer, "after-old-cleanup"\)/);
+});
+
+test("successful handshake regression observes inbound writer completion and retains post-stop relay checks", () => {
+  const source = read("native/android/mihomo-bridge/late_tunnel_integration_test.go");
+  const success = source.slice(source.indexOf("func TestAngelaNexusLateTunnelEarlyHandshakeSuccessUnregistersCancel("));
+  assert.match(success, /ip\.SetWriteDeadline/);
+  assert.match(success, /written <- err/);
+  assert.match(success, /if err := <-written; err != nil/);
+  assert.ok(success.indexOf('writeInbound(relay, "relay success")') < success.indexOf("StopRegistrations()"));
+  assert.ok(success.indexOf('writeInbound(relay, "relay after stop")') > success.indexOf("StopRegistrations()"));
+});
