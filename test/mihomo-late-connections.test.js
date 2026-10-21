@@ -310,3 +310,27 @@ test("TCP sniff regressions use real pure-IP sniffing, cancellation wakeup and p
   assert.match(source, /real sniff domain=%q/);
   assert.match(source, /closeOnce\.Do/);
 });
+
+test("TCP setup cancellation wakes inbound peek and unregisters before relay ownership", () => {
+  const patch = read("native/android/mihomo-bridge/late-connections.patch");
+  const tcp = patch.slice(patch.indexOf("func handleTCPConn"), patch.indexOf("func retry"));
+  const additions = tcp.split("\n").filter(line => line.startsWith("+") && !line.startsWith("+++")).map(line => line.slice(1)).join("\n");
+  assert.match(additions, /stopSetupClose := context\.AfterFunc\(ctx, func\(\) \{ _ = conn\.Close\(\) \}\)/);
+  assert.match(additions, /defer stopSetupClose\(\)/);
+  assert.equal((additions.match(/if err = ctx\.Err\(\); err != nil/g) || []).length, 3);
+  assert.match(additions, /if ctx\.Err\(\) != nil \{\n\s*_ = remoteConn\.Close\(\)\n\s*return/);
+  assert.match(additions, /stopSetupClose\(\)\n\s*releaseSetup\(\)/);
+  assert.doesNotMatch(additions, /WaitGroup|\.Wait\(|<-.*[Dd]one/);
+  assert.match(bridge, /const androidSetupDrainTimeout = 2 \* time\.Second/);
+});
+
+test("early TCP cancellation regressions cover real BufferedConn and established relay ownership", () => {
+  const source = read("native/android/mihomo-bridge/late_tunnel_integration_test.go");
+  for (const name of ["CancelWakesPeek", "CanceledBufferedData", "CancelAfterWriteNoRelay", "NoHandshakeCanceledResult", "SuccessUnregistersCancel"]) {
+    assert.ok(source.includes(`func TestAngelaNexusLateTunnelEarlyHandshake${name}(`));
+  }
+  assert.match(source, /background peek Read entry/);
+  assert.match(source, /cc\.Conn\(\)\.Buffered\(\) != len\(payload\)/);
+  assert.match(source, /Reading early bytes alone does not prove Write returned or setup released/);
+  assert.match(source, /relay after stop/);
+});

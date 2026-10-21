@@ -222,6 +222,12 @@ func TestAngelaNexusLateTunnelTCP(t *testing.T) {
 				if remoteConn.writes.Load() != 1 {
 					t.Fatalf("fresh early TCP connection wrote %d times", remoteConn.writes.Load())
 				}
+				relayPayload := []byte("relay-after-early")
+				go func() { _, _ = inboundPeer.Write(relayPayload) }()
+				relayGot := make([]byte, len(relayPayload))
+				if _, err := io.ReadFull(remotePeer, relayGot); err != nil || string(relayGot) != string(relayPayload) {
+					t.Fatalf("fresh TCP relay did not start: %q %v", relayGot, err)
+				}
 				statistic.DefaultManager.StopRegistrations()
 				lateGateWaitSetups(t)
 				select {
@@ -229,10 +235,10 @@ func TestAngelaNexusLateTunnelTCP(t *testing.T) {
 					t.Fatal("fresh TCP relay exited before setup-only drain")
 				default:
 				}
-				lateGateWaitUpload(t, beforeUpload, int64(len(payload)))
+				lateGateWaitUpload(t, beforeUpload, int64(len(payload)+len(relayPayload)))
 				afterUpload, _ := statistic.DefaultManager.Total()
-				if delta := afterUpload - beforeUpload; delta != int64(len(payload)) {
-					t.Fatalf("fresh early TCP upload delta=%d, want %d", delta, len(payload))
+				if delta := afterUpload - beforeUpload; delta != int64(len(payload)+len(relayPayload)) {
+					t.Fatalf("fresh early TCP upload delta=%d, want %d", delta, len(payload)+len(relayPayload))
 				}
 			}
 		})
@@ -2013,4 +2019,152 @@ func TestAngelaNexusLateTunnelTCPSniffHTTPSniffAndRelay(t *testing.T) {
 	_ = remotePeer.Close()
 	_ = remote.Close()
 	r30Wait(t, done, "normal handler exit")
+}
+
+// r31Remote puts cancellation at actual handler callback boundaries. The write
+// control deliberately returns success after cancellation without forwarding;
+// cancellation cannot retroactively undo a write which already entered.
+type r31Remote struct {
+	*lateHandshakeConn
+	onHandshake func()
+	onWrite     func()
+	handshake   bool
+	entered     chan struct{}
+	once        sync.Once
+}
+
+func (c *r31Remote) NeedHandshake() bool {
+	if c.onHandshake != nil {
+		c.onHandshake()
+	}
+	if c.entered != nil {
+		c.once.Do(func() { close(c.entered) })
+	}
+	return c.handshake
+}
+func (c *r31Remote) Write(p []byte) (int, error) {
+	if c.onWrite != nil {
+		c.writes.Add(1)
+		c.onWrite()
+		return len(p), nil
+	}
+	return c.lateHandshakeConn.Write(p)
+}
+func r31Fixture(t *testing.T, payload []byte, remote *r31Remote) (*icontext.ConnContext, *r30Conn, net.Conn, <-chan struct{}) {
+	t.Helper()
+	local, peer := net.Pipe()
+	inbound := &r30Conn{Conn: local, started: make(chan struct{}), closed: make(chan struct{}), reentrant: true}
+	var conn net.Conn = inbound
+	if len(payload) > 0 {
+		br := bufio.NewReader(inbound)
+		written := make(chan error, 1)
+		go func() { _, err := peer.Write(payload); written <- err }()
+		if _, err := br.Peek(len(payload)); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-written; err != nil {
+			t.Fatal(err)
+		}
+		conn = N.WarpConnWithBioReader(inbound, br)
+	}
+	cc := icontext.NewConnContext(conn, lateGateMetadata(C.TCP, 9))
+	proxy := &lateHandshakeProxy{conns: []C.Conn{remote}}
+	lateGateSetup(t, &lateGateProxy{Proxy: proxy})
+	done := make(chan struct{})
+	t.Cleanup(func() {
+		_ = peer.Close()
+		_ = local.Close()
+		_ = remote.Close()
+		lateHandshakeWaitDone(t, done, "early handler exit")
+	})
+	go func() { defer close(done); handleTCPConn(cc) }()
+	return cc, inbound, peer, done
+}
+func r31RemotePair(t *testing.T) (*r31Remote, net.Conn) {
+	t.Helper()
+	base, _, peer := lateHandshakeConnPair(t, nil, C.Chain{"early-checkpoint"})
+	t.Cleanup(func() { _ = peer.Close() })
+	return &r31Remote{lateHandshakeConn: base, handshake: true, entered: make(chan struct{})}, peer
+}
+func TestAngelaNexusLateTunnelEarlyHandshakeCancelWakesPeek(t *testing.T) {
+	remote, _ := r31RemotePair(t)
+	_, in, _, done := r31Fixture(t, nil, remote)
+	r30Wait(t, in.started, "background peek Read entry")
+	r30Wait(t, remote.entered, "early handshake waiting for peek")
+	statistic.DefaultManager.StopRegistrations()
+	r30Wait(t, in.closed, "setup cancellation inbound Close")
+	lateHandshakeWaitDone(t, done, "canceled peek handler")
+	if remote.writes.Load() != 0 {
+		t.Fatalf("canceled peek wrote %d times", remote.writes.Load())
+	}
+	lateGateWaitSetups(t)
+}
+func TestAngelaNexusLateTunnelEarlyHandshakeCanceledBufferedData(t *testing.T) {
+	payload := []byte("buffered-before-cancel")
+	remote, _ := r31RemotePair(t)
+	remote.onHandshake = func() { statistic.DefaultManager.StopRegistrations() }
+	remote.onWrite = func() {} // expose any forbidden call without blocking a peer
+	cc, _, _, done := r31Fixture(t, payload, remote)
+	lateHandshakeWaitDone(t, done, "canceled buffered handler")
+	if remote.writes.Load() != 0 || cc.Conn().Buffered() != len(payload) {
+		t.Fatalf("canceled buffered data consumed: writes=%d buffered=%d", remote.writes.Load(), cc.Conn().Buffered())
+	}
+}
+func TestAngelaNexusLateTunnelEarlyHandshakeCancelAfterWriteNoRelay(t *testing.T) {
+	payload := []byte("late-successful-write")
+	remote, _ := r31RemotePair(t)
+	remote.onWrite = func() { statistic.DefaultManager.StopRegistrations() }
+	cc, _, _, done := r31Fixture(t, payload, remote)
+	lateHandshakeWaitDone(t, done, "late successful write handler")
+	if remote.writes.Load() != 1 || cc.Conn().Buffered() != len(payload) {
+		t.Fatalf("late successful write consumed inbound: writes=%d buffered=%d", remote.writes.Load(), cc.Conn().Buffered())
+	}
+}
+func TestAngelaNexusLateTunnelEarlyHandshakeNoHandshakeCanceledResult(t *testing.T) {
+	payload := []byte("no-handshake-canceled")
+	remote, _ := r31RemotePair(t)
+	remote.handshake = false
+	remote.onHandshake = func() { statistic.DefaultManager.StopRegistrations() }
+	cc, _, _, done := r31Fixture(t, payload, remote)
+	lateHandshakeWaitDone(t, done, "no-handshake canceled result")
+	if remote.writes.Load() != 0 || cc.Conn().Buffered() != len(payload) {
+		t.Fatalf("canceled retry result entered relay: writes=%d buffered=%d", remote.writes.Load(), cc.Conn().Buffered())
+	}
+	r30Wait(t, remote.closed, "canceled retry result remote Close")
+}
+func TestAngelaNexusLateTunnelEarlyHandshakeSuccessUnregistersCancel(t *testing.T) {
+	payload := []byte("early-success")
+	remote, rp := r31RemotePair(t)
+	_, in, ip, done := r31Fixture(t, payload, remote)
+	_ = rp.SetReadDeadline(time.Now().Add(3 * time.Second))
+	got := make([]byte, len(payload))
+	if _, err := io.ReadFull(rp, got); err != nil || string(got) != string(payload) {
+		t.Fatalf("early success: %q %v", got, err)
+	}
+	// Reading early bytes alone does not prove Write returned or setup released.
+	// A second actual relay exchange establishes the ownership transfer first.
+	relay := []byte("relay-after-setup")
+	go func() { _, _ = ip.Write(relay) }()
+	got = make([]byte, len(relay))
+	if _, err := io.ReadFull(rp, got); err != nil || string(got) != string(relay) {
+		t.Fatalf("relay success: %q %v", got, err)
+	}
+	statistic.DefaultManager.StopRegistrations()
+	lateGateWaitSetups(t)
+	select {
+	case <-in.closed:
+		t.Fatal("setup cancellation callback remained armed")
+	default:
+	}
+	select {
+	case <-done:
+		t.Fatal("setup-only stop joined relay")
+	default:
+	}
+	// Continue real traffic after generation cancellation to prove no callback
+	// closed an established relay; existing relay ownership remains separate.
+	go func() { _, _ = ip.Write(relay) }()
+	if _, err := io.ReadFull(rp, got); err != nil || string(got) != string(relay) {
+		t.Fatalf("relay after stop: %q %v", got, err)
+	}
 }

@@ -462,7 +462,7 @@
  			// we now have a domain name
  			preHandleFailed = false
  		}
-@@ -569,13 +602,24 @@
+@@ -569,13 +602,29 @@
  	}
  
  	var peekBytes []byte
@@ -476,6 +476,11 @@
 +	defer releaseSetup()
 +	ctx, cancel := context.WithTimeout(registrationCtx, C.DefaultTCPTimeout)
  	defer cancel()
++	// The background peek can still hold peekMutex when an early handshake
++	// begins. Wake that inbound read on setup cancellation, including timeout.
++	// Like the sniff callback, this is unregistered, not joined: Close may re-enter.
++	stopSetupClose := context.AfterFunc(ctx, func() { _ = conn.Close() })
++	defer stopSetupClose()
  	remoteConn, err := retry(ctx, func(ctx context.Context) (remoteConn C.Conn, err error) {
  		remoteConn, err = proxy.DialContext(ctx, dialMetadata)
  		if err != nil {
@@ -490,19 +495,43 @@
  			return
  		}
  
-@@ -599,7 +643,7 @@
+@@ -594,12 +643,24 @@
+ 			}()
+ 			peekMutex.Lock()
+ 			defer peekMutex.Unlock()
++			if err = ctx.Err(); err != nil {
++				return
++			}
+ 			peekBytes, _ = conn.Peek(conn.Buffered())
++			// Closed readers can return valid buffered data after cancellation.
++			if err = ctx.Err(); err != nil {
++				return
++			}
+ 			_, err = remoteConn.Write(peekBytes)
  			if err != nil {
  				return
  			}
 -			if peekLen = len(peekBytes); peekLen > 0 {
++			// An already-entered write is not joined by cancellation. Do not
++			// consume inbound bytes or proceed into relay if it returns late.
++			if err = ctx.Err(); err != nil {
++				return
++			}
 +			if peekLen := len(peekBytes); peekLen > 0 {
  				_, _ = conn.Discard(peekLen)
  			}
  		}
-@@ -610,9 +654,9 @@
+@@ -610,9 +671,16 @@
  	if err != nil {
  		return
  	}
++	if ctx.Err() != nil {
++		_ = remoteConn.Close()
++		return
++	}
++	// Successful setup transfers to relay ownership. Later generation
++	// cancellation must not retain this setup-only inbound close callback.
++	stopSetupClose()
 +	releaseSetup()
  	logMetadata(metadata, rule, remoteConn)
  
@@ -510,7 +539,7 @@
  	defer func(remoteConn C.Conn) {
  		_ = remoteConn.Close()
  	}(remoteConn)
-@@ -739,6 +783,9 @@
+@@ -739,6 +807,9 @@
  func retry[T any](ctx context.Context, ft func(context.Context) (T, error), fe func(err error)) (t T, err error) {
  	s := slowdown.New()
  	for i := 0; i < 10; i++ {
