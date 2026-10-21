@@ -1,0 +1,379 @@
+diff --git a/app/proxyman/outbound/handler.go b/app/proxyman/outbound/handler.go
+index fe43c429..5630c7df 100644
+--- a/app/proxyman/outbound/handler.go
++++ b/app/proxyman/outbound/handler.go
+@@ -330,6 +330,7 @@ func (h *Handler) Start() error {
+ // Close implements common.Closable.
+ func (h *Handler) Close() error {
+ 	common.Close(h.mux)
++	common.Close(h.xudp)
+ 	common.Close(h.proxy)
+ 	return nil
+ }
+diff --git a/app/proxyman/outbound/handler_test.go b/app/proxyman/outbound/handler_test.go
+index 70294429..2c67332c 100644
+--- a/app/proxyman/outbound/handler_test.go
++++ b/app/proxyman/outbound/handler_test.go
+@@ -107,11 +107,11 @@ func TestTagsCache(t *testing.T) {
+ 	v.AddFeature(ohm)
+ 	ctx := context.WithValue(context.Background(), xrayKey, v)
+ 
+-	stop_add_rm := false
++	stop_add_rm := atomic.Bool{}
+ 	wg_add_rm := sync.WaitGroup{}
+ 	addHandlers := func() {
+ 		defer wg_add_rm.Done()
+-		for !stop_add_rm {
++		for !stop_add_rm.Load() {
+ 			time.Sleep(delay)
+ 			idx := counter.Add(1)
+ 			tag := fmt.Sprintf("%s%d", tags_prefix, idx)
+@@ -134,7 +134,7 @@ func TestTagsCache(t *testing.T) {
+ 
+ 	rmHandlers := func() {
+ 		defer wg_add_rm.Done()
+-		for !stop_add_rm {
++		for !stop_add_rm.Load() {
+ 			time.Sleep(delay)
+ 			tags.Range(func(key interface{}, value interface{}) bool {
+ 				if _, ok := tags.LoadAndDelete(key); ok {
+@@ -149,10 +149,10 @@ func TestTagsCache(t *testing.T) {
+ 
+ 	selectors := []string{tags_prefix}
+ 	wg_get := sync.WaitGroup{}
+-	stop_get := false
++	stop_get := atomic.Bool{}
+ 	getTags := func() {
+ 		defer wg_get.Done()
+-		for !stop_get {
++		for !stop_get.Load() {
+ 			time.Sleep(delay)
+ 			_ = ohm.Select(selectors)
+ 			// t.Logf("get tags: %v", tag)
+@@ -168,8 +168,8 @@ func TestTagsCache(t *testing.T) {
+ 	}
+ 
+ 	time.Sleep(test_duration)
+-	stop_add_rm = true
++	stop_add_rm.Store(true)
+ 	wg_add_rm.Wait()
+-	stop_get = true
++	stop_get.Store(true)
+ 	wg_get.Wait()
+ }
+diff --git a/app/proxyman/outbound/outbound.go b/app/proxyman/outbound/outbound.go
+index d8654288..1e0aa071 100644
+--- a/app/proxyman/outbound/outbound.go
++++ b/app/proxyman/outbound/outbound.go
+@@ -162,14 +162,14 @@ func (m *Manager) ListHandlers(ctx context.Context) []outbound.Handler {
+ 
+ // Select implements outbound.HandlerSelector.
+ func (m *Manager) Select(selectors []string) []string {
++	m.access.RLock()
++	defer m.access.RUnlock()
++
+ 	key := strings.Join(selectors, ",")
+ 	if cache, ok := m.tagsCache.Load(key); ok {
+ 		return cache.([]string)
+ 	}
+ 
+-	m.access.RLock()
+-	defer m.access.RUnlock()
+-
+ 	tags := make([]string, 0, len(selectors))
+ 
+ 	for tag := range m.taggedHandler {
+diff --git a/common/mux/client.go b/common/mux/client.go
+index 0463be5f..84c8209b 100644
+--- a/common/mux/client.go
++++ b/common/mux/client.go
+@@ -27,6 +27,14 @@ type ClientManager struct {
+ 	Picker  WorkerPicker
+ }
+ 
++// Close transfers shutdown to the picker that owns the workers.
++func (m *ClientManager) Close() error {
++	if m == nil {
++		return nil
++	}
++	return common.Close(m.Picker)
++}
++
+ func (m *ClientManager) Dispatch(ctx context.Context, link *transport.Link) error {
+ 	for i := 0; i < 16; i++ {
+ 		worker, err := m.Picker.PickAvailable()
+@@ -48,6 +56,8 @@ type WorkerPicker interface {
+ type IncrementalWorkerPicker struct {
+ 	Factory ClientWorkerFactory
+ 
++	lifecycle   sync.Mutex // serializes task start with terminal Close
++	closed      bool
+ 	access      sync.Mutex
+ 	workers     []*ClientWorker
+ 	cleanupTask *task.Periodic
+@@ -70,6 +80,9 @@ func (p *IncrementalWorkerPicker) cleanup() {
+ 	for _, w := range p.workers {
+ 		if !w.Closed() {
+ 			activeWorkers = append(activeWorkers, w)
++		} else {
++			// Do not discard ownership while a signaled worker is still exiting.
++			common.Must(w.Close())
+ 		}
+ 	}
+ 	p.workers = activeWorkers
+@@ -89,6 +102,10 @@ func (p *IncrementalWorkerPicker) pickInternal() (*ClientWorker, bool, error) {
+ 	p.access.Lock()
+ 	defer p.access.Unlock()
+ 
++	if p.closed {
++		return nil, false, errors.New("mux picker is closed")
++	}
++
+ 	idx := p.findAvailable()
+ 	if idx >= 0 {
+ 		n := len(p.workers)
+@@ -117,6 +134,8 @@ func (p *IncrementalWorkerPicker) pickInternal() (*ClientWorker, bool, error) {
+ }
+ 
+ func (p *IncrementalWorkerPicker) PickAvailable() (*ClientWorker, error) {
++	p.lifecycle.Lock()
++	defer p.lifecycle.Unlock()
+ 	worker, start, err := p.pickInternal()
+ 	if start {
+ 		common.Must(p.cleanupTask.Start())
+@@ -125,6 +144,30 @@ func (p *IncrementalWorkerPicker) PickAvailable() (*ClientWorker, error) {
+ 	return worker, err
+ }
+ 
++// Close is terminal: reject admission, stop cleanup, then cancel and join every
++// owned worker. Concurrent Close callers all wait for the same shutdown.
++func (p *IncrementalWorkerPicker) Close() error {
++	p.lifecycle.Lock()
++	defer p.lifecycle.Unlock()
++	p.access.Lock()
++	p.closed = true
++	workers := p.workers
++	p.workers = nil
++	cleanup := p.cleanupTask
++	p.access.Unlock()
++	if cleanup != nil {
++		common.Must(cleanup.Close())
++	}
++	// Signal all transports before waiting on any one of them.
++	for _, w := range workers {
++		common.Must(w.done.Close())
++	}
++	for _, w := range workers {
++		common.Must(w.Close())
++	}
++	return nil
++}
++
+ type ClientWorkerFactory interface {
+ 	Create() (*ClientWorker, error)
+ }
+@@ -148,12 +191,13 @@ func (f *DialingWorkerFactory) Create() (*ClientWorker, error) {
+ 		return nil, err
+ 	}
+ 
+-	go func(p proxy.Outbound, d internet.Dialer, c common.Closable) {
++	c.workers.Add(1) // registered before the picker can publish this worker
++	go func(p proxy.Outbound, d internet.Dialer) {
++		defer c.workers.Done()
+ 		outbounds := []*session.Outbound{{
+ 			Target: net.TCPDestination(muxCoolAddress, muxCoolPort),
+ 		}}
+-		ctx := session.ContextWithOutbounds(context.Background(), outbounds)
+-		ctx, cancel := context.WithCancel(ctx)
++		ctx := session.ContextWithOutbounds(c.ctx, outbounds)
+ 
+ 		if errP := p.Process(ctx, &transport.Link{Reader: uplinkReader, Writer: downlinkWriter}, d); errP != nil {
+ 			errC := errors.Cause(errP)
+@@ -161,9 +205,9 @@ func (f *DialingWorkerFactory) Create() (*ClientWorker, error) {
+ 				errors.LogInfoInner(ctx, errP, "failed to handler mux client connection")
+ 			}
+ 		}
+-		common.Must(c.Close())
+-		cancel()
+-	}(f.Proxy, f.Dialer, c.done)
++		// Signal only: Close waits for this goroutine and must not run here.
++		common.Must(c.done.Close())
++	}(f.Proxy, f.Dialer)
+ 
+ 	return c, nil
+ }
+@@ -174,6 +218,10 @@ type ClientStrategy struct {
+ }
+ 
+ type ClientWorker struct {
++	admission      sync.Mutex // excludes Dispatch registration from Close.Wait
++	workers        sync.WaitGroup
++	ctx            context.Context
++	cancel         context.CancelFunc
+ 	sessionManager *SessionManager
+ 	link           transport.Link
+ 	done           *done.Instance
+@@ -188,7 +236,10 @@ var (
+ 
+ // NewClientWorker creates a new mux.Client.
+ func NewClientWorker(stream transport.Link, s ClientStrategy) (*ClientWorker, error) {
++	ctx, cancel := context.WithCancel(context.Background())
+ 	c := &ClientWorker{
++		ctx:            ctx,
++		cancel:         cancel,
+ 		sessionManager: NewSessionManager(),
+ 		link:           stream,
+ 		done:           done.New(),
+@@ -196,8 +247,9 @@ func NewClientWorker(stream transport.Link, s ClientStrategy) (*ClientWorker, er
+ 		strategy:       s,
+ 	}
+ 
+-	go c.fetchOutput()
+-	go c.monitor()
++	c.workers.Add(2)
++	go func() { defer c.workers.Done(); c.fetchOutput() }()
++	go func() { defer c.workers.Done(); c.monitor() }()
+ 
+ 	return c, nil
+ }
+@@ -220,7 +272,11 @@ func (m *ClientWorker) WaitClosed() <-chan struct{} {
+ }
+ 
+ func (m *ClientWorker) Close() error {
+-	return m.done.Close()
++	m.admission.Lock()
++	err := m.done.Close()
++	m.admission.Unlock()
++	m.workers.Wait()
++	return err
+ }
+ 
+ func (m *ClientWorker) monitor() {
+@@ -231,6 +287,7 @@ func (m *ClientWorker) monitor() {
+ 		checkCount := m.sessionManager.Count()
+ 		select {
+ 		case <-m.done.Wait():
++			m.cancel() // also terminates the factory-owned outbound Process
+ 			m.sessionManager.Close()
+ 			common.Interrupt(m.link.Writer)
+ 			common.Interrupt(m.link.Reader)
+@@ -263,7 +320,6 @@ func fetchInput(ctx context.Context, s *Session, output buf.Writer) {
+ 	if ob.Target.Network == net.Network_UDP {
+ 		transferType = protocol.TransferTypePacket
+ 	}
+-	s.transferType = transferType
+ 	var inbound *session.Inbound
+ 	if session.IsReverseMuxFromContext(ctx) {
+ 		inbound = session.InboundFromContext(ctx)
+@@ -309,18 +365,26 @@ func (m *ClientWorker) IsFull() bool {
+ }
+ 
+ func (m *ClientWorker) Dispatch(ctx context.Context, link *transport.Link) bool {
++	m.admission.Lock()
+ 	if m.IsFull() {
++		m.admission.Unlock()
+ 		return false
+ 	}
+ 
+ 	sm := m.sessionManager
+-	s := sm.Allocate(&m.strategy)
++	outbounds := session.OutboundsFromContext(ctx)
++	transferType := protocol.TransferTypeStream
++	if outbounds[len(outbounds)-1].Target.Network == net.Network_UDP {
++		transferType = protocol.TransferTypePacket
++	}
++	s := sm.allocate(&m.strategy, link, transferType)
+ 	if s == nil {
++		m.admission.Unlock()
+ 		return false
+ 	}
+-	s.input = link.Reader
+-	s.output = link.Writer
+-	go fetchInput(ctx, s, m.link.Writer)
++	m.workers.Add(1)
++	go func() { defer m.workers.Done(); fetchInput(ctx, s, m.link.Writer) }()
++	m.admission.Unlock()
+ 	if _, ok := link.Reader.(*pipe.Reader); !ok {
+ 		select {
+ 		case <-ctx.Done():
+diff --git a/common/mux/session.go b/common/mux/session.go
+index 66b9674c..9306255e 100644
+--- a/common/mux/session.go
++++ b/common/mux/session.go
+@@ -13,6 +13,7 @@ import (
+ 	"github.com/xtls/xray-core/common/net"
+ 	"github.com/xtls/xray-core/common/protocol"
+ 	"github.com/xtls/xray-core/common/signal/done"
++	"github.com/xtls/xray-core/transport"
+ 	"github.com/xtls/xray-core/transport/pipe"
+ )
+ 
+@@ -52,6 +53,11 @@ func (m *SessionManager) Count() int {
+ }
+ 
+ func (m *SessionManager) Allocate(Strategy *ClientStrategy) *Session {
++	return m.allocate(Strategy, nil, protocol.TransferTypeStream)
++}
++
++// Initialize client IO before publishing the session to Close/Get.
++func (m *SessionManager) allocate(Strategy *ClientStrategy, link *transport.Link, transferType protocol.TransferType) *Session {
+ 	m.Lock()
+ 	defer m.Unlock()
+ 
+@@ -68,6 +74,10 @@ func (m *SessionManager) Allocate(Strategy *ClientStrategy) *Session {
+ 		parent: m,
+ 		done:   done.New(),
+ 	}
++	if link != nil {
++		s.input, s.output = link.Reader, link.Writer
++	}
++	s.transferType = transferType
+ 	m.sessions[s.ID] = s
+ 	return s
+ }
+diff --git a/proxy/vless/outbound/outbound.go b/proxy/vless/outbound/outbound.go
+index 56a2fd04..96aec1b1 100644
+--- a/proxy/vless/outbound/outbound.go
++++ b/proxy/vless/outbound/outbound.go
+@@ -415,13 +415,39 @@ func (h *Handler) Process(ctx context.Context, link *transport.Link, dialer inte
+ 		ctx = newCtx
+ 	}
+ 
+-	if err := task.Run(ctx, postRequest, task.OnSuccess(getResponse, task.Close(clientWriter))); err != nil {
++	if err := runVLESSTasksAndWait(ctx, cancel, newCancel, conn, clientReader, clientWriter,
++		postRequest, task.OnSuccess(getResponse, task.Close(clientWriter))); err != nil {
+ 		return errors.New("connection ends").Base(err)
+ 	}
+-
+ 	return nil
+ }
+ 
++// runVLESSTasksAndWait keeps the final two transfer tasks joined after task.Run
++// returns early. This is intentionally local to VLESS Process: the common task
++// runner returns the first error without waiting for its sibling.
++func runVLESSTasksAndWait(ctx context.Context, cancel, newCancel context.CancelFunc,
++	conn common.Closable, reader, writer interface{}, first, second func() error) error {
++	var wg sync.WaitGroup
++	wg.Add(2)
++	run := func(f func() error) func() error {
++		return func() error {
++			defer wg.Done()
++			return f()
++		}
++	}
++	defer func() {
++		cancel()
++		if newCancel != nil {
++			newCancel()
++		}
++		_ = common.Close(conn)
++		_ = common.Interrupt(reader)
++		_ = common.Interrupt(writer)
++		wg.Wait()
++	}()
++	return task.Run(ctx, run(first), run(second))
++}
++
+ type Reverse struct {
+ 	tag         string
+ 	dispatcher  routing.Dispatcher

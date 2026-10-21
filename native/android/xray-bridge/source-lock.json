@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "toolchain": "go1.27.1",
+  "wrapper": {
+    "repository": "https://github.com/XTLS/libXray",
+    "commit": "3c694b23290f9849fe52284a345ebd4343bc90cd",
+    "files": {
+      "go.mod": "5573a4ba9c1eeab747a0bb2b3454d894e35669ac0b82d768b0b7c91a7349870d",
+      "go.sum": "5f40db1f85ce10f2162784f300caefff21b91d4bcaf54610299e0c36d6635435",
+      "xray/xray.go": "cd9dab91997c3498d17127bf3d85ac8a3475710a83c03b84c136cdc7f1358790",
+      "build/main.py": "c72c9d0c66e500b819bda1dee8711fb59258a3850daae4c30ed687482c929301",
+      "build/app/build.py": "07132d9bf873c882e250a8f69d10625cf4bd8503f936459234f08b9c30919358",
+      "build/app/android.py": "24deef375cd329bbe9b2a39e81edf5598ec5f43f44ae9812a4bf27520adb3c81"
+    }
+  },
+  "core": {
+    "repository": "https://github.com/XTLS/Xray-core",
+    "commit": "b26a91de4f3294e26a0ad0a970b81a386a41f789",
+    "version": "v1.260327.1-0.20260930074004-b26a91de4f32",
+    "files": {
+      "app/proxyman/outbound/handler.go": {
+        "before": "77d3085a461b30a6a4d25273ba1487c9715655e1a6cfeafe17d6df0605f2c453",
+        "after": "cb91393cfbd5a22a409814f796b57003886e10d532191545360defcae811366b"
+      },
+      "app/proxyman/outbound/handler_test.go": {
+        "before": "4117cb2b849a0f8ee698dd3866125b33dbcc155935a238a30a52d2f45e139bcb",
+        "after": "6b59eac8ca38cac226127e229e1817e68b0fbea12fb6dbc1fc58770ec62f4798"
+      },
+      "app/proxyman/outbound/outbound.go": {
+        "before": "dea17216b8c93544f8136047c11a77ceb7c684ecf0837117131c50eb956f0eea",
+        "after": "403ebf791c3a10f5c63e8f1f2b36d5dadfe63c37b56e3541c13dba89e45c3866"
+      },
+      "common/mux/client.go": {
+        "before": "82399a810093ef5e761980faa0053f81340370d92f366b39dc5765a408d96478",
+        "after": "9842da74966a6feafe05b1cd0657bbaccff4ba05456e6c15ad1b340726d4a59e"
+      },
+      "common/mux/session.go": {
+        "before": "49cbf06771346242b9eed1dbbef4eb203fbb2a27377b32a4a7d5c9987461a240",
+        "after": "f7f77c34de9793519532c0bd3143d83c54db05bb354ec054b4b0aa816b7f7758"
+      },
+      "proxy/vless/outbound/outbound.go": {
+        "before": "d9e9d56ba68ee3ed5ae748c96575f238ecb04fc00a9a431066f582bfaa2fceac",
+        "after": "ca77b7bb53679c62c433d4e9b9c6680696f732038e6fd4645968801972441fbb"
+      },
+      "go.mod": {
+        "before": "1c5bdd1fda5412a33806c1cc7e5373075351a7603237e4274bc1bcab67739572",
+        "after": "1c5bdd1fda5412a33806c1cc7e5373075351a7603237e4274bc1bcab67739572"
+      },
+      "go.sum": {
+        "before": "a636d6f564c23070b8034ff81451069c6d674ea26ded28e8b2a70be7dd0aa24a",
+        "after": "a636d6f564c23070b8034ff81451069c6d674ea26ded28e8b2a70be7dd0aa24a"
+      }
+    }
+  },
+  "patch": {
+    "file": "core-lifecycle.patch",
+    "sha256": "12530f21af0956d5f652c7e89b228250ef4773e0e5d5af341108154335a4973b"
+  },
+  "tests": {
+    "core": {
+      "common/mux/client_lifecycle_test.go": {
+        "file": "client_lifecycle_test.go",
+        "sha256": "2bc0673454824eb7bb0f1e8ba4a1e9f98409535cf029e199b16771a331043a55"
+      },
+      "proxy/vless/outbound/angelanexus_lifecycle_test.go": {
+        "file": "vless_lifecycle_test.go",
+        "sha256": "c85921c54cf9cc22b95890d0da0a2075ad6161a08a8f9766529207661445a8de"
+      }
+    },
+    "wrapper": {
+      "xray/stop_mux_test.go": {
+        "file": "stop_mux_test.go",
+        "sha256": "24141dd232047b6f1d0c9fab73b63d2b09545f5bfdd8eb4d2ce86c431e89fca7"
+      }
+    }
+  }
+}

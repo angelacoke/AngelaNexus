@@ -7,6 +7,7 @@ on:
       - ".github/workflows/xray-android-native-build.yml"
       - "docs/upstream/XRAY_ANDROID_RUNTIME_COMPLIANCE.json"
       - "native/android/xray-bridge/**"
+      - "test/xray-source-compliance.test.js"
       - "native/android/app/src/main/kotlin/app/angelanexus/XrayRuntime*.kt"
       - "native/android/app/src/main/kotlin/app/angelanexus/XrayAndroidKernelDriver.kt"
       - "native/android/app/src/main/kotlin/app/angelanexus/XrayVpnProtector.kt"
@@ -17,10 +18,14 @@ on:
 permissions:
   contents: read
 
+env:
+  GOTOOLCHAIN: go1.27.1
+
 jobs:
   build:
     name: Verify native Xray runtime build (${{ matrix.abi }})
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -34,22 +39,18 @@ jobs:
           - abi: x86_64
             goarch: amd64
             cc: x86_64-linux-android24-clang
-
     steps:
       - name: Checkout AngelaNexus
         uses: actions/checkout@v4
-
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.26.7"
-
+          go-version: "1.27.1"
       - name: Install Android NDK
         shell: bash
         env:
@@ -59,62 +60,50 @@ jobs:
           SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort | tail -n 1)"
           test -x "$SDKMANAGER"
           "$SDKMANAGER" "ndk;28.0.13004108"
-
-      - name: Fetch pinned libXray source
+      - name: Fetch pinned source pair and apply reviewed adapter
         shell: bash
         env:
           LIBXRAY_COMMIT: "3c694b23290f9849fe52284a345ebd4343bc90cd"
+          CORE_COMMIT: "b26a91de4f3294e26a0ad0a970b81a386a41f789"
         run: |
           set -euo pipefail
-          git clone --no-checkout https://github.com/XTLS/libXray.git "$RUNNER_TEMP/libXray"
-          git -C "$RUNNER_TEMP/libXray" fetch origin "$LIBXRAY_COMMIT"
-          git -C "$RUNNER_TEMP/libXray" checkout --detach "$LIBXRAY_COMMIT"
-          test "$(git -C "$RUNNER_TEMP/libXray" rev-parse HEAD)" = "$LIBXRAY_COMMIT"
-          test -d "$RUNNER_TEMP/libXray"
-          git -C "$RUNNER_TEMP/libXray" rev-parse HEAD
-
+          mkdir -p "$RUNNER_TEMP/xray-pair"
+          git clone --no-checkout https://github.com/XTLS/libXray.git "$RUNNER_TEMP/xray-pair/libXray"
+          git -C "$RUNNER_TEMP/xray-pair/libXray" fetch origin "$LIBXRAY_COMMIT"
+          git -C "$RUNNER_TEMP/xray-pair/libXray" checkout --detach "$LIBXRAY_COMMIT"
+          test "$(git -C "$RUNNER_TEMP/xray-pair/libXray" rev-parse HEAD)" = "$LIBXRAY_COMMIT"
+          git clone --no-checkout https://github.com/XTLS/Xray-core.git "$RUNNER_TEMP/xray-pair/Xray-core"
+          git -C "$RUNNER_TEMP/xray-pair/Xray-core" fetch origin "$CORE_COMMIT"
+          git -C "$RUNNER_TEMP/xray-pair/Xray-core" checkout --detach "$CORE_COMMIT"
+          python3 native/android/xray-bridge/prepare-upstream.py --wrapper "$RUNNER_TEMP/xray-pair/libXray" --core "$RUNNER_TEMP/xray-pair/Xray-core" --provenance "$RUNNER_TEMP/xray/libxray-provenance-${{ matrix.abi }}.json"
+      - name: Full related upstream race and three mux-only negative controls
+        shell: bash
+        env:
+          WRAPPER: ${{ runner.temp }}/xray-pair/libXray
+          CORE: ${{ runner.temp }}/xray-pair/Xray-core
+          NEGATIVE_LOG_DIR: ${{ runner.temp }}/xray/negative-logs
+        run: bash native/android/xray-bridge/test-host.sh
       - name: Build Android libXray
         shell: bash
-        working-directory: ${{ runner.temp }}/libXray
+        working-directory: ${{ runner.temp }}/xray-pair/libXray
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.0.13004108
           LIBXRAY_GOMOBILE_VERSION: "v0.0.0-20260908204917-8b95e45f8d3e"
         run: |
           set -euo pipefail
-          python3 build/main.py android
+          python3 build/main.py android local
           test -s libXray.aar
           mkdir -p "$RUNNER_TEMP/xray"
           cp libXray.aar "$RUNNER_TEMP/xray/libXray-${{ matrix.abi }}.aar"
-
+          python3 "$GITHUB_WORKSPACE/native/android/xray-bridge/prepare-upstream.py" --wrapper "$PWD" --core "$RUNNER_TEMP/xray-pair/Xray-core" --verify-prepared
+          python3 "$GITHUB_WORKSPACE/native/android/xray-bridge/verify-artifact.py" "$RUNNER_TEMP/xray/libXray-${{ matrix.abi }}.aar" --provenance "$RUNNER_TEMP/xray/libxray-provenance-${{ matrix.abi }}.json" --stamp --android --abi "${{ matrix.abi }}"
       - name: Verify artifact and provenance
         shell: bash
         run: |
           set -euo pipefail
-          ARTIFACT="$RUNNER_TEMP/xray/libXray-${{ matrix.abi }}.aar"
-          test -s "$ARTIFACT"
-          unzip -t "$ARTIFACT" >/dev/null
-          SHA256="$(sha256sum "$ARTIFACT" | awk '{print $1}')"
-          SOURCE_HEAD="$(git -C "$RUNNER_TEMP/libXray" rev-parse HEAD)"
-          test -n "$SOURCE_HEAD"
-          python3 - <<PY
-          import json
-          from pathlib import Path
-          out = Path("$RUNNER_TEMP/xray/libxray-provenance-${{ matrix.abi }}.json")
-          out.write_text(json.dumps({
-              "version": 1,
-              "kernel": "xray",
-              "wrapper": {"repository": "https://github.com/XTLS/libXray", "commit": "$SOURCE_HEAD"},
-              "core": {"repository": "https://github.com/XTLS/Xray-core", "version": "pinned by libXray go.mod at build time"},
-              "platform": "android",
-              "abi": "${{ matrix.abi }}",
-              "toolchain": {"go": "$(go version)", "java": "$(printf temurin-17)", "androidNdk": "28.0.13004108"},
-              "artifact": {"name": "libXray-${{ matrix.abi }}.aar", "sha256": "$SHA256"},
-              "isolation": "separate Android process required; libXray must not share a process with another independent Go runtime"
-          }, indent=2) + "\n", encoding="utf-8")
-          PY
+          python3 native/android/xray-bridge/verify-artifact.py "$RUNNER_TEMP/xray/libXray-${{ matrix.abi }}.aar" --provenance "$RUNNER_TEMP/xray/libxray-provenance-${{ matrix.abi }}.json"
           cat "$RUNNER_TEMP/xray/libxray-provenance-${{ matrix.abi }}.json"
-
       - name: Upload verified Xray runtime artifact
         uses: actions/upload-artifact@v4
         with:
@@ -122,5 +111,6 @@ jobs:
           path: |
             ${{ runner.temp }}/xray/libXray-${{ matrix.abi }}.aar
             ${{ runner.temp }}/xray/libxray-provenance-${{ matrix.abi }}.json
+            ${{ runner.temp }}/xray/negative-logs/*.log
           if-no-files-found: error
           retention-days: 14

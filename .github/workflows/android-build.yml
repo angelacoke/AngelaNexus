@@ -7,6 +7,8 @@ on:
 
 jobs:
   prepare-xray:
+    env:
+      GOTOOLCHAIN: go1.27.1
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -17,7 +19,7 @@ jobs:
           java-version: '17'
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26.8'
+          go-version: '1.27.1'
       - name: Install Android NDK
         shell: bash
         env:
@@ -36,16 +38,25 @@ jobs:
           LIBXRAY_GOMOBILE_VERSION: "v0.0.0-20260908204917-8b95e45f8d3e"
         run: |
           set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/libXray-parent"
           git clone --no-checkout https://github.com/XTLS/libXray.git "$RUNNER_TEMP/libXray"
           git -C "$RUNNER_TEMP/libXray" fetch origin "$LIBXRAY_COMMIT"
           git -C "$RUNNER_TEMP/libXray" checkout --detach "$LIBXRAY_COMMIT"
           test "$(git -C "$RUNNER_TEMP/libXray" rev-parse HEAD)" = "$LIBXRAY_COMMIT"
-          cd "$RUNNER_TEMP/libXray"
-          python3 build/main.py android
+          git clone --no-checkout https://github.com/XTLS/Xray-core.git "$RUNNER_TEMP/libXray-parent/Xray-core"
+          git -C "$RUNNER_TEMP/libXray-parent/Xray-core" fetch origin b26a91de4f3294e26a0ad0a970b81a386a41f789
+          git -C "$RUNNER_TEMP/libXray-parent/Xray-core" checkout --detach b26a91de4f3294e26a0ad0a970b81a386a41f789
+          mv "$RUNNER_TEMP/libXray" "$RUNNER_TEMP/libXray-parent/libXray"
+          python3 "$GITHUB_WORKSPACE/native/android/xray-bridge/prepare-upstream.py" --wrapper "$RUNNER_TEMP/libXray-parent/libXray" --core "$RUNNER_TEMP/libXray-parent/Xray-core" --provenance "$RUNNER_TEMP/libXray-parent/provenance.json"
+          WRAPPER="$RUNNER_TEMP/libXray-parent/libXray" CORE="$RUNNER_TEMP/libXray-parent/Xray-core" NEGATIVE_LOG_DIR="$RUNNER_TEMP/xray-negative-logs" bash native/android/xray-bridge/test-host.sh
+          cd "$RUNNER_TEMP/libXray-parent/libXray"
+          python3 build/main.py android local
           test -s libXray.aar
           mkdir -p "$GITHUB_WORKSPACE/native/android/app/libs"
           cp libXray.aar "$GITHUB_WORKSPACE/native/android/app/libs/libXray.aar"
-          sha256sum "$GITHUB_WORKSPACE/native/android/app/libs/libXray.aar"
+          python3 "$GITHUB_WORKSPACE/native/android/xray-bridge/prepare-upstream.py" --wrapper "$PWD" --core "$RUNNER_TEMP/libXray-parent/Xray-core" --verify-prepared
+          python3 "$GITHUB_WORKSPACE/native/android/xray-bridge/verify-artifact.py" "$GITHUB_WORKSPACE/native/android/app/libs/libXray.aar" --provenance "$RUNNER_TEMP/libXray-parent/provenance.json" --stamp --android
+          cp "$RUNNER_TEMP/libXray-parent/provenance.json" "$GITHUB_WORKSPACE/native/android/app/libs/libxray-provenance.json"
       - name: Build pinned sing-box libbox AAR
         shell: bash
         env:
@@ -69,6 +80,8 @@ jobs:
           sha256sum "$GITHUB_WORKSPACE/native/android/app/libs/libbox.aar" "$GITHUB_WORKSPACE/native/android/app/libs/libbox-legacy.aar"
           cd "$GITHUB_WORKSPACE"
           python3 scripts/deduplicate-libxray-aar.py native/android/app/libs/libXray.aar
+          python3 native/android/xray-bridge/verify-artifact.py native/android/app/libs/libXray.aar --provenance native/android/app/libs/libxray-provenance.json --stamp --deduplicated
+          python3 native/android/xray-bridge/verify-artifact.py native/android/app/libs/libXray.aar --provenance native/android/app/libs/libxray-provenance.json
           unzip -p native/android/app/libs/libXray.aar classes.jar > "$RUNNER_TEMP/libXray-classes.jar"
           unzip -p native/android/app/libs/libbox.aar classes.jar > "$RUNNER_TEMP/libbox-classes.jar"
           ! jar tf "$RUNNER_TEMP/libXray-classes.jar" | grep -q "^go/"
@@ -81,6 +94,7 @@ jobs:
           name: angelanexus-android-native-kernel-aars
           path: |
             native/android/app/libs/libXray.aar
+            native/android/app/libs/libxray-provenance.json
             native/android/app/libs/libbox.aar
             native/android/app/libs/libbox-legacy.aar
           if-no-files-found: error
@@ -120,6 +134,7 @@ jobs:
           test -s native/android/app/libs/libbox.aar
           test -s native/android/app/libs/libbox-legacy.aar
           unzip -t native/android/app/libs/libXray.aar >/dev/null
+          python3 native/android/xray-bridge/verify-artifact.py native/android/app/libs/libXray.aar --provenance native/android/app/libs/libxray-provenance.json
           unzip -t native/android/app/libs/libbox.aar >/dev/null
           unzip -t native/android/app/libs/libbox-legacy.aar >/dev/null
       - name: Run Android unit tests
@@ -275,6 +290,7 @@ jobs:
           test -s native/android/app/libs/libbox.aar
           test -s native/android/app/libs/libbox-legacy.aar
           unzip -t native/android/app/libs/libXray.aar >/dev/null
+          python3 native/android/xray-bridge/verify-artifact.py native/android/app/libs/libXray.aar --provenance native/android/app/libs/libxray-provenance.json
           unzip -t native/android/app/libs/libbox.aar >/dev/null
           unzip -t native/android/app/libs/libbox-legacy.aar >/dev/null
       - name: Assemble signed release APK and AAB
