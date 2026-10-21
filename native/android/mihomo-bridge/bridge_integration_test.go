@@ -1490,6 +1490,13 @@ func TestAndroidBridgeLateConnectionEpochLifecycle(t *testing.T) {
 			// Even a freshly captured token cannot bypass the closed gate.
 			probe(manager.RegistrationEpoch(), false)
 			listener.err = nil
+			if mode == "failed-stop" {
+				// A replacement cannot acknowledge a failed explicit stop on behalf
+				// of its caller; retry stop before attaching the new generation.
+				if err := stopTunError(); err != nil {
+					t.Fatal(err)
+				}
+			}
 			var fds [2]int
 			if err := syscall.Pipe(fds[:]); err != nil {
 				t.Fatal(err)
@@ -2000,5 +2007,262 @@ func TestAndroidBridgeProviderActualStopTimeoutBlocksReapplyAndAttach(t *testing
 		return nil, errors.New("must not construct")
 	}) || constructed {
 		t.Fatal("attachment bypassed timed-out provider cleanup")
+	}
+}
+
+// Exercise the real stop/apply/DNS/start bodies. A resource Close failure or
+// setup timeout must be a sticky explicit-stop retry barrier, not just a one-off
+// return value that a fresh configuration can overwrite.
+func TestAndroidBridgeResourceStopDebtRejectsFreshConfiguration(t *testing.T) {
+	for _, kind := range []string{"listener", "tracked-connection", "setup-timeout"} {
+		t.Run(kind, func(t *testing.T) {
+			androidRuntime = androidTunLifecycle{}
+			lastConfigJSON = nil
+			if err := initializeAndroid(t.TempDir()); err != nil {
+				t.Fatal(err)
+			}
+			if err := applyAndroidConfigJSON(bridgeConfigJSON("rule")); err != nil {
+				t.Fatal(err)
+			}
+			failure := errors.New("resource stop retry required")
+			var repair func()
+			switch kind {
+			case "listener":
+				listener := &bridgeTestListener{err: errors.Join(net.ErrClosed, failure)}
+				androidRuntime.listener = listener
+				repair = func() { listener.err = nil }
+			case "tracked-connection":
+				local, peer := net.Pipe()
+				defer peer.Close()
+				direct := outbound.NewDirectWithOption(outbound.DirectOption{Name: "stop-debt-test"})
+				conn := &bridgeRetryConn{Conn: outbound.NewConn(local, direct), err: errors.Join(net.ErrClosed, failure)}
+				statistic.DefaultManager.StartRegistrations()
+				statistic.NewTCPTracker(conn, statistic.DefaultManager, &constant.Metadata{NetWork: constant.TCP}, nil, 0, 0, true)
+				repair = func() { conn.err = nil }
+			case "setup-timeout":
+				manager := statistic.DefaultManager
+				manager.StartRegistrations()
+				release, err := manager.BeginSetup(manager.RegistrationEpoch())
+				if err != nil {
+					t.Fatal(err)
+				}
+				repair = release
+				failure = context.DeadlineExceeded
+			}
+			t.Cleanup(func() {
+				repair()
+				if err := stopTunError(); err != nil {
+					t.Error(err)
+				}
+			})
+			if err := stopTunError(); !errors.Is(err, failure) {
+				t.Fatalf("stop lost resource failure: %v", err)
+			}
+			// pendingStops is now zero; use NEW request tokens, not stale ones.
+			saved := append([]byte(nil), lastConfigJSON...)
+			assertBlocked := func() {
+				t.Helper()
+				if err := applyAndroidConfigJSON(bridgeConfigJSON("direct")); err == nil {
+					t.Fatal("fresh apply bypassed failed explicit-stop resource cleanup")
+				}
+				if err := updateAndroidDNS("127.0.0.1"); err == nil {
+					t.Fatal("fresh DNS update bypassed failed explicit-stop resource cleanup")
+				}
+				if !bytes.Equal(saved, lastConfigJSON) || !strings.EqualFold(executor.GetGeneral().Mode.String(), "rule") {
+					t.Fatal("rejected replacement changed saved or upstream configuration")
+				}
+				if androidRuntime.ready() || tunnel.Status() != tunnel.Suspend {
+					t.Fatal("failed stop reopened admission")
+				}
+			}
+			assertBlocked()
+			// Even if the resource becomes clean on its own, the explicit stop must
+			// acknowledge that cleanup before a new attachment/configuration proceeds.
+			repair()
+			assertBlocked()
+			fd, err := os.Open("/dev/null")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer fd.Close()
+			called := false
+			if startAndroidTUNWithConstructor(int(fd.Fd()), "system", "", "", androidRuntime.stopGeneration.Load(), func(LC.Tun) (io.Closer, error) {
+				called = true
+				return nil, errors.New("unexpected constructor")
+			}) || called {
+				t.Fatal("attachment retried cleanup or construction before explicit stop retry")
+			}
+			if _, err := fd.Stat(); err != nil {
+				t.Fatalf("rejected attachment consumed caller fd: %v", err)
+			}
+			if err := stopTunError(); err != nil {
+				t.Fatalf("explicit cleanup retry: %v", err)
+			}
+			if err := applyAndroidConfigJSON(bridgeConfigJSON("direct")); err != nil {
+				t.Fatalf("fresh configuration blocked after retry: %v", err)
+			}
+		})
+	}
+}
+
+// A request captures its token during a blocked Close, then is deliberately
+// deferred until stop has returned. The generation is current and pendingStops
+// is zero, so only the under-control-lock cleanup-debt gate can reject it.
+type bridgeResourceStopBarrier struct {
+	entered chan struct{}
+	release chan struct{}
+	err     error
+}
+
+func (l *bridgeResourceStopBarrier) Close() error {
+	if l.entered != nil {
+		close(l.entered)
+		l.entered = nil
+		<-l.release
+	}
+	return l.err
+}
+
+func TestAndroidBridgeResourceStopDebtDeferredConfiguration(t *testing.T) {
+	for _, operation := range []string{"apply", "dns"} {
+		t.Run(operation, func(t *testing.T) {
+			androidRuntime = androidTunLifecycle{}
+			lastConfigJSON = nil
+			if err := initializeAndroid(t.TempDir()); err != nil {
+				t.Fatal(err)
+			}
+			if err := applyAndroidConfigJSON(bridgeConfigJSON("rule")); err != nil {
+				t.Fatal(err)
+			}
+			failure := errors.New("queued stop close failure")
+			listener := &bridgeResourceStopBarrier{entered: make(chan struct{}), release: make(chan struct{}), err: failure}
+			entered := listener.entered
+			androidRuntime.listener = listener
+			stopDone := make(chan error, 1)
+			go func() { stopDone <- stopTunError() }()
+			<-entered
+			// This is a token captured during this stop, not before it. Calling
+			// AtGeneration exercises the second, under-control-lock gate directly.
+			generation := androidRuntime.stopGeneration.Load()
+			result := make(chan error, 1)
+			proceed := make(chan struct{})
+			go func() {
+				<-proceed
+				if operation == "apply" {
+					result <- applyAndroidConfigJSONAtGeneration(bridgeConfigJSON("direct"), generation)
+				} else {
+					result <- updateAndroidDNSAtGeneration("127.0.0.1", generation)
+				}
+			}()
+			close(listener.release)
+			stopErr := <-stopDone
+			close(proceed)
+			configErr := <-result
+			// Both workers have returned before inspecting or repairing ownership.
+			listener.err = nil
+			t.Cleanup(func() {
+				if err := stopTunError(); err != nil {
+					t.Error(err)
+				}
+			})
+			if !errors.Is(stopErr, failure) {
+				t.Fatalf("stop error = %v", stopErr)
+			}
+			if configErr == nil {
+				t.Fatal("queued request bypassed failed resource cleanup")
+			}
+			if !strings.EqualFold(executor.GetGeneral().Mode.String(), "rule") {
+				t.Fatal("queued request changed upstream mode")
+			}
+			if err := stopTunError(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestAndroidBridgeResourceStopDebtBlocksAttachmentBeforeCleanup(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	failure := errors.New("attachment cleanup debt")
+	listener := &bridgeTestListener{err: failure}
+	androidRuntime.listener = listener
+	t.Cleanup(func() {
+		listener.err = nil
+		if err := stopTunError(); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := stopTunError(); !errors.Is(err, failure) {
+		t.Fatal(err)
+	}
+	listener.err = nil
+	fd, err := os.Open("/dev/null")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fd.Close()
+	called := false
+	if startAndroidTUNWithConstructor(int(fd.Fd()), "system", "", "", androidRuntime.stopGeneration.Load(), func(options LC.Tun) (io.Closer, error) {
+		called = true
+		_ = syscall.Close(options.FileDescriptor)
+		return nil, errors.New("unexpected constructor")
+	}) || called || listener.closes != 1 {
+		t.Fatal("attachment bypassed explicit stop retry and performed cleanup/construction")
+	}
+	if _, err := fd.Stat(); err != nil {
+		t.Fatalf("rejected attachment consumed caller fd: %v", err)
+	}
+	if err := stopTunError(); err != nil || listener.closes != 2 {
+		t.Fatalf("stop retry did not release listener: %v", err)
+	}
+}
+
+func TestAndroidBridgeResourceStopDebtIndependentOfProviderDebt(t *testing.T) {
+	for _, repairedFirst := range []string{"provider", "resource"} {
+		t.Run(repairedFirst, func(t *testing.T) {
+			androidRuntime = androidTunLifecycle{}
+			providerFailure := errors.New("provider cleanup debt")
+			resourceFailure := errors.New("resource cleanup debt")
+			p := &bridgeProviderResource{closed: make(chan struct{}), drained: make(chan struct{}), closeErr: providerFailure}
+			close(p.drained)
+			androidRuntime.ownProvider("independent-debt", p)
+			listener := &bridgeTestListener{err: resourceFailure}
+			androidRuntime.listener = listener
+			t.Cleanup(func() {
+				p.closeErr = nil
+				listener.err = nil
+				if err := stopTunError(); err != nil {
+					t.Error(err)
+				}
+			})
+			err := stopTunError()
+			if !errors.Is(err, providerFailure) || !errors.Is(err, resourceFailure) {
+				t.Fatalf("stop lost joined errors: %v", err)
+			}
+			remaining, pending := resourceFailure, errAndroidResourceCleanupPending
+			if repairedFirst == "provider" {
+				p.closeErr = nil
+			} else {
+				listener.err = nil
+				remaining, pending = providerFailure, errAndroidProviderCleanupPending
+			}
+			if err := stopTunError(); !errors.Is(err, remaining) {
+				t.Fatalf("retry masked remaining component error: %v", err)
+			}
+			if err := applyAndroidConfigJSON(bridgeConfigJSON("direct")); !errors.Is(err, pending) {
+				t.Fatalf("clean component cleared another component's debt: %v", err)
+			}
+			if err := updateAndroidDNS("127.0.0.1"); !errors.Is(err, pending) {
+				t.Fatalf("DNS update lost remaining debt: %v", err)
+			}
+			p.closeErr = nil
+			listener.err = nil
+			if err := stopTunError(); err != nil {
+				t.Fatal(err)
+			}
+			if androidRuntime.resourceCleanupPending || len(androidRuntime.providers) != 0 {
+				t.Fatal("successful retry retained cleanup debt")
+			}
+		})
 	}
 }

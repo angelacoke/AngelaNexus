@@ -152,6 +152,9 @@ jobs:
           go test -list '^TestAngelaNexusQUICSender' ./component/sniffer | grep '^TestAngelaNexusQUICSender'
           # Test the entire dedicated package that the NDK build consumes.
           go test -race -tags=with_gvisor,cmfa -run '^TestAndroidBridge' -count=1 -timeout=90s -v ./angelanexus_android
+          go test -tags=with_gvisor,cmfa -list '^TestAndroidBridgeResourceStopDebt' ./angelanexus_android | grep '^TestAndroidBridgeResourceStopDebt'
+          go test -race -tags=with_gvisor,cmfa -run '^TestAndroidBridgeResourceStopDebt' -count=10 -timeout=90s ./angelanexus_android
+          python3 "$GITHUB_WORKSPACE/native/android/mihomo-bridge/test-stop-debt.py" "$PWD" --logs "$RUNNER_TEMP/resource-stop-negative"
           go test -race -run '^TestAngelaNexusStatistics' -count=1 -timeout=90s -v ./tunnel/statistic
           go test -race -run '^TestAngelaNexusLateConnections' -count=1 -timeout=90s -v ./tunnel/statistic
           go test -race -tags=with_gvisor,cmfa -run '^TestAngelaNexusLateTunnel' -count=1 -timeout=90s -v ./tunnel

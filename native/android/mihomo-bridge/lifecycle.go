@@ -48,6 +48,9 @@ type androidTunLifecycle struct {
 	dnsCleanupPending bool
 	// An explicit NTP stop timeout blocks replacement until a successful stop retry.
 	ntpCleanupPending bool
+	// Explicit stop must acknowledge TUN/connection/setup cleanup before a new
+	// config or attachment can proceed. DNS/NTP success must not clear this debt.
+	resourceCleanupPending bool
 	// Retain every applied generation, including configurations replaced or disabled
 	// before explicit stop. Stopped resolvers cannot be reopened by TUN attachment.
 	resolvers        map[androidResolverGeneration]struct{}

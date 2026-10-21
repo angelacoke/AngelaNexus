@@ -197,6 +197,9 @@ func applyAndroidConfigJSONAtGeneration(data []byte, generation uint64) error {
 	if androidRuntime.ntpCleanupPending {
 		return errAndroidNTPCleanupPending
 	}
+	if androidRuntime.resourceCleanupPending {
+		return errAndroidResourceCleanupPending
+	}
 	if len(data) == 0 {
 		return errors.New("config is empty")
 	}
@@ -245,6 +248,9 @@ func updateAndroidDNSAtGeneration(dns string, generation uint64) error {
 	}
 	if androidRuntime.ntpCleanupPending {
 		return errAndroidNTPCleanupPending
+	}
+	if androidRuntime.resourceCleanupPending {
+		return errAndroidResourceCleanupPending
 	}
 	if len(lastConfigJSON) == 0 {
 		return errors.New("no configuration has been applied")
@@ -311,7 +317,7 @@ func startAndroidTUNWithConstructor(fd int, stack, address, dns string, generati
 
 	// Fetcher.Close is irreversible. A fresh apply/DNS reparse must construct
 	// new providers before attaching again; never reopen a stopped generation.
-	if androidRuntime.providersStopped || androidRuntime.resolversStopped || androidRuntime.dnsCleanupPending || androidRuntime.ntpCleanupPending {
+	if androidRuntime.providersStopped || androidRuntime.resolversStopped || androidRuntime.dnsCleanupPending || androidRuntime.ntpCleanupPending || androidRuntime.resourceCleanupPending {
 		return false
 	}
 	tunnel.OnSuspend()
@@ -451,6 +457,8 @@ var errAndroidDNSCleanupPending = errors.New("DNS listener/resolver cleanup pend
 
 var errAndroidNTPCleanupPending = errors.New("NTP cleanup pending; retry stop before applying configuration")
 
+var errAndroidResourceCleanupPending = errors.New("TUN/connection/setup cleanup pending; retry stop before applying configuration")
+
 const androidNTPDrainTimeout = 2 * time.Second
 const androidProviderDrainTimeout = 2 * time.Second
 const androidDNSDrainTimeout = 2 * time.Second
@@ -501,6 +509,9 @@ func stopTunError() error {
 	dnsErr := stopAndroidDNS(androidDNSDrainTimeout)
 	ntpErr := stopAndroidNTP(androidNTPDrainTimeout)
 	resourceErr := closeAndroidResources()
+	// Other components may already be clean. Preserve this independent debt even
+	// after pendingStops becomes zero; only explicit stop retries acknowledge it.
+	androidRuntime.resourceCleanupPending = resourceErr != nil
 	return errors.Join(providerErr, dnsErr, ntpErr, resourceErr)
 }
 

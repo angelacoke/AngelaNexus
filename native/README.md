@@ -51,3 +51,23 @@ pristine and reviewed-output SHA-256 checks in `prepare-upstream.py`. The patch
 requires twelve exact sections, and each ABI provenance must include matching
 `providerHealthCheck` and `proxyProvider` paths/hashes in addition to all existing
 source and artifact gates. Unknown, missing or modified inputs fail closed.
+
+## Android resource-stop retry gate
+
+A failed explicit Mihomo stop also retains an independent retry gate for TUN
+listener Close, tracked-connection Close, admitted setup drain, and late setup
+connections. Fresh configuration, DNS reconfiguration and TUN attachment reject
+before parsing or replacement cleanup until an explicit stop retry acknowledges
+that resource cleanup. Success in provider, DNS or NTP teardown cannot clear this
+gate; conversely resource cleanup cannot clear another component's failed drain.
+The original joined stop errors and retained resource owners remain available to
+the existing JNI/Kotlin failure-and-retry path.
+
+The pinned-source host tests exercise the real bridge bodies under the race
+detector, including a deferred request whose stop-generation token is still
+current, mixed closed/error causes, setup timeout, descriptor preservation and
+independent component retries. Nine negative controls remove only one of the
+three entry gates at a time and must fail at its specific assertion. They do not
+prove bounded Close calls, complete kernel shutdown, overall recovery, or Android
+TUN/JNI device acceptance. Upstream/dependency pins and source/hash/provenance
+gates are unchanged.
