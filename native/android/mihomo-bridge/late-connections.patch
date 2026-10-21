@@ -434,7 +434,35 @@
  	if !isHandle(connCtx.Metadata().Type) {
  		_ = connCtx.Conn().Close()
  		return
-@@ -569,13 +587,24 @@
+@@ -523,11 +541,26 @@
+ 	}
+ 
+ 	conn := connCtx.Conn()
++	if registrationCtx.Err() != nil {
++		return
++	}
+ 	conn.ResetPeeked() // reset before sniffer
+ 	if sniffingEnable && snifferDispatcher.Enable() {
+ 		// Try to sniff a domain when `preHandleMetadata` failed, this is usually
+ 		// caused by a "Fake DNS record missing" error when enhanced-mode is fake-ip.
+-		if snifferDispatcher.TCPSniff(conn, metadata) {
++		// Sniffing precedes the ordinary setup lease. Wake a blocked read by
++		// closing the inbound connection when its registration generation ends.
++		// The callback runs without a handler/manager lock and is not joined;
++		// an already-entered Close or sniffer callback can finish after stop.
++		stopSniffClose := context.AfterFunc(registrationCtx, func() { _ = conn.Close() })
++		sniffed := snifferDispatcher.TCPSniff(conn, metadata)
++		stopSniffClose()
++		// Closed readers may still return buffered data and apparent success.
++		// Never continue metadata resolution or dial setup for that generation.
++		if registrationCtx.Err() != nil {
++			return
++		}
++		if sniffed {
+ 			// we now have a domain name
+ 			preHandleFailed = false
+ 		}
+@@ -569,13 +602,24 @@
  	}
  
  	var peekBytes []byte
@@ -462,7 +490,7 @@
  			return
  		}
  
-@@ -599,7 +628,7 @@
+@@ -599,7 +643,7 @@
  			if err != nil {
  				return
  			}
@@ -471,7 +499,7 @@
  				_, _ = conn.Discard(peekLen)
  			}
  		}
-@@ -610,9 +639,9 @@
+@@ -610,9 +654,9 @@
  	if err != nil {
  		return
  	}
@@ -482,7 +510,7 @@
  	defer func(remoteConn C.Conn) {
  		_ = remoteConn.Close()
  	}(remoteConn)
-@@ -739,6 +768,9 @@
+@@ -739,6 +783,9 @@
  func retry[T any](ctx context.Context, ft func(context.Context) (T, error), fe func(err error)) (t T, err error) {
  	s := slowdown.New()
  	for i := 0; i < 10; i++ {

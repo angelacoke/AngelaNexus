@@ -286,3 +286,27 @@ test("UDP sniff cancellation uses scoped AfterFunc and post-callback checkpoint"
   assert.match(tunnel, /if canceled := ctx\.Err\(\); canceled != nil/);
   assert.match(tunnel, /sniffUDPWithContext\(registrationCtx, sender, metadata\)/);
 });
+
+test("TCP sniff cancellation closes inbound only during sniff and rejects canceled success", () => {
+  const patch = read("native/android/mihomo-bridge/late-connections.patch");
+  const tcp = patch.slice(patch.indexOf("func handleTCPConn"), patch.indexOf("func retry"));
+  const additions = tcp.split("\n").filter(line => line.startsWith("+") && !line.startsWith("+++")).map(line => line.slice(1)).join("\n");
+  assert.match(additions, /if registrationCtx\.Err\(\) != nil \{\n\s*return\n\s*\}/);
+  assert.match(additions, /stopSniffClose := context\.AfterFunc\(registrationCtx, func\(\) \{ _ = conn\.Close\(\) \}\)/);
+  assert.match(additions, /sniffed := snifferDispatcher\.TCPSniff\(conn, metadata\)\n\s*stopSniffClose\(\)/);
+  const afterSniff = additions.slice(additions.indexOf("stopSniffClose()"));
+  assert.ok(afterSniff.indexOf("registrationCtx.Err()") < afterSniff.indexOf("if sniffed"));
+  assert.doesNotMatch(additions, /WaitGroup|\.Wait\(|<-.*[Dd]one/);
+});
+
+test("TCP sniff regressions use real pure-IP sniffing, cancellation wakeup and positive relay", () => {
+  const source = read("native/android/mihomo-bridge/late_tunnel_integration_test.go");
+  for (const name of ["StopWakesRealSniff", "CanceledBeforeSniff", "CanceledSniffResultDoesNotDial", "HTTPSniffAndRelay"]) {
+    assert.ok(source.includes(`func TestAngelaNexusLateTunnelTCPSniff${name}(`));
+  }
+  assert.match(source, /S\.Config\{Enable: true, ParsePureIp: true/);
+  assert.match(source, /SetReadDeadline\(time\.Time\) error \{ return nil \}/);
+  assert.match(source, /canceled sniff continued metadata resolution/);
+  assert.match(source, /real sniff domain=%q/);
+  assert.match(source, /closeOnce\.Do/);
+});

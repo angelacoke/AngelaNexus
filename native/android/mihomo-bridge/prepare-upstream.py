@@ -36,13 +36,13 @@ SING_TUN_TUN_LINUX_SHA256 = "34d3c504a859006bf2981709d86e104c9a2b7c9542ef5895201
 PATCHED_SERVER_SHA256 = "1a77f3a7416b8074bc5e91c4944079c059fe766991bccfaa921780ad0068b8e1"
 PATCHED_STATISTICS_SHA256 = "316e372b7de3735a9a44c8f2357092ee1023fb21c6bbb899ea6a5228cc1dbb09"
 STATISTICS_PATCH_SHA256 = "293330f8b4ba6ed0fb318ea43f5bb759b0946fa98f44c563131135441d4c124b"
-LATE_CONNECTIONS_PATCH_SHA256 = "18f47f54fc548322643be8dac9deca3fc89c8e1090cf622482c5a872aae51481"
+LATE_CONNECTIONS_PATCH_SHA256 = "65b64ccbd9e1eb8432dff7dd0290a09d38618b9039272cb74a4adcfb4ffa4775"
 PATCHED_LATE_MANAGER_SHA256 = "95821b706b1e43a17fe427592a2d5d41f5093d8a7e8c7fc76e4dd33300e51716"
 PATCHED_NAT_TABLE_SHA256 = "14c048a266086e2dec951d8874e1fa67d31085edf86c4b8aae1625caeef29e90"
 PATCHED_CONNECTION_SHA256 = "7f49df0990618e61ae9c4bd6763a80a7da0627ee1a0ec6fa44c68f7301f1c87a"
 PATCHED_TRACKER_SHA256 = "790b996d9e8144ecc453c6624b11664f2956d068e8ccb284f046be9afc09c99b"
 PATCHED_QUIC_SNIFFER_SHA256 = "51a3e923cf1d58a5fe05c43793bb53f5edfb588e61cafd6d7f82d42e4dd11a9b"
-PATCHED_TUNNEL_SHA256 = "42c64d637703b7ba76ed07b47a3fb3808b02b62e8b60654394b7a2c1a940869a"
+PATCHED_TUNNEL_SHA256 = "9e5a2250094276428374d25501cb78d53a0c60d2a906f63183f02cfdf27a0d75"
 
 
 def sha256(path: Path) -> str:
@@ -266,7 +266,7 @@ def apply_late(root: Path) -> None:
     for rel, digest in inputs.items():
         if sha256(root / rel) != digest:
             fail(f"late patch input {rel} does not match reviewed source")
-    # Parse only the exact five reviewed sections and patch into temporary
+    # Parse only the exact six reviewed sections and patch into temporary
     # outputs. Never let patch mutate the checkout before every digest matches.
     import re
     sections = re.split(r"(?m)(?=^--- )", patch.read_text())

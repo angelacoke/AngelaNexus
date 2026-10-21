@@ -17,6 +17,7 @@ import (
 	N "github.com/metacubex/mihomo/common/net"
 	S "github.com/metacubex/mihomo/component/sniffer"
 	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/constant/sniffer"
 	icontext "github.com/metacubex/mihomo/context"
 	"github.com/metacubex/mihomo/tunnel/statistic"
 )
@@ -1772,4 +1773,244 @@ func TestAngelaNexusLateTunnelSniffCancellationCheckpoint(t *testing.T) {
 			}
 		})
 	}
+}
+
+// r30Conn deliberately records Close separately from the underlying close. In
+// the normal case it closes the net.Pipe and wakes Read; in the ignore-wakeup
+// case it models a reader which must be released by the test itself.
+type r30Conn struct {
+	net.Conn
+	started   chan struct{}
+	closed    chan struct{}
+	once      sync.Once
+	closeOnce sync.Once
+	ignore    bool
+	reentrant bool
+}
+
+func (c *r30Conn) Read(p []byte) (int, error) {
+	c.once.Do(func() { close(c.started) })
+	return c.Conn.Read(p)
+}
+func (c *r30Conn) Close() error {
+	c.closeOnce.Do(func() { close(c.closed) })
+	if c.reentrant {
+		statistic.DefaultManager.StopRegistrations()
+	}
+	if c.ignore {
+		return nil
+	}
+	return c.Conn.Close()
+}
+
+// Ignore deadlines so only Close (not a sniff timeout) can wake the blocked read.
+func (c *r30Conn) SetReadDeadline(time.Time) error { return nil }
+
+// r30Proxy is a real handler dial target: it counts dials and returns a real
+// net.Pipe-backed C.Conn, so the positive test observes actual relay bytes.
+type r30Proxy struct {
+	C.Proxy
+	dials  atomic.Int32
+	remote C.Conn
+	host   chan string
+}
+
+func (*r30Proxy) Name() string                  { return "round30-test-proxy" }
+func (*r30Proxy) Type() C.AdapterType           { return C.Direct }
+func (*r30Proxy) IsL3Protocol(*C.Metadata) bool { return false }
+func (*r30Proxy) SupportUDP() bool              { return false }
+
+type r30Remote struct{ N.ExtendedConn }
+
+func (*r30Remote) NeedHandshake() bool           { return false }
+func (*r30Remote) Chains() C.Chain               { return C.Chain{"round30-remote"} }
+func (*r30Remote) ProviderChains() C.Chain       { return nil }
+func (*r30Remote) AppendToChains(C.ProxyAdapter) {}
+func (*r30Remote) RemoteDestination() string     { return "127.0.0.1:80" }
+
+func (p *r30Proxy) DialContext(_ context.Context, metadata *C.Metadata) (C.Conn, error) {
+	p.dials.Add(1)
+	if p.host != nil {
+		p.host <- metadata.SniffHost
+	}
+	if p.remote == nil {
+		return nil, errors.New("round30: unexpected dial")
+	}
+	return p.remote, nil
+}
+
+func r30Dispatcher(t *testing.T) *S.Dispatcher {
+	t.Helper()
+	d, err := S.NewDispatcher(&S.Config{Enable: true, ParsePureIp: true, Sniffers: map[sniffer.Type]S.SnifferConfig{
+		sniffer.HTTP: {}, sniffer.TLS: {},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+func r30Wait(t *testing.T, ch <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timeout waiting for %s", what)
+	}
+}
+
+// StopRegistrations must close the sniffing reader, not merely cancel a later
+// dial. The real dispatcher has one-second sniff windows; this assertion is
+// deliberately much shorter and therefore proves Close woke Read.
+func TestAngelaNexusLateTunnelTCPSniffStopWakesRealSniff(t *testing.T) {
+	old := snifferDispatcher
+	oldEnabled := sniffingEnable
+	snifferDispatcher, sniffingEnable = r30Dispatcher(t), true
+	t.Cleanup(func() { snifferDispatcher, sniffingEnable = old, oldEnabled })
+	statistic.DefaultManager.StartRegistrations()
+	p := &r30Proxy{}
+	lateGateSetup(t, &lateGateProxy{Proxy: p})
+	in, peer := net.Pipe()
+	t.Cleanup(func() { _ = in.Close(); _ = peer.Close() })
+	c := &r30Conn{Conn: in, started: make(chan struct{}), closed: make(chan struct{}), reentrant: true}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		handleTCPConn(icontext.NewConnContext(N.NewExtendedConn(c), lateGateMetadata(C.TCP, 80)))
+	}()
+	r30Wait(t, c.started, "real dispatcher Read")
+	startedStop := time.Now()
+	statistic.DefaultManager.StopRegistrations()
+	r30Wait(t, c.closed, "sniff connection Close")
+	r30Wait(t, done, "handler exit after cancellation")
+	if elapsed := time.Since(startedStop); elapsed >= 500*time.Millisecond {
+		t.Fatalf("cancellation took %s", elapsed)
+	}
+	if got := p.dials.Load(); got != 0 {
+		t.Fatalf("canceled sniff dialed %d times", got)
+	}
+	_ = peer.Close()
+}
+
+// The pre-canceled generation must not even enter TCPSniff (and consequently
+// must not call Read). This catches registering AfterFunc too late.
+func TestAngelaNexusLateTunnelTCPSniffCanceledBeforeSniff(t *testing.T) {
+	old := snifferDispatcher
+	oldEnabled := sniffingEnable
+	snifferDispatcher, sniffingEnable = r30Dispatcher(t), true
+	t.Cleanup(func() { snifferDispatcher, sniffingEnable = old, oldEnabled })
+	statistic.DefaultManager.StartRegistrations()
+	p := &r30Proxy{}
+	lateGateSetup(t, &lateGateProxy{Proxy: p})
+	statistic.DefaultManager.StopRegistrations()
+	in, peer := net.Pipe()
+	t.Cleanup(func() { _ = in.Close(); _ = peer.Close() })
+	c := &r30Conn{Conn: in, started: make(chan struct{}), closed: make(chan struct{})}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		handleTCPConn(icontext.NewConnContext(N.NewExtendedConn(c), lateGateMetadata(C.TCP, 80)))
+	}()
+	r30Wait(t, done, "pre-canceled handler exit")
+	select {
+	case <-c.started:
+		t.Fatal("pre-canceled handler entered sniff Read")
+	default:
+	}
+	if p.dials.Load() != 0 {
+		t.Fatal("pre-canceled handler dialed")
+	}
+	_ = peer.Close()
+}
+
+// If a reader returns a complete HTTP request after cancellation despite Close,
+// the post-TCPSniff ctx check must reject it before proxy dialing. This is the
+// intentionally non-waking mode; the test releases Read manually.
+type r30ResolutionRule struct {
+	C.Rule
+	calls atomic.Int32
+}
+
+func (r *r30ResolutionRule) Match(*C.Metadata, C.RuleMatchHelper) (bool, string) {
+	r.calls.Add(1)
+	return false, ""
+}
+
+func TestAngelaNexusLateTunnelTCPSniffCanceledSniffResultDoesNotDial(t *testing.T) {
+	old := snifferDispatcher
+	oldEnabled := sniffingEnable
+	snifferDispatcher, sniffingEnable = r30Dispatcher(t), true
+	t.Cleanup(func() { snifferDispatcher, sniffingEnable = old, oldEnabled })
+	statistic.DefaultManager.StartRegistrations()
+	in, peer := net.Pipe()
+	t.Cleanup(func() { _ = in.Close(); _ = peer.Close() })
+	c := &r30Conn{Conn: in, started: make(chan struct{}), closed: make(chan struct{}), ignore: true}
+	p := &r30Proxy{}
+	lateGateSetup(t, &lateGateProxy{Proxy: p})
+	oldRules, oldSubRules, oldRuleProviders := rules, subRules, ruleProviders
+	rule := &r30ResolutionRule{}
+	UpdateRules([]C.Rule{rule}, nil, nil)
+	SetMode(Rule)
+	t.Cleanup(func() { UpdateRules(oldRules, oldSubRules, oldRuleProviders) })
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		handleTCPConn(icontext.NewConnContext(N.NewExtendedConn(c), lateGateMetadata(C.TCP, 80)))
+	}()
+	r30Wait(t, c.started, "non-waking sniff Read")
+	statistic.DefaultManager.StopRegistrations()
+	r30Wait(t, c.closed, "non-waking Close callback")
+	go func() { _, _ = peer.Write([]byte("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")) }()
+	r30Wait(t, done, "post-sniff cancellation exit")
+	if p.dials.Load() != 0 {
+		t.Fatalf("canceled sniff result dialed %d times", p.dials.Load())
+	}
+	if rule.calls.Load() != 0 {
+		t.Fatalf("canceled sniff continued metadata resolution: %d", rule.calls.Load())
+	}
+	_ = peer.Close()
+	_ = in.Close()
+}
+
+// A normal HTTP request must be sniffed by the real HTTP/TLS dispatcher, then
+// dialed and relayed. TLS is configured in the same dispatcher to ensure the
+// production protocol set remains present without using a stub sniffer.
+func TestAngelaNexusLateTunnelTCPSniffHTTPSniffAndRelay(t *testing.T) {
+	old := snifferDispatcher
+	oldEnabled := sniffingEnable
+	snifferDispatcher, sniffingEnable = r30Dispatcher(t), true
+	t.Cleanup(func() { snifferDispatcher, sniffingEnable = old, oldEnabled })
+	statistic.DefaultManager.StartRegistrations()
+	in, peer := net.Pipe()
+	t.Cleanup(func() { _ = in.Close(); _ = peer.Close() })
+	remote, remotePeer := net.Pipe()
+	t.Cleanup(func() { _ = remote.Close(); _ = remotePeer.Close() })
+	c := &r30Conn{Conn: in, started: make(chan struct{}), closed: make(chan struct{})}
+	p := &r30Proxy{remote: &r30Remote{ExtendedConn: N.NewExtendedConn(remote)}, host: make(chan string, 1)}
+	lateGateSetup(t, &lateGateProxy{Proxy: p})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		handleTCPConn(icontext.NewConnContext(N.NewExtendedConn(c), lateGateMetadata(C.TCP, 80)))
+	}()
+	request := []byte("GET /round30 HTTP/1.1\r\nHost: example.com\r\n\r\n")
+	go func() { _, _ = peer.Write(request) }()
+	got := make([]byte, len(request))
+	_ = remotePeer.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := io.ReadFull(remotePeer, got); err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(request) {
+		t.Fatalf("relayed request %q", got)
+	}
+	if p.dials.Load() != 1 {
+		t.Fatalf("dials=%d, want 1", p.dials.Load())
+	}
+	if host := <-p.host; host != "example.com" {
+		t.Fatalf("real sniff domain=%q", host)
+	}
+	_ = peer.Close()
+	_ = remotePeer.Close()
+	_ = remote.Close()
+	r30Wait(t, done, "normal handler exit")
 }
