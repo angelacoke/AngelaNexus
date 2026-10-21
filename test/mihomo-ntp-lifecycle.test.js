@@ -46,3 +46,18 @@ test("NTP service provenance is wired at both required levels", () => {
   assert.match(run, /ntpService.*ntp\/ntp\/service\.go/);
   assert.match(run, /patchedSources.*ntpService/s);
 });
+
+test("NTP interruption regressions include real read, late dial, replacement and failed-close retry", () => {
+  const source = read("native/android/mihomo-bridge/ntp_lifecycle_integration_test.go");
+  for (const name of [
+    "StopClosesAdmittedLoopbackUDPRead",
+    "LateDialReturnedConnIsClosedWithoutWrite",
+    "LateValidResponseCloseDoesNotInterruptRead",
+    "ReloadKeepsReplacementAliveWhileOldCloseBlocks",
+    "FailedRawCloseRequiresExplicitRetry",
+  ]) {
+    assert.match(source, new RegExp(`func TestAngelaNexusNTP${name}\\(`));
+  }
+  assert.match(source, /func \(c \*angelaReadEnteredConn\) Read\(/);
+  assert.match(source, /UDP client did not enter the response read/);
+});

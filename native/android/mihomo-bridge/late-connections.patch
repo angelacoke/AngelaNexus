@@ -2724,24 +2724,186 @@
 +	_, err := conn.WriteTo(discovery.ToBytes(), &net.UDPAddr{IP: net.IPv4bcast, Port: 67})
 --- ntp/ntp/service.go
 +++ ntp/ntp/service.go
-@@ -4,0 +5 @@
+@@ -4,0 +5,2 @@
 +	"errors"
-@@ -19,0 +21,3 @@
++	"net"
+@@ -19,0 +22,3 @@
 +
 +// Reload and disable cancel old services but do not lose their join ownership.
 +var retiredServices = make(map[*Service]struct{})
-@@ -27,0 +32,4 @@
+@@ -27,0 +33,165 @@
 +	lifecycleMu    sync.Mutex
 +	started        bool
 +	stopped        bool
 +	done           chan struct{}
-@@ -33,0 +42 @@
++	resources      map[*exchangeDialer]struct{}
++}
++
++// Each Exchange owns one exact connection. No watcher reads globalSrv or a
++// mutable service socket; a retired exchange cannot close its replacement.
++type exchangeDialer struct {
++	base      proxydialer.SingDialer
++	ctx       context.Context
++	mu        sync.Mutex
++	conn      net.Conn
++	dialed    bool
++	stopWatch func() bool
++	watchDone chan struct{}
++	inflight  chan struct{}
++	attempted bool
++	released  bool
++	err       error
++	reported  bool
++}
++type exchangeConn struct {
++	net.Conn
++	owner *exchangeDialer
++}
++
++func (c *exchangeConn) Close() error { return c.owner.Close() }
++func newExchangeDialer(base proxydialer.SingDialer, ctx context.Context) *exchangeDialer {
++	return &exchangeDialer{base: base, ctx: ctx}
++}
++func (d *exchangeDialer) ListenPacket(ctx context.Context, dst M.Socksaddr) (net.PacketConn, error) {
++	return d.base.ListenPacket(ctx, dst)
++}
++func (d *exchangeDialer) DialContext(ctx context.Context, network string, dst M.Socksaddr) (net.Conn, error) {
++	d.mu.Lock()
++	if d.dialed {
++		d.mu.Unlock()
++		return nil, errors.New("NTP exchange dial already used")
++	}
++	d.dialed = true
++	d.mu.Unlock()
++	conn, err := d.base.DialContext(ctx, network, dst)
++	// Even a non-nil connection returned with an error remains owned.
++	if conn == nil {
++		if err == nil {
++			err = errors.New("NTP dial returned no connection")
++		}
++		return nil, err
++	}
++	d.mu.Lock()
++	d.conn = conn
++	d.watchDone = make(chan struct{})
++	watchDone := d.watchDone
++	d.stopWatch = context.AfterFunc(d.ctx, func() {
++		d.beginClose(false)
++		close(watchDone)
++	})
++	d.mu.Unlock()
++	if err != nil || d.ctx.Err() != nil {
++		closeErr := d.Close()
++		return nil, errors.Join(err, d.ctx.Err(), closeErr)
++	}
++	return &exchangeConn{Conn: conn, owner: d}, nil
++}
++
++// Only closed-only errors establish release; a joined real failure is debt.
++func ntpClosedOnly(err error) bool {
++	if err == net.ErrClosed {
++		return true
++	}
++	if joined, ok := err.(interface{ Unwrap() []error }); ok {
++		causes := joined.Unwrap()
++		if len(causes) == 0 {
++			return false
++		}
++		for _, cause := range causes {
++			if !ntpClosedOnly(cause) {
++				return false
++			}
++		}
++		return true
++	}
++	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
++		return ntpClosedOnly(wrapped.Unwrap())
++	}
++	return false
++}
++
++// beginClose never executes arbitrary transport code on Stop's caller. Every
++// waiter shares the same attempt; only an explicit debt retry can start another.
++func (d *exchangeDialer) beginClose(retry bool) <-chan struct{} {
++	d.mu.Lock()
++	defer d.mu.Unlock()
++	if d.inflight != nil {
++		return d.inflight
++	}
++	if d.conn == nil || d.released || (d.attempted && !retry) {
++		return nil
++	}
++	done := make(chan struct{})
++	d.inflight = done
++	d.attempted = true
++	raw := d.conn
++	go func() {
++		err := raw.Close()
++		if ntpClosedOnly(err) {
++			err = nil
++		}
++		d.mu.Lock()
++		d.err = err
++		d.released = err == nil
++		d.inflight = nil
++		close(done)
++		d.mu.Unlock()
++	}()
++	return done
++}
++func (d *exchangeDialer) Close() error {
++	d.mu.Lock()
++	stop, watchDone := d.stopWatch, d.watchDone
++	d.mu.Unlock()
++	if stop != nil {
++		if stop() {
++			close(watchDone)
++		}
++		<-watchDone
++	}
++	if done := d.beginClose(false); done != nil {
++		<-done
++	}
++	d.mu.Lock()
++	defer d.mu.Unlock()
++	return d.err
++}
++
++// Called only after the Exchange worker has left. A first failed attempt is
++// reported, not silently retried into success. Subsequent explicit waits retry
++// only this captured resource, retaining any blocked attempt past the deadline.
++func (d *exchangeDialer) drain(ctx context.Context) error {
++	d.mu.Lock()
++	if d.conn == nil || d.released {
++		d.mu.Unlock()
++		return nil
++	}
++	if !d.reported && d.err != nil {
++		d.reported = true
++		err := d.err
++		d.mu.Unlock()
++		return err
++	}
++	d.reported = true
++	d.mu.Unlock()
++	if done := d.beginClose(true); done != nil {
++		select {
++		case <-done:
++		case <-ctx.Done():
++			return ctx.Err()
++		}
++	}
++	d.mu.Lock()
++	defer d.mu.Unlock()
++	d.reported = true
++	return d.err
+@@ -33,0 +204 @@
 +		retiredServices[globalSrv] = struct{}{}
-@@ -34,0 +44 @@
+@@ -34,0 +206 @@
 +		globalSrv = nil
-@@ -36,0 +47 @@
+@@ -36,0 +209 @@
 +		mihomoNtp.SetOffset(0)
-@@ -45,6 +56,4 @@
+@@ -45,6 +218,4 @@
 -		server:         M.ParseSocksaddr(server),
 -		dialer:         proxydialer.NewSingDialer(cDialer),
 -		ticker:         time.NewTicker(interval * time.Minute),
@@ -2752,14 +2914,15 @@
 +		dialer: proxydialer.NewSingDialer(cDialer),
 +		ticker: time.NewTicker(interval * time.Minute),
 +		ctx:    ctx, cancel: cancel, syncSystemTime: syncSystemTime,
-@@ -54,0 +64,34 @@
+@@ -54,0 +226,35 @@
 +// Cancel every service before joining any. An exchange or dependency which
 +// ignores cancellation remains owned after timeout, including across reloads.
 +// Callers serialize configuration replacement with this operation; Android
 +// holds androidTunMu across cancellation, joining and debt publication. This
 +// snapshot does not cancel a later generation installed by an independent caller.
 +// Successful drain includes Exchange's deferred connection Close and ticker
-+// cleanup. This does not promise eager interruption of an established UDP read.
++// cleanup. A failed raw Close remains a resource debt and is not reported as a
++// successful drain.
 +func StopNTPService(ctx context.Context) error {
 +	globalMu.Lock()
 +	if globalSrv != nil {
@@ -2787,7 +2950,7 @@
 +	return errors.Join(failures...)
 +}
 +
-@@ -55,0 +99,7 @@
+@@ -55,0 +262,7 @@
 +	srv.lifecycleMu.Lock()
 +	defer srv.lifecycleMu.Unlock()
 +	if srv.started || srv.stopped {
@@ -2795,10 +2958,10 @@
 +	}
 +	srv.started = true
 +	srv.done = make(chan struct{})
-@@ -57 +107 @@
+@@ -57 +270 @@
 -	go srv.loopUpdate()
 +	go func() { defer close(srv.done); srv.loopUpdate() }()
-@@ -61,2 +111,31 @@
+@@ -61,2 +274,45 @@
 -	log.Infoln("NTP service stop")
 -	srv.cancel()
 +	srv.lifecycleMu.Lock()
@@ -2818,33 +2981,63 @@
 +	srv.lifecycleMu.Lock()
 +	done := srv.done
 +	srv.lifecycleMu.Unlock()
-+	if done == nil {
-+		return nil
++	if done != nil {
++		select {
++		case <-done:
++		default:
++			select {
++			case <-done:
++			case <-ctx.Done():
++				return ctx.Err()
++			}
++		}
 +	}
-+	select {
-+	case <-done:
-+		return nil
-+	default:
++	srv.lifecycleMu.Lock()
++	resources := make([]*exchangeDialer, 0, len(srv.resources))
++	for r := range srv.resources {
++		resources = append(resources, r)
 +	}
-+	select {
-+	case <-done:
-+		return nil
-+	case <-ctx.Done():
-+		return ctx.Err()
++	srv.lifecycleMu.Unlock()
++	var failures []error
++	for _, r := range resources {
++		if err := r.drain(ctx); err != nil {
++			failures = append(failures, err)
++			continue
++		}
++		srv.lifecycleMu.Lock()
++		delete(srv.resources, r)
++		srv.lifecycleMu.Unlock()
 +	}
-@@ -68,0 +148,3 @@
++	return errors.Join(failures...)
+@@ -69 +325,18 @@
+-		response, err = ntp.Exchange(srv.ctx, srv.dialer, srv.server)
 +		if srv.ctx.Err() != nil {
 +			return nil
 +		}
-@@ -74,0 +157,5 @@
++		ed := newExchangeDialer(srv.dialer, srv.ctx)
++		srv.lifecycleMu.Lock()
++		if srv.resources == nil {
++			srv.resources = make(map[*exchangeDialer]struct{})
++		}
++		srv.resources[ed] = struct{}{}
++		srv.lifecycleMu.Unlock()
++		response, err = ntp.Exchange(srv.ctx, ed, srv.server)
++		closeErr := ed.Close()
++		if closeErr != nil {
++			return closeErr
++		}
++		srv.lifecycleMu.Lock()
++		delete(srv.resources, ed)
++		srv.lifecycleMu.Unlock()
+@@ -74,0 +348,5 @@
 +		}
 +		srv.lifecycleMu.Lock()
 +		if srv.stopped || srv.ctx.Err() != nil {
 +			srv.lifecycleMu.Unlock()
 +			return nil
-@@ -92,0 +180 @@
+@@ -92,0 +371 @@
 +		srv.lifecycleMu.Unlock()
-@@ -99 +187,9 @@
+@@ -99 +378,9 @@
 -	defer mihomoNtp.SetOffset(0)
 +	// Only the current generation may reset the process offset. A retired
 +	// worker finishing after reload must not erase its replacement's offset.
