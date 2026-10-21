@@ -16,6 +16,9 @@ test("CI stages and runs manager and actual tunnel regressions, rejecting empty 
   assert.equal(host.if, "matrix.abi == 'x86_64'");
   assert.match(host.run, /dns_reset_integration_test\.go.*dns\/angelanexus_dns_reset_integration_test\.go/);
   assert.match(host.run, /dns_server_lifecycle_integration_test\.go.*dns\/angelanexus_dns_server_lifecycle_integration_test\.go/);
+  assert.match(host.run, /dns_doh_lifecycle_integration_test\.go.*dns\/angelanexus_dns_doh_lifecycle_integration_test\.go/);
+  assert.ok(host.run.includes("grep '^TestAngelaNexusDoH'"));
+  assert.match(host.run, /-race -run '\^TestAngelaNexusDoH' -count=20 -timeout=120s \.\/dns/);
   assert.ok(host.run.includes("grep '^TestAngelaNexusDNSServer'"));
   assert.match(host.run, /-race -run '\^TestAngelaNexusDNSServer' -count=20 -timeout=120s \.\/dns/);
   assert.match(host.run, /bridge_dns_integration_test\.go.*angelanexus_android\/bridge_dns_integration_test\.go/);
@@ -69,6 +72,7 @@ test("the source adapter alone applies the reviewed late patch before bridge sta
   assert.match(provenance.run, /"providerHealthCheck": \{"path": "adapter\/provider\/healthcheck\.go", "sha256": "\$PATCHED_PROVIDER_HEALTHCHECK_SHA256"\}/);
   assert.match(provenance.run, /"proxyProvider": \{"path": "adapter\/provider\/provider\.go", "sha256": "\$PATCHED_PROXY_PROVIDER_SHA256"\}/);
   assert.match(provenance.run, /"dnsServer": \{"path": "dns\/server\.go", "sha256": "\$PATCHED_DNS_SERVER_SHA256"\}/);
+  assert.match(provenance.run, /"dnsDoH": \{"path": "dns\/doh\.go", "sha256": "\$PATCHED_DNS_DOH_SHA256"\}/);
   assert.match(provenance.run, /"tracker": \{"path": "tunnel\/statistic\/tracker\.go"/);
   assert.match(provenance.run, /"tunnel": \{"path": "tunnel\/tunnel\.go"/);
 });
@@ -113,6 +117,7 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
         tproxyPacket: "listener/tproxy/packet.go",
         dnsResolver: "dns/resolver.go",
         dnsServer: "dns/server.go",
+        dnsDoH: "dns/doh.go",
         providerFetcher: "component/resource/fetcher.go",
         providerHealthCheck: "adapter/provider/healthcheck.go",
         proxyProvider: "adapter/provider/provider.go",
@@ -130,6 +135,7 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
       assert.equal(evidence.dnsResolver.path, "dns/resolver.go");
       assert.equal(evidence.dnsResolver.sha256, hash(join(root, "mihomo/dns/resolver.go")));
       assert.deepEqual(evidence.dnsServer, { path: sources.dnsServer, sha256: hash(join(root, "mihomo", sources.dnsServer)) });
+      assert.deepEqual(evidence.dnsDoH, { path: sources.dnsDoH, sha256: hash(join(root, "mihomo", sources.dnsDoH)) });
       assert.equal(evidence.providerFetcher.path, "component/resource/fetcher.go");
       assert.equal(evidence.providerFetcher.sha256, hash(join(root, "mihomo/component/resource/fetcher.go")));
       for (const name of ["providerHealthCheck", "proxyProvider"]) {

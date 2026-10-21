@@ -104,6 +104,7 @@ jobs:
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/nat_local_integration_test.go" ./component/nat/angelanexus_nat_local_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/dns_reset_integration_test.go" ./dns/angelanexus_dns_reset_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/dns_server_lifecycle_integration_test.go" ./dns/angelanexus_dns_server_lifecycle_integration_test.go
+          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/dns_doh_lifecycle_integration_test.go" ./dns/angelanexus_dns_doh_lifecycle_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/provider_lifecycle_integration_test.go" ./component/resource/angelanexus_provider_lifecycle_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/healthcheck_lifecycle_integration_test.go" ./adapter/provider/angelanexus_healthcheck_lifecycle_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/log_level_integration_test.go" ./log/angelanexus_log_level_integration_test.go
@@ -114,6 +115,8 @@ jobs:
           go test -race -run '^TestAngelaNexusDNSReset' -count=20 -timeout=120s ./dns
           go test -list '^TestAngelaNexusDNSServer' ./dns | grep '^TestAngelaNexusDNSServer'
           go test -race -run '^TestAngelaNexusDNSServer' -count=20 -timeout=120s ./dns
+          go test -list '^TestAngelaNexusDoH' ./dns | grep '^TestAngelaNexusDoH'
+          go test -race -run '^TestAngelaNexusDoH' -count=20 -timeout=120s ./dns
           go test -tags=with_gvisor,cmfa -list '^TestAndroidBridgeDNS' ./angelanexus_android | grep '^TestAndroidBridgeDNS'
           go test -race -tags=with_gvisor,cmfa -run '^TestAndroidBridgeDNS' -count=20 -timeout=120s ./angelanexus_android
           go test -list '^TestAngelaNexusProviderLifecycle' ./component/resource | grep '^TestAngelaNexusProviderLifecycle'
@@ -200,6 +203,7 @@ jobs:
           PATCHED_CONNECTION_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/tunnel/connection.go" | awk '{print $1}')"
           PATCHED_DNS_RESOLVER_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/dns/resolver.go" | awk '{print $1}')"
           PATCHED_DNS_SERVER_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/dns/server.go" | awk '{print $1}')"
+          PATCHED_DNS_DOH_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/dns/doh.go" | awk '{print $1}')"
           PATCHED_PROVIDER_FETCHER_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/component/resource/fetcher.go" | awk '{print $1}')"
           PATCHED_PROVIDER_HEALTHCHECK_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/adapter/provider/healthcheck.go" | awk '{print $1}')"
           PATCHED_PROXY_PROVIDER_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/adapter/provider/provider.go" | awk '{print $1}')"
@@ -230,6 +234,7 @@ jobs:
               "ownershipAdapter": {"path": "native/android/mihomo-bridge/prepare-upstream.py", "sha256": "$ADAPTER_SHA256", "patchedSource": {"path": "listener/sing_tun/server.go", "sha256": "$PATCHED_SERVER_SHA256"}},
               "dnsResolver": {"path": "dns/resolver.go", "sha256": "$PATCHED_DNS_RESOLVER_SHA256"},
               "dnsServer": {"path": "dns/server.go", "sha256": "$PATCHED_DNS_SERVER_SHA256"},
+              "dnsDoH": {"path": "dns/doh.go", "sha256": "$PATCHED_DNS_DOH_SHA256"},
               "providerFetcher": {"path": "component/resource/fetcher.go", "sha256": "$PATCHED_PROVIDER_FETCHER_SHA256"},
               "providerHealthCheck": {"path": "adapter/provider/healthcheck.go", "sha256": "$PATCHED_PROVIDER_HEALTHCHECK_SHA256"},
               "proxyProvider": {"path": "adapter/provider/provider.go", "sha256": "$PATCHED_PROXY_PROVIDER_SHA256"},

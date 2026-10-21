@@ -1652,6 +1652,133 @@
 +	// retryable even after this watcher exits; blocked close stays in-flight.
 +	_ = t.resource.close(context.Background())
 +}
+--- dns/doh.go
++++ dns/doh.go
+@@ -39,3 +39,3 @@
+-	dialTimeout        = 10 * time.Second
+-
+-	maxElapsedTime  = time.Second * 30
++	dialTimeout = 10 * time.Second
++
++	maxElapsedTime = time.Second * 30
+@@ -53,0 +54,5 @@
++
++	// clientMu owns both the published client and every failed retirement.
++	// Reset is reusable; Close is terminal. Neither operation joins requests.
++	closed  bool
++	retired map[*http.Client]struct{}
+@@ -160,2 +165,4 @@
+-// Close implements the Upstream interface for *dnsOverHTTPS.
+-func (doh *dnsOverHTTPS) Close() (err error) {
++// Close seals client publication and retries every owned transport. A failed
++// close remains owned, even when it also reports net.ErrClosed. Callers must
++// retry Close; this does not cancel/join in-flight requests or resolver workers.
++func (doh *dnsOverHTTPS) Close() error {
+@@ -164,8 +171,6 @@
+-
+-	runtime.SetFinalizer(doh, nil)
+-
+-	if doh.client == nil {
+-		return nil
+-	}
+-
+-	return doh.closeClient(doh.client)
++	doh.closed = true
++	err := doh.retireClientLocked()
++	if err == nil {
++		runtime.SetFinalizer(doh, nil)
++	}
++	return err
+@@ -177,7 +182,54 @@
+-
+-	if doh.client == nil {
+-		return
+-	}
+-
+-	_ = doh.closeClient(doh.client)
+-	doh.client = nil
++	// The interface cannot return errors. Retain failed owners and let the
++	// next reset, acquisition or explicit Close retry them before publication.
++	if err := doh.retireClientLocked(); err != nil {
++		log.Warnln("failed to retire DoH transport (retained for retry): %v", err)
++	}
++}
++
++// Caller holds clientMu. Detach before invoking callbacks, but do not relinquish
++// ownership until Close succeeded. Each distinct client is attempted once/pass.
++func (doh *dnsOverHTTPS) retireClientLocked() error {
++	if doh.client != nil {
++		if doh.retired == nil {
++			doh.retired = make(map[*http.Client]struct{})
++		}
++		doh.retired[doh.client] = struct{}{}
++		doh.client = nil
++	}
++	return doh.closeRetiredLocked()
++}
++
++func (doh *dnsOverHTTPS) closeRetiredLocked() error {
++	var errs []error
++	for client := range doh.retired {
++		if err := doh.closeClient(client); !dohClosedOnly(err) {
++			errs = append(errs, err)
++			continue
++		}
++		delete(doh.retired, client)
++	}
++	return errors.Join(errs...)
++}
++
++// errors.Is alone would erase errors.Join(net.ErrClosed, realCloseFailure).
++func dohClosedOnly(err error) bool {
++	if err == nil || err == net.ErrClosed {
++		return true
++	}
++	if joined, ok := err.(interface{ Unwrap() []error }); ok {
++		children := joined.Unwrap()
++		if len(children) == 0 {
++			return false
++		}
++		for _, child := range children {
++			if !dohClosedOnly(child) {
++				return false
++			}
++		}
++		return true
++	}
++	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
++		child := wrapped.Unwrap()
++		return child != nil && dohClosedOnly(child)
++	}
++	return false
+@@ -194,2 +246,2 @@
+-	if isHTTP3(client) { // HTTP/3 may leak due to keep-alive connections.
+-		return client.Transport.(io.Closer).Close()
++	if closer, ok := client.Transport.(io.Closer); ok { // HTTP/3 owns live connections too.
++		return closer.Close()
+@@ -295,0 +348,6 @@
++	if doh.closed {
++		return nil, net.ErrClosed
++	}
++	if err := doh.retireClientLocked(); err != nil {
++		return nil, fmt.Errorf("retiring old DoH client: %w", err)
++	}
+@@ -299,8 +356,0 @@
+-	}
+-
+-	oldClient := doh.client
+-	if oldClient != nil {
+-		closeErr := doh.closeClient(oldClient)
+-		if closeErr != nil {
+-			log.Warnln("warning: failed to close the old http client: %v", closeErr)
+-		}
+@@ -340,0 +391,6 @@
++	if doh.closed {
++		return nil, false, net.ErrClosed
++	}
++	if err := doh.closeRetiredLocked(); err != nil {
++		return nil, false, fmt.Errorf("retiring old DoH client: %w", err)
++	}
 --- component/resource/fetcher.go
 +++ component/resource/fetcher.go
 @@ -4,0 +5 @@
