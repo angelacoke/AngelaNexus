@@ -39,6 +39,7 @@ function verifierFixture() {
   const patchedTunnelHash = digest(patchedTunnel);
   const patchedNatTableHash = digest("fixture NAT table");
   const patchedConnectionHash = digest("fixture UDP connection");
+  const patchedQuicSnifferHash = digest("fixture QUIC sniffer");
   const statisticsPatch = "fixture statistics patch\n";
   const lateConnectionsPatch = "fixture late connections patch\n";
   mkdirSync(join(repo, "tunnel/statistic"), { recursive: true });
@@ -47,7 +48,7 @@ function verifierFixture() {
   writeFileSync(join(repo, "tunnel/tunnel.go"), patchedTunnel);
   writeFileSync(join(sourceDir, "statistics.patch"), statisticsPatch);
   writeFileSync(join(sourceDir, "late-connections.patch"), lateConnectionsPatch);
-  writeFileSync(join(sourceDir, "prepare-upstream.py"), `PATCHED_SERVER_SHA256 = "${patchedSourceHash}"\nPATCHED_STATISTICS_SHA256 = "${patchedStatisticsHash}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${patchedStatisticsHash}"\nPATCHED_TRACKER_SHA256 = "${patchedTrackerHash}"\nPATCHED_TUNNEL_SHA256 = "${patchedTunnelHash}"\nPATCHED_NAT_TABLE_SHA256 = "${patchedNatTableHash}"\nPATCHED_CONNECTION_SHA256 = "${patchedConnectionHash}"\n`);
+  writeFileSync(join(sourceDir, "prepare-upstream.py"), `PATCHED_SERVER_SHA256 = "${patchedSourceHash}"\nPATCHED_STATISTICS_SHA256 = "${patchedStatisticsHash}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${patchedStatisticsHash}"\nPATCHED_TRACKER_SHA256 = "${patchedTrackerHash}"\nPATCHED_TUNNEL_SHA256 = "${patchedTunnelHash}"\nPATCHED_NAT_TABLE_SHA256 = "${patchedNatTableHash}"\nPATCHED_CONNECTION_SHA256 = "${patchedConnectionHash}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${patchedQuicSnifferHash}"\n`);
   const abis = ["arm64-v8a", "armeabi-v7a", "x86_64"];
   const commit = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36";
   const specs = abis.map(abi => `MihomoNativeLibrarySpec(abi = "${abi}", sha256 = "${"a".repeat(64)}")`).join(",\n");
@@ -80,6 +81,7 @@ function verifierFixture() {
           tunnel: { path: "tunnel/tunnel.go", sha256: patchedTunnelHash },
           natTable: { path: "component/nat/table.go", sha256: patchedNatTableHash },
           connection: { path: "tunnel/connection.go", sha256: patchedConnectionHash },
+          quicSniffer: { path: "component/sniffer/quic_sniffer.go", sha256: patchedQuicSnifferHash },
         },
       },
     };

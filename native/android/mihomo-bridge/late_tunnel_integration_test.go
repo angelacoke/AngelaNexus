@@ -15,6 +15,7 @@ import (
 	"time"
 
 	N "github.com/metacubex/mihomo/common/net"
+	S "github.com/metacubex/mihomo/component/sniffer"
 	C "github.com/metacubex/mihomo/constant"
 	icontext "github.com/metacubex/mihomo/context"
 	"github.com/metacubex/mihomo/tunnel/statistic"
@@ -1642,5 +1643,133 @@ func TestAngelaNexusLateTunnelSenderHandlerParentCancellation(t *testing.T) {
 	s.Send(late)
 	if late.drops.Load() != 1 {
 		t.Fatal("actual stopped handler sender admitted a late packet")
+	}
+}
+
+// Signal only the call boundary; the wrapped sender is the actual upstream QUIC
+// wrapper, not a fake timeout or a replacement sniff implementation.
+type lateSniffSignal struct {
+	C.PacketSender
+	entered chan struct{}
+	calls   atomic.Int32
+	onSniff func() error
+}
+
+func (s *lateSniffSignal) DoSniff(m *C.Metadata) error {
+	s.calls.Add(1)
+	if s.entered != nil {
+		close(s.entered)
+	}
+	if s.onSniff != nil {
+		return s.onSniff()
+	}
+	return s.PacketSender.DoSniff(m)
+}
+func TestAngelaNexusLateTunnelQUICSniffCancellation(t *testing.T) {
+	for _, mode := range []string{"empty-wait", "queued-reentrant-drop"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			base := newPacketSenderWithContext(ctx).(*packetSender)
+			quic, err := S.NewQUICSniffer(S.SnifferConfig{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			wrapped := quic.WrapperSender(base, func(*C.Metadata, string) { t.Error("incomplete QUIC replaced domain") })
+			defer wrapped.Close()
+			signal := &lateSniffSignal{PacketSender: wrapped, entered: make(chan struct{})}
+			nested := &lateQueuePacket{}
+			dropDone := make(chan struct{})
+			queued := &lateQueuePacket{onDrop: func() { wrapped.Close(); base.Send(nested); close(dropDone) }}
+			if mode == "queued-reentrant-drop" {
+				base.Send(queued)
+			}
+			result := make(chan error, 1)
+			go func() { result <- sniffUDPWithContext(ctx, signal, lateGateMetadata(C.UDP, 443)) }()
+			lateGateWait(t, signal.entered, "real QUIC DoSniff entry")
+			cancel()
+			select {
+			case err := <-result:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("sniff cancellation returned %v", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("canceled QUIC sniff still waits for its three-second timeout")
+			}
+			// Reentry may close q.done before the outer Drop callback returns.
+			// Sniff cancellation is deliberately not a join of that callback.
+			if mode == "queued-reentrant-drop" {
+				lateGateWait(t, dropDone, "reentrant sniff queue Drop completion")
+				if queued.drops.Load() != 1 || nested.drops.Load() != 1 {
+					t.Fatalf("canceled sniff ownership: queued=%d nested=%d", queued.drops.Load(), nested.drops.Load())
+				}
+			}
+			if len(base.ch) != 0 {
+				t.Fatalf("canceled sniff retained %d packets", len(base.ch))
+			}
+			late := &lateQueuePacket{}
+			wrapped.Send(late)
+			if late.drops.Load() != 1 {
+				t.Fatalf("late wrapped Send Drop calls=%d", late.drops.Load())
+			}
+		})
+	}
+}
+func TestAngelaNexusLateTunnelQUICSniffFreshForwarding(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	base := newPacketSenderWithContext(ctx).(*packetSender)
+	quic, err := S.NewQUICSniffer(S.SnifferConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrapped := quic.WrapperSender(base, func(*C.Metadata, string) { t.Error("invalid QUIC replaced domain") })
+	defer wrapped.Close()
+	packet := &lateProcessPacket{metadata: lateGateMetadata(C.UDP, 443)}
+	// A non-QUIC packet completes sniffing without a domain and still forwards.
+	wrapped.Send(packet)
+	if err := sniffUDPWithContext(ctx, wrapped, packet.metadata.Clone()); err != nil {
+		t.Fatal(err)
+	}
+	conn := &lateProcessConn{onWrite: cancel}
+	done := make(chan struct{})
+	go func() { defer close(done); wrapped.Process(conn, nil) }()
+	lateGateWait(t, done, "fresh wrapped sender Process exit")
+	if conn.writes.Load() != 1 || packet.drops.Load() != 1 {
+		t.Fatalf("fresh sniff blocked forwarding: writes=%d drops=%d", conn.writes.Load(), packet.drops.Load())
+	}
+}
+func TestAngelaNexusLateTunnelSniffCancellationCheckpoint(t *testing.T) {
+	for _, mode := range []string{"pre-canceled", "sniff-cancels-success", "sniff-cancels-error", "fresh-error"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			base := newPacketSenderWithContext(ctx)
+			defer base.Close()
+			sniffErr := errors.New("sniff failure control")
+			signal := &lateSniffSignal{PacketSender: base, onSniff: func() error {
+				if mode != "fresh-error" {
+					cancel()
+				}
+				if mode == "sniff-cancels-error" || mode == "fresh-error" {
+					return sniffErr
+				}
+				return nil
+			}}
+			if mode == "pre-canceled" {
+				cancel()
+			}
+			err := sniffUDPWithContext(ctx, signal, lateGateMetadata(C.UDP, 443))
+			want := error(context.Canceled)
+			if mode == "fresh-error" {
+				want = sniffErr
+			}
+			if !errors.Is(err, want) {
+				t.Fatalf("sniff checkpoint returned %v, want %v", err, want)
+			}
+			if mode == "pre-canceled" && signal.calls.Load() != 0 {
+				t.Fatal("pre-canceled setup entered sniff")
+			}
+		})
 	}
 }

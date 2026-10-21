@@ -14,6 +14,10 @@ const bridge = read("native/android/mihomo-bridge/bridge.go");
 test("CI stages and runs manager and actual tunnel regressions, rejecting empty selections", () => {
   const host = steps.find(step => step.name === "Test bridge state against pinned Mihomo on host (not Android TUN)");
   assert.equal(host.if, "matrix.abi == 'x86_64'");
+  assert.match(host.run, /quic_sender_integration_test\.go.*component\/sniffer\/angelanexus_quic_sender_integration_test\.go/);
+  assert.ok(host.run.includes("-list '^TestAngelaNexusQUICSender'"));
+  assert.ok(host.run.includes("grep '^TestAngelaNexusQUICSender'"));
+  assert.ok(host.run.includes("-run '^TestAngelaNexusQUICSenderDoSniffCallbackCanReenterClose$' -count=1 -timeout=30s"));
   assert.match(host.run, /late_connections_integration_test\.go.*tunnel\/statistic\/angelanexus_late_connections_test\.go/);
   assert.match(host.run, /late_tunnel_integration_test\.go.*tunnel\/angelanexus_late_tunnel_test\.go/);
   for (const prefix of ["TestAngelaNexusLateConnections", "TestAngelaNexusLateTunnel"]) {
@@ -30,7 +34,7 @@ test("the source adapter alone applies the reviewed late patch before bridge sta
   const prepare = read("native/android/mihomo-bridge/prepare-upstream.py");
   assert.ok(prepare.indexOf("apply_statistics(root)\n    apply_late(root)") > 0);
   const provenance = steps.find(step => step.name === "Generate native build provenance evidence");
-  for (const path of ["late-connections.patch", "tunnel/statistic/manager.go", "tunnel/statistic/tracker.go", "tunnel/tunnel.go", "component/nat/table.go", "tunnel/connection.go"]) {
+  for (const path of ["late-connections.patch", "tunnel/statistic/manager.go", "tunnel/statistic/tracker.go", "tunnel/tunnel.go", "component/nat/table.go", "tunnel/connection.go", "component/sniffer/quic_sniffer.go"]) {
     assert.ok(provenance.run.includes(path), `missing build evidence: ${path}`);
   }
   assert.match(provenance.run, /"lateConnectionsPatch"/);
@@ -75,6 +79,7 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
         tunnel: "tunnel/tunnel.go",
         natTable: "component/nat/table.go",
         connection: "tunnel/connection.go",
+        quicSniffer: "component/sniffer/quic_sniffer.go",
       };
       for (const [name, path] of Object.entries(sources)) put(join(root, "mihomo", path), `reviewed final ${name} output\n`);
       const run = step.run.replace(/\$\{\{ matrix\.(\w+) \}\}/g, (_, key) => matrix[key]);
@@ -91,7 +96,7 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
       assert.equal(evidence.artifact.sha256, hash(artifact));
       assert.equal(evidence.ownershipAdapter.patchedSource.sha256, hash(join(root, "mihomo", sources.server)));
       assert.equal(evidence.statisticsPatch.patchedSource.sha256, hash(join(root, "mihomo", sources.manager)));
-      for (const name of ["manager", "tracker", "tunnel", "natTable", "connection"]) {
+      for (const name of ["manager", "tracker", "tunnel", "natTable", "connection", "quicSniffer"]) {
         assert.deepEqual(evidence.lateConnectionsPatch.patchedSources[name], { path: sources[name], sha256: hash(join(root, "mihomo", sources[name])) });
       }
       assert.equal(evidence.lateConnectionsPatch.sha256, hash(join(process.cwd(), "native/android/mihomo-bridge/late-connections.patch")));
@@ -254,7 +259,8 @@ test("UDP senders observe registration cancellation independently of reverse cle
   assert.match(patch, /return newPacketSenderWithContext\(context\.Background\(\)\)/);
   assert.match(patch, /func newPacketSenderWithContext\(parent context\.Context\) C\.PacketSender/);
   assert.match(patch, /ctx, cancel := context\.WithCancel\(parent\)/);
-  assert.doesNotMatch(patch, /context\.AfterFunc/);
+  assert.match(patch, /context\.AfterFunc\(ctx, sender\.Close\)/);
+  assert.match(patch, /defer stopClose\(\)/);
 });
 
 test("UDP Process owns a final serialized drain when parent cancellation ends it", () => {
@@ -262,4 +268,21 @@ test("UDP Process owns a final serialized drain when parent cancellation ends it
   const process = patch.slice(patch.indexOf("func (s *packetSender) Process"));
   assert.match(process, /defer s\.Close\(\)/);
   assert.match(process, /not a join of callbacks or writes already in flight/);
+});
+
+test("QUIC sniffer regression is copied and race-tested in CI", () => {
+  const host = steps.find(step => step.name === "Test bridge state against pinned Mihomo on host (not Android TUN)");
+  assert.match(host.run, /quic_sender_integration_test\.go.*component\/sniffer\/angelanexus_quic_sender_integration_test\.go/);
+  assert.match(host.run, /go test -race[^\n]+TestAngelaNexusQUICSenderDoSniffCallbackCanReenterClose[^\n]+component\/sniffer/);
+  const source = read("native/android/mihomo-bridge/quic_sender_integration_test.go");
+  assert.match(source, /replaceDomain[\s\S]*q\.Close\(\)/);
+  assert.match(source, /q\.buffer != nil/);
+});
+
+test("UDP sniff cancellation uses scoped AfterFunc and post-callback checkpoint", () => {
+  const tunnel = read("native/android/mihomo-bridge/late-connections.patch");
+  assert.match(tunnel, /context\.AfterFunc\(ctx, sender\.Close\)/);
+  assert.match(tunnel, /defer stopClose\(\)/);
+  assert.match(tunnel, /if canceled := ctx\.Err\(\); canceled != nil/);
+  assert.match(tunnel, /sniffUDPWithContext\(registrationCtx, sender, metadata\)/);
 });

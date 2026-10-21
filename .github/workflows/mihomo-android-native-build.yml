@@ -97,14 +97,17 @@ jobs:
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/statistics_integration_test.go" ./tunnel/statistic/angelanexus_statistics_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/late_connections_integration_test.go" ./tunnel/statistic/angelanexus_late_connections_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/late_tunnel_integration_test.go" ./tunnel/angelanexus_late_tunnel_test.go
+          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/quic_sender_integration_test.go" ./component/sniffer/angelanexus_quic_sender_integration_test.go
           # go test exits successfully for an empty -run selection: reject it.
           go test -list '^TestAngelaNexusLateConnections' ./tunnel/statistic | grep '^TestAngelaNexusLateConnections'
           go test -tags=with_gvisor,cmfa -list '^TestAngelaNexusLateTunnel' ./tunnel | grep '^TestAngelaNexusLateTunnel'
+          go test -list '^TestAngelaNexusQUICSender' ./component/sniffer | grep '^TestAngelaNexusQUICSender'
           # Test the entire dedicated package that the NDK build consumes.
           go test -race -tags=with_gvisor,cmfa -run '^TestAndroidBridge' -count=1 -timeout=90s -v ./angelanexus_android
           go test -race -run '^TestAngelaNexusStatistics' -count=1 -timeout=90s -v ./tunnel/statistic
           go test -race -run '^TestAngelaNexusLateConnections' -count=1 -timeout=90s -v ./tunnel/statistic
           go test -race -tags=with_gvisor,cmfa -run '^TestAngelaNexusLateTunnel' -count=1 -timeout=90s -v ./tunnel
+          go test -race -run '^TestAngelaNexusQUICSenderDoSniffCallbackCanReenterClose$' -count=1 -timeout=30s -v ./component/sniffer
           go build -trimpath -tags=with_gvisor,cmfa -buildmode=c-shared -o "$RUNNER_TEMP/libclash-host.so" ./angelanexus_android
           # Foreign host flags must survive dlopen without CLI parsing/exit.
           timeout 30s python3 "$GITHUB_WORKSPACE/scripts/smoke-mihomo-library.py" "$RUNNER_TEMP/libclash-host.so" --foreign-host-flag=library-smoke
@@ -168,6 +171,7 @@ jobs:
           PATCHED_TRACKER_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/tunnel/statistic/tracker.go" | awk '{print $1}')"
           PATCHED_TUNNEL_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/tunnel/tunnel.go" | awk '{print $1}')"
           PATCHED_NAT_TABLE_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/component/nat/table.go" | awk '{print $1}')"
+          PATCHED_QUIC_SNIFFER_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/component/sniffer/quic_sniffer.go" | awk '{print $1}')"
           PATCHED_CONNECTION_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/tunnel/connection.go" | awk '{print $1}')"
           GO_VERSION="$(go version | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
           NDK_BIN="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
@@ -194,7 +198,7 @@ jobs:
               "libraryEntry": {"path": "native/android/mihomo-bridge/library.go", "sha256": "$LIBRARY_ENTRY_SHA256"},
               "ownershipAdapter": {"path": "native/android/mihomo-bridge/prepare-upstream.py", "sha256": "$ADAPTER_SHA256", "patchedSource": {"path": "listener/sing_tun/server.go", "sha256": "$PATCHED_SERVER_SHA256"}},
               "statisticsPatch": {"path": "native/android/mihomo-bridge/statistics.patch", "sha256": "$STATISTICS_PATCH_SHA256", "patchedSource": {"path": "tunnel/statistic/manager.go", "sha256": "$PATCHED_LATE_MANAGER_SHA256"}},
-              "lateConnectionsPatch": {"path": "native/android/mihomo-bridge/late-connections.patch", "sha256": "$LATE_CONNECTIONS_PATCH_SHA256", "patchedSources": {"manager": {"path": "tunnel/statistic/manager.go", "sha256": "$PATCHED_LATE_MANAGER_SHA256"}, "tracker": {"path": "tunnel/statistic/tracker.go", "sha256": "$PATCHED_TRACKER_SHA256"}, "tunnel": {"path": "tunnel/tunnel.go", "sha256": "$PATCHED_TUNNEL_SHA256"}, "natTable": {"path": "component/nat/table.go", "sha256": "$PATCHED_NAT_TABLE_SHA256"}, "connection": {"path": "tunnel/connection.go", "sha256": "$PATCHED_CONNECTION_SHA256"}}},
+              "lateConnectionsPatch": {"path": "native/android/mihomo-bridge/late-connections.patch", "sha256": "$LATE_CONNECTIONS_PATCH_SHA256", "patchedSources": {"manager": {"path": "tunnel/statistic/manager.go", "sha256": "$PATCHED_LATE_MANAGER_SHA256"}, "tracker": {"path": "tunnel/statistic/tracker.go", "sha256": "$PATCHED_TRACKER_SHA256"}, "tunnel": {"path": "tunnel/tunnel.go", "sha256": "$PATCHED_TUNNEL_SHA256"}, "natTable": {"path": "component/nat/table.go", "sha256": "$PATCHED_NAT_TABLE_SHA256"}, "connection": {"path": "tunnel/connection.go", "sha256": "$PATCHED_CONNECTION_SHA256"}, "quicSniffer": {"path": "component/sniffer/quic_sniffer.go", "sha256": "$PATCHED_QUIC_SNIFFER_SHA256"}}},
               "artifact": {"name": "libclash-${{ matrix.abi }}.so", "sha256": "$ARTIFACT_SHA256"},
           }
           out.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")

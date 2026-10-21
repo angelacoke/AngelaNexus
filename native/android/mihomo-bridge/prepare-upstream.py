@@ -27,6 +27,7 @@ EXPECTED = {
     "tunnel/connection.go": "1e48fbdff3551c8d0dcbe5265088c3b56db0b66eb9c7512af5aaa31e8e65af1b",
     "tunnel/statistic/manager.go": "508daa254d05b6414e899e4eb154cb3b83572d6223e5662da9463728cb588886",
     "tunnel/statistic/tracker.go": "80e8cc0df115c35a62baea5aec4c3ad4a28c1cf9c47c52a78e76523520c83a6f",
+    "component/sniffer/quic_sniffer.go": "1b7cb7990ae0667885d2977d002c72422c5f36f61b5dca9616b71ece97e586a5",
     "tunnel/tunnel.go": "bd0818dddd04779aad3f078819b3ca050bd8bdce29ba57e5a377770539278596",
 }
 # sing-tun is supplied by Go's module cache; verify the implementation that
@@ -35,12 +36,13 @@ SING_TUN_TUN_LINUX_SHA256 = "34d3c504a859006bf2981709d86e104c9a2b7c9542ef5895201
 PATCHED_SERVER_SHA256 = "1a77f3a7416b8074bc5e91c4944079c059fe766991bccfaa921780ad0068b8e1"
 PATCHED_STATISTICS_SHA256 = "316e372b7de3735a9a44c8f2357092ee1023fb21c6bbb899ea6a5228cc1dbb09"
 STATISTICS_PATCH_SHA256 = "293330f8b4ba6ed0fb318ea43f5bb759b0946fa98f44c563131135441d4c124b"
-LATE_CONNECTIONS_PATCH_SHA256 = "d49c62ea1608642aedc3ebf82d69139419531b390f1578c72b0bdb7b177671bb"
+LATE_CONNECTIONS_PATCH_SHA256 = "18f47f54fc548322643be8dac9deca3fc89c8e1090cf622482c5a872aae51481"
 PATCHED_LATE_MANAGER_SHA256 = "95821b706b1e43a17fe427592a2d5d41f5093d8a7e8c7fc76e4dd33300e51716"
 PATCHED_NAT_TABLE_SHA256 = "14c048a266086e2dec951d8874e1fa67d31085edf86c4b8aae1625caeef29e90"
-PATCHED_CONNECTION_SHA256 = "b02cbdd4bed5c1afb3f0ab793940f0ff50707e14e338f8e6687f4f14b43f7719"
+PATCHED_CONNECTION_SHA256 = "7f49df0990618e61ae9c4bd6763a80a7da0627ee1a0ec6fa44c68f7301f1c87a"
 PATCHED_TRACKER_SHA256 = "790b996d9e8144ecc453c6624b11664f2956d068e8ccb284f046be9afc09c99b"
-PATCHED_TUNNEL_SHA256 = "d6a4ded1a66003b447789cca7f53a2a4666769b518a09d56d3e84c12470db14f"
+PATCHED_QUIC_SNIFFER_SHA256 = "51a3e923cf1d58a5fe05c43793bb53f5edfb588e61cafd6d7f82d42e4dd11a9b"
+PATCHED_TUNNEL_SHA256 = "42c64d637703b7ba76ed07b47a3fb3808b02b62e8b60654394b7a2c1a940869a"
 
 
 def sha256(path: Path) -> str:
@@ -79,6 +81,8 @@ def verify_source(root: Path) -> None:
     statistics_hash = sha256(statistics) if statistics.is_file() else None
     tracker = root / "tunnel/statistic/tracker.go"
     tracker_hash = sha256(tracker) if tracker.is_file() else None
+    quic_sniffer = root / "component/sniffer/quic_sniffer.go"
+    quic_sniffer_hash = sha256(quic_sniffer) if quic_sniffer.is_file() else None
     tunnel = root / "tunnel/tunnel.go"
     tunnel_hash = sha256(tunnel) if tunnel.is_file() else None
     # Existing adapter output is allowed only when it is exactly our output.
@@ -92,6 +96,7 @@ def verify_source(root: Path) -> None:
         "tunnel/statistic/angelanexus_late_connections_test.go",
         "component/nat/table.go",
         "tunnel/connection.go",
+        "component/sniffer/angelanexus_quic_sender_integration_test.go",
         "tunnel/angelanexus_late_tunnel_test.go",
     }
     for line in dirty.splitlines():
@@ -105,6 +110,8 @@ def verify_source(root: Path) -> None:
         if path == "tunnel/statistic/manager.go" and statistics_hash in (PATCHED_STATISTICS_SHA256, PATCHED_LATE_MANAGER_SHA256):
             continue
         if path == "tunnel/statistic/tracker.go" and tracker_hash == PATCHED_TRACKER_SHA256:
+            continue
+        if path == "component/sniffer/quic_sniffer.go" and quic_sniffer_hash == PATCHED_QUIC_SNIFFER_SHA256:
             continue
         if path == "tunnel/tunnel.go" and tunnel_hash == PATCHED_TUNNEL_SHA256:
             continue
@@ -127,6 +134,8 @@ def verify_source(root: Path) -> None:
             if rel == "tunnel/statistic/manager.go" and statistics_hash in (PATCHED_STATISTICS_SHA256, PATCHED_LATE_MANAGER_SHA256):
                 continue
             if rel == "tunnel/statistic/tracker.go" and tracker_hash == PATCHED_TRACKER_SHA256:
+                continue
+            if rel == "component/sniffer/quic_sniffer.go" and quic_sniffer_hash == PATCHED_QUIC_SNIFFER_SHA256:
                 continue
             if rel == "tunnel/tunnel.go" and tunnel_hash == PATCHED_TUNNEL_SHA256:
                 continue
@@ -244,14 +253,16 @@ def apply_late(root: Path) -> None:
              "tunnel/statistic/tracker.go": PATCHED_TRACKER_SHA256,
              "tunnel/tunnel.go": PATCHED_TUNNEL_SHA256,
              "component/nat/table.go": PATCHED_NAT_TABLE_SHA256,
-             "tunnel/connection.go": PATCHED_CONNECTION_SHA256}
+             "tunnel/connection.go": PATCHED_CONNECTION_SHA256,
+             "component/sniffer/quic_sniffer.go": PATCHED_QUIC_SNIFFER_SHA256}
     if all(sha256(root / rel) == digest for rel, digest in paths.items()):
         return
     inputs = {"tunnel/statistic/manager.go": PATCHED_STATISTICS_SHA256,
               "tunnel/statistic/tracker.go": EXPECTED["tunnel/statistic/tracker.go"],
               "tunnel/tunnel.go": EXPECTED["tunnel/tunnel.go"],
               "component/nat/table.go": EXPECTED["component/nat/table.go"],
-              "tunnel/connection.go": EXPECTED["tunnel/connection.go"]}
+              "tunnel/connection.go": EXPECTED["tunnel/connection.go"],
+              "component/sniffer/quic_sniffer.go": EXPECTED["component/sniffer/quic_sniffer.go"]}
     for rel, digest in inputs.items():
         if sha256(root / rel) != digest:
             fail(f"late patch input {rel} does not match reviewed source")
@@ -261,7 +272,7 @@ def apply_late(root: Path) -> None:
     sections = re.split(r"(?m)(?=^--- )", patch.read_text())
     sections = [section for section in sections if section]
     if len(sections) != len(paths):
-        fail("late patch must contain exactly the reviewed source sections")
+        fail("late patch must contain exactly the reviewed six source sections")
     outputs = {}
     with tempfile.TemporaryDirectory(prefix="angelanexus-late-") as tmp:
         for index, (rel, digest) in enumerate(paths.items()):

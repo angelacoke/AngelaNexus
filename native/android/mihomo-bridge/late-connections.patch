@@ -370,6 +370,15 @@
  		if sniffingEnable && snifferDispatcher.Enable() {
  			return snifferDispatcher.UDPSniff(packet, sender)
  		}
+@@ -450,7 +456,7 @@
+ 			originMetadata := metadata  // save origin metadata
+ 			metadata = metadata.Clone() // don't modify PacketAdapter's metadata
+ 
+-			if err := sender.DoSniff(metadata); err != nil {
++			if err := sniffUDPWithContext(registrationCtx, sender, metadata); err != nil {
+ 				log.Warnln("[UDP] DoSniff error: %s", err.Error())
+ 				return nil, nil, err
+ 			}
 @@ -464,7 +470,7 @@
  			}
  
@@ -596,7 +605,7 @@
  			if proxy != nil {
  				proxy.UpdateWriteBack(packet)
  			}
-@@ -127,36 +151,56 @@
+@@ -127,36 +151,74 @@
  }
  
  func (s *packetSender) Send(packet C.PacketAdapter) {
@@ -638,6 +647,24 @@
  func (s *packetSender) DoSniff(metadata *C.Metadata) error { return nil }
  
 -func handleUDPToRemote(packet C.UDPPacket, pc C.PacketConn, addr *net.UDPAddr) error {
++// sniffUDPWithContext wakes multi-packet sniffers through their existing Close
++// contract. The callback exists only during setup sniffing, not the active flow.
++// It is not a join: already-entered callbacks may outlive cancellation.
++func sniffUDPWithContext(ctx context.Context, sender C.PacketSender, metadata *C.Metadata) error {
++	if err := ctx.Err(); err != nil {
++		return err
++	}
++	stopClose := context.AfterFunc(ctx, sender.Close)
++	defer stopClose()
++	err := sender.DoSniff(metadata)
++	// A closed sniffer may report success; never continue setup after cancellation
++	// is visible, including when done and cancellation become ready together.
++	if canceled := ctx.Err(); canceled != nil {
++		return canceled
++	}
++	return err
++}
++
 +func handleUDPToRemote(ctx context.Context, packet C.UDPPacket, pc C.PacketConn, addr *net.UDPAddr) error {
  	if addr == nil {
  		return errors.New("udp addr invalid")
@@ -661,7 +688,7 @@
  		return err
  	}
  	// reset timeout
-@@ -165,18 +209,28 @@
+@@ -165,18 +227,28 @@
  	return nil
  }
  
@@ -694,7 +721,7 @@
  			return
  		}
  
-@@ -196,7 +250,14 @@
+@@ -196,7 +268,14 @@
  		fromAddr = sender.RestoreReadFrom(fromAddr).Unmap()
  
  		fromAddrPort = netip.AddrPortFrom(fromAddr, fromAddrPort.Port())
@@ -710,7 +737,7 @@
  		_, err = writeBack.WriteBack(data, net.UDPAddrFromAddrPort(fromAddrPort))
  		if put != nil {
  			put()
-@@ -207,16 +268,12 @@
+@@ -207,16 +286,12 @@
  	}
  }
  
@@ -733,3 +760,19 @@
  func handleSocket(inbound, outbound net.Conn) {
  	N.Relay(inbound, outbound)
  }
+--- component/sniffer/quic_sniffer.go
++++ component/sniffer/quic_sniffer.go
+@@ -185,10 +185,11 @@
+ 	select {
+ 	case <-q.done:
+ 		q.lock.RLock()
+-		if r := q.result; r != "" {
++		r := q.result
++		q.lock.RUnlock()
++		if r != "" {
+ 			q.replaceDomain(metadata, r)
+ 		}
+-		q.lock.RUnlock()
+ 	case <-time.After(quicWaitConn):
+ 		q.close()
+ 	}
