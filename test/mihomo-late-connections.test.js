@@ -17,6 +17,9 @@ test("CI stages and runs manager and actual tunnel regressions, rejecting empty 
   assert.match(host.run, /dns_reset_integration_test\.go.*dns\/angelanexus_dns_reset_integration_test\.go/);
   assert.match(host.run, /dns_server_lifecycle_integration_test\.go.*dns\/angelanexus_dns_server_lifecycle_integration_test\.go/);
   assert.match(host.run, /dns_doh_lifecycle_integration_test\.go.*dns\/angelanexus_dns_doh_lifecycle_integration_test\.go/);
+  assert.match(host.run, /dhcp_discovery_lifecycle_integration_test\.go.*component\/dhcp\/angelanexus_dhcp_discovery_lifecycle_integration_test\.go/);
+  assert.ok(host.run.includes("grep '^TestAngelaNexusDHCPDiscovery'"));
+  assert.match(host.run, /-race -run '\^TestAngelaNexusDHCPDiscovery' -count=20 -timeout=120s \.\/component\/dhcp/);
   assert.ok(host.run.includes("grep '^TestAngelaNexusDoH'"));
   assert.match(host.run, /-race -run '\^TestAngelaNexusDoH' -count=20 -timeout=120s \.\/dns/);
   assert.ok(host.run.includes("grep '^TestAngelaNexusDNSServer'"));
@@ -62,12 +65,15 @@ test("the source adapter alone applies the reviewed late patch before bridge sta
   const prepare = read("native/android/mihomo-bridge/prepare-upstream.py");
   assert.ok(prepare.indexOf("apply_statistics(root)\n    apply_late(root)") > 0);
   const provenance = steps.find(step => step.name === "Generate native build provenance evidence");
-  for (const path of ["late-connections.patch", "tunnel/statistic/manager.go", "tunnel/statistic/tracker.go", "tunnel/tunnel.go", "component/nat/table.go", "tunnel/connection.go", "component/sniffer/quic_sniffer.go", "listener/tproxy/packet.go", "dns/resolver.go", "component/resource/fetcher.go", "adapter/provider/healthcheck.go", "adapter/provider/provider.go", "log/log.go"]) {
+  for (const path of ["late-connections.patch", "tunnel/statistic/manager.go", "tunnel/statistic/tracker.go", "tunnel/tunnel.go", "component/nat/table.go", "tunnel/connection.go", "component/sniffer/quic_sniffer.go", "listener/tproxy/packet.go", "dns/resolver.go", "dns/client.go", "dns/dot.go", "dns/dhcp.go", "dns/util.go", "component/resource/fetcher.go", "adapter/provider/healthcheck.go", "adapter/provider/provider.go", "log/log.go"]) {
     assert.ok(provenance.run.includes(path), `missing build evidence: ${path}`);
   }
   assert.match(provenance.run, /"lateConnectionsPatch"/);
   assert.match(provenance.run, /"manager": \{"path": "tunnel\/statistic\/manager\.go"/);
+  assert.match(provenance.run, /"dhcpDiscovery": \{"path": "component\/dhcp\/dhcp\.go"/);
   assert.ok(provenance.run.includes("PATCHED_LOG_SHA256"));
+  assert.ok(provenance.run.includes("PATCHED_DHCP_DISCOVERY_SHA256"));
+  assert.match(provenance.run, /"dhcpDiscovery": \{"path": "component\/dhcp\/dhcp\.go", "sha256": "\$PATCHED_DHCP_DISCOVERY_SHA256"\}/);
   assert.match(provenance.run, /"logSource": \{"path": "log\/log\.go", "sha256": "\$PATCHED_LOG_SHA256"\}/);
   assert.match(provenance.run, /"providerHealthCheck": \{"path": "adapter\/provider\/healthcheck\.go", "sha256": "\$PATCHED_PROVIDER_HEALTHCHECK_SHA256"\}/);
   assert.match(provenance.run, /"proxyProvider": \{"path": "adapter\/provider\/provider\.go", "sha256": "\$PATCHED_PROXY_PROVIDER_SHA256"\}/);
@@ -118,6 +124,11 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
         dnsResolver: "dns/resolver.go",
         dnsServer: "dns/server.go",
         dnsDoH: "dns/doh.go",
+        dnsClient: "dns/client.go",
+        dnsTLS: "dns/dot.go",
+        dnsDHCP: "dns/dhcp.go",
+        dnsUtil: "dns/util.go",
+        dhcpDiscovery: "component/dhcp/dhcp.go",
         providerFetcher: "component/resource/fetcher.go",
         providerHealthCheck: "adapter/provider/healthcheck.go",
         proxyProvider: "adapter/provider/provider.go",
@@ -136,6 +147,7 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
       assert.equal(evidence.dnsResolver.sha256, hash(join(root, "mihomo/dns/resolver.go")));
       assert.deepEqual(evidence.dnsServer, { path: sources.dnsServer, sha256: hash(join(root, "mihomo", sources.dnsServer)) });
       assert.deepEqual(evidence.dnsDoH, { path: sources.dnsDoH, sha256: hash(join(root, "mihomo", sources.dnsDoH)) });
+      for (const name of ["dnsClient", "dnsTLS", "dnsDHCP", "dnsUtil"]) assert.deepEqual(evidence[name], { path: sources[name], sha256: hash(join(root, "mihomo", sources[name])) });
       assert.equal(evidence.providerFetcher.path, "component/resource/fetcher.go");
       assert.equal(evidence.providerFetcher.sha256, hash(join(root, "mihomo/component/resource/fetcher.go")));
       for (const name of ["providerHealthCheck", "proxyProvider"]) {
@@ -147,7 +159,7 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
       assert.equal(evidence.artifact.sha256, hash(artifact));
       assert.equal(evidence.ownershipAdapter.patchedSource.sha256, hash(join(root, "mihomo", sources.server)));
       assert.equal(evidence.statisticsPatch.patchedSource.sha256, hash(join(root, "mihomo", sources.manager)));
-      for (const name of ["manager", "tracker", "tunnel", "natTable", "connection", "quicSniffer", "tproxyPacket"]) {
+      for (const name of ["manager", "tracker", "tunnel", "natTable", "connection", "quicSniffer", "tproxyPacket", "dnsDoH", "dnsClient", "dnsTLS", "dnsDHCP", "dnsUtil", "dhcpDiscovery"]) {
         assert.deepEqual(evidence.lateConnectionsPatch.patchedSources[name], { path: sources[name], sha256: hash(join(root, "mihomo", sources[name])) });
       }
       assert.equal(evidence.lateConnectionsPatch.sha256, hash(join(process.cwd(), "native/android/mihomo-bridge/late-connections.patch")));

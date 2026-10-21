@@ -23,6 +23,11 @@ function fixture() {
   const patchedDnsResolver = Buffer.from("fixture patched DNS resolver\n");
   const patchedDnsServer = Buffer.from("fixture patched DNS server\n");
   const patchedDnsDoH = Buffer.from("fixture patched DNS DoH\n");
+  const patchedDnsClient = Buffer.from("fixture patched DNS client\n");
+  const patchedDnsTLS = Buffer.from("fixture patched DNS TLS\n");
+  const patchedDnsDHCP = Buffer.from("fixture patched DNS DHCP\n");
+  const patchedDnsUtil = Buffer.from("fixture patched DNS util\n");
+  const patchedDhcpDiscovery = Buffer.from("fixture patched DHCP discovery\n");
   const patchedProviderFetcher = Buffer.from("fixture patched provider fetcher\n");
   const patchedProviderHealthcheck = Buffer.from("fixture patched provider healthcheck\n");
   const patchedProxyProvider = Buffer.from("fixture patched proxy provider\n");
@@ -41,6 +46,12 @@ function fixture() {
   writeFileSync(join(root, "dns/resolver.go"), patchedDnsResolver);
   writeFileSync(join(root, "dns/server.go"), patchedDnsServer);
   writeFileSync(join(root, "dns/doh.go"), patchedDnsDoH);
+  writeFileSync(join(root, "dns/client.go"), patchedDnsClient);
+  writeFileSync(join(root, "dns/dot.go"), patchedDnsTLS);
+  writeFileSync(join(root, "dns/dhcp.go"), patchedDnsDHCP);
+  writeFileSync(join(root, "dns/util.go"), patchedDnsUtil);
+  mkdirSync(join(root, "component/dhcp"), { recursive: true });
+  writeFileSync(join(root, "component/dhcp/dhcp.go"), patchedDhcpDiscovery);
   mkdirSync(join(root, "component/resource"), { recursive: true });
   mkdirSync(join(root, "adapter/provider"), { recursive: true });
   writeFileSync(join(root, "adapter/provider/healthcheck.go"), patchedProviderHealthcheck);
@@ -63,7 +74,7 @@ function fixture() {
   writeFileSync(join(sourceDir, "bridge.go"), bridge);
   writeFileSync(join(sourceDir, "lifecycle.go"), lifecycle);
   writeFileSync(join(sourceDir, "library.go"), libraryEntry);
-  const adapterSource = `PATCHED_SERVER_SHA256 = "${digest(patchedSource)}"\nPATCHED_DNS_RESOLVER_SHA256 = "${digest(patchedDnsResolver)}"\nPATCHED_DNS_SERVER_SHA256 = "${digest(patchedDnsServer)}"\nPATCHED_DNS_DOH_SHA256 = "${digest(patchedDnsDoH)}"\nPATCHED_PROVIDER_FETCHER_SHA256 = "${digest(patchedProviderFetcher)}"\nPATCHED_PROVIDER_HEALTHCHECK_SHA256 = "${digest(patchedProviderHealthcheck)}"\nPATCHED_PROXY_PROVIDER_SHA256 = "${digest(patchedProxyProvider)}"\nPATCHED_STATISTICS_SHA256 = "${digest(patchedStatistics)}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${digest(patchedStatistics)}"\nPATCHED_TRACKER_SHA256 = "${digest(patchedTracker)}"\nPATCHED_TUNNEL_SHA256 = "${digest(patchedTunnel)}"\nPATCHED_NAT_TABLE_SHA256 = "${digest(patchedNatTable)}"\nPATCHED_CONNECTION_SHA256 = "${digest(patchedConnection)}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${digest(patchedQuicSniffer)}"\nPATCHED_TPROXY_PACKET_SHA256 = "${digest(patchedTproxyPacket)}"\nPATCHED_LOG_SHA256 = "${digest(patchedLog)}"\n`;
+  const adapterSource = `PATCHED_SERVER_SHA256 = "${digest(patchedSource)}"\nPATCHED_DNS_RESOLVER_SHA256 = "${digest(patchedDnsResolver)}"\nPATCHED_DNS_SERVER_SHA256 = "${digest(patchedDnsServer)}"\nPATCHED_DNS_DOH_SHA256 = "${digest(patchedDnsDoH)}"\nPATCHED_DNS_CLIENT_SHA256 = "${digest(patchedDnsClient)}"\nPATCHED_DNS_TLS_SHA256 = "${digest(patchedDnsTLS)}"\nPATCHED_DNS_DHCP_SHA256 = "${digest(patchedDnsDHCP)}"\nPATCHED_DNS_UTIL_SHA256 = "${digest(patchedDnsUtil)}"\nPATCHED_DHCP_DISCOVERY_SHA256 = "${digest(patchedDhcpDiscovery)}"\nPATCHED_PROVIDER_FETCHER_SHA256 = "${digest(patchedProviderFetcher)}"\nPATCHED_PROVIDER_HEALTHCHECK_SHA256 = "${digest(patchedProviderHealthcheck)}"\nPATCHED_PROXY_PROVIDER_SHA256 = "${digest(patchedProxyProvider)}"\nPATCHED_STATISTICS_SHA256 = "${digest(patchedStatistics)}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${digest(patchedStatistics)}"\nPATCHED_TRACKER_SHA256 = "${digest(patchedTracker)}"\nPATCHED_TUNNEL_SHA256 = "${digest(patchedTunnel)}"\nPATCHED_NAT_TABLE_SHA256 = "${digest(patchedNatTable)}"\nPATCHED_CONNECTION_SHA256 = "${digest(patchedConnection)}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${digest(patchedQuicSniffer)}"\nPATCHED_TPROXY_PACKET_SHA256 = "${digest(patchedTproxyPacket)}"\nPATCHED_LOG_SHA256 = "${digest(patchedLog)}"\n`;
   writeFileSync(join(sourceDir, "prepare-upstream.py"), adapterSource);
   const adapterSha = digest(adapterSource);
   const records = {};
@@ -103,6 +114,11 @@ ${ABIS.map((abi) => ` val ${abi.replaceAll("-", "_")} = MihomoNativeLibrarySpec(
       dnsResolver: { path: "dns/resolver.go", sha256: digest(patchedDnsResolver) },
       dnsServer: { path: "dns/server.go", sha256: digest(patchedDnsServer) },
       dnsDoH: { path: "dns/doh.go", sha256: digest(patchedDnsDoH) },
+      dnsClient: { path: "dns/client.go", sha256: digest(patchedDnsClient) },
+      dnsTLS: { path: "dns/dot.go", sha256: digest(patchedDnsTLS) },
+      dnsDHCP: { path: "dns/dhcp.go", sha256: digest(patchedDnsDHCP) },
+      dnsUtil: { path: "dns/util.go", sha256: digest(patchedDnsUtil) },
+      dhcpDiscovery: { path: "component/dhcp/dhcp.go", sha256: digest(patchedDhcpDiscovery) },
       providerFetcher: { path: "component/resource/fetcher.go", sha256: digest(patchedProviderFetcher) },
       providerHealthCheck: { path: "adapter/provider/healthcheck.go", sha256: digest(patchedProviderHealthcheck) },
       proxyProvider: { path: "adapter/provider/provider.go", sha256: digest(patchedProxyProvider) },
@@ -128,6 +144,12 @@ ${ABIS.map((abi) => ` val ${abi.replaceAll("-", "_")} = MihomoNativeLibrarySpec(
           connection: { path: "tunnel/connection.go", sha256: digest(patchedConnection) },
           quicSniffer: { path: "component/sniffer/quic_sniffer.go", sha256: digest(patchedQuicSniffer) },
           tproxyPacket: { path: "listener/tproxy/packet.go", sha256: digest(patchedTproxyPacket) },
+          dnsDoH: { path: "dns/doh.go", sha256: digest(patchedDnsDoH) },
+          dnsClient: { path: "dns/client.go", sha256: digest(patchedDnsClient) },
+          dnsTLS: { path: "dns/dot.go", sha256: digest(patchedDnsTLS) },
+          dnsDHCP: { path: "dns/dhcp.go", sha256: digest(patchedDnsDHCP) },
+          dnsUtil: { path: "dns/util.go", sha256: digest(patchedDnsUtil) },
+          dhcpDiscovery: { path: "component/dhcp/dhcp.go", sha256: digest(patchedDhcpDiscovery) },
         },
       },
       artifact: { name: artifact, sha256: records[abi].sha256 },
@@ -311,6 +333,23 @@ test("rejects missing, incorrect-path, and incorrect-hash provider fetcher prove
     mutate(fresh, "arm64-v8a", (p) => { p.providerFetcher.path = "component/resource/fetcher.go"; p.providerFetcher.sha256 = "0".repeat(64); });
     result = run(fresh); assert.notEqual(result.status, 0); assert.match(result.stderr, /providerFetcher SHA-256 mismatch/);
   } finally { rmSync(fresh.root, { recursive: true, force: true }); }
+}));
+
+test("rejects missing, incorrect-path, incorrect-hash, and tampered DHCP discovery provenance", () => withFixture((fx) => {
+  mutate(fx, "arm64-v8a", (p) => { delete p.dhcpDiscovery; });
+  let result = run(fx); assert.notEqual(result.status, 0); assert.match(result.stderr, /missing required field 'dhcpDiscovery'/);
+  const cases = [
+    p => { p.dhcpDiscovery.path = "dns/dhcp.go"; },
+    p => { p.dhcpDiscovery.sha256 = "0".repeat(64); },
+    p => { p.lateConnectionsPatch.patchedSources.dhcpDiscovery.path = "dns/dhcp.go"; },
+    p => { p.lateConnectionsPatch.patchedSources.dhcpDiscovery.sha256 = "0".repeat(64); },
+  ];
+  for (const edit of cases) {
+    const fresh = fixture(); try {
+      mutate(fresh, "arm64-v8a", edit); result = run(fresh); assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /dhcpDiscovery (?:path|SHA-256) mismatch/);
+    } finally { rmSync(fresh.root, { recursive: true, force: true }); }
+  }
 }));
 
 test("rejects malformed JSON and typed fields without a traceback", () => withFixture((fx) => {
@@ -617,4 +656,49 @@ for (const [field, relative] of [["providerHealthCheck", "adapter/provider/healt
     assert.equal(result.status, 1);
     assert.match(result.stderr, new RegExp(`${field} SHA-256 mismatch: checkout source differs`));
   }));
+}
+
+for (const [name, source, constant] of [
+  ["dnsClient", "dns/client.go", "PATCHED_DNS_CLIENT_SHA256"],
+  ["dnsTLS", "dns/dot.go", "PATCHED_DNS_TLS_SHA256"],
+  ["dnsDHCP", "dns/dhcp.go", "PATCHED_DNS_DHCP_SHA256"],
+  ["dnsUtil", "dns/util.go", "PATCHED_DNS_UTIL_SHA256"],
+  ["dhcpDiscovery", "component/dhcp/dhcp.go", "PATCHED_DHCP_DISCOVERY_SHA256"],
+]) {
+  test(`rejects missing, expression, malformed and duplicate ${constant} constants`, () => {
+    for (const [replacement, reason] of [
+      ["", `exactly one ${constant}`],
+      [`${constant} = compute()`, `${constant} must be a literal string`],
+      [`${constant} = "${"a".repeat(63)}"`, `${constant} must be a 64-character SHA-256 hex string`],
+      [`${constant} = "${"a".repeat(64)}"\n${constant} = "${"b".repeat(64)}"`, `exactly one ${constant}`],
+    ]) withFixture(fx => {
+      const path = join(fx.root, "native/android/mihomo-bridge/prepare-upstream.py");
+      const original = readFileSync(path, "utf8");
+      const pattern = new RegExp(`${constant} = "[0-9a-f]+"\\n?`);
+      assert.match(original, pattern);
+      writeFileSync(path, original.replace(pattern, `${replacement}\n`));
+      const result = run(fx);
+      assert.equal(result.status, 1);
+      assert.ok(result.stderr.includes(reason), result.stderr);
+    });
+  });
+  for (const fault of ["top-missing", "top-path", "top-hash", "nested-missing", "nested-path", "nested-hash", "tampered-output"]) {
+    test(`rejects ${name} provenance: ${fault}`, () => withFixture(fx => {
+      if (fault === "tampered-output") writeFileSync(join(fx.root, source), "unreviewed resolver generation output\n");
+      mutate(fx, "x86_64", p => {
+        const nested = p.lateConnectionsPatch.patchedSources;
+        if (fault === "top-missing") delete p[name];
+        if (fault === "top-path") p[name].path = "unreviewed.go";
+        if (fault === "top-hash") p[name].sha256 = "0".repeat(64);
+        if (fault === "nested-missing") delete nested[name];
+        if (fault === "nested-path") nested[name].path = "unreviewed.go";
+        if (fault === "nested-hash") nested[name].sha256 = "0".repeat(64);
+        if (fault === "tampered-output") p[name].sha256 = nested[name].sha256 = digest(readFileSync(join(fx.root, source)));
+      });
+      const result = run(fx);
+      assert.equal(result.status, 1);
+      assert.ok(result.stderr.includes(name), result.stderr);
+      assert.doesNotMatch(result.stderr, /Traceback/);
+    }));
+  }
 }

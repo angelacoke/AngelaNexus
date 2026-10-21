@@ -1054,31 +1054,334 @@
  // this function listen at rAddr
 --- dns/resolver.go
 +++ dns/resolver.go
-@@ -4,6 +4,7 @@
- 	"context"
- 	"errors"
- 	"net/netip"
+@@ -6,0 +7,2 @@
 +	"reflect"
- 	"time"
- 
- 	"github.com/metacubex/mihomo/common/arc"
-@@ -47,7 +48,9 @@
- 	group                 singleflight.Group[*D.Msg]
- 	cache                 dnsCache
- 	policy                []dnsPolicy
++	"sync"
+@@ -36,0 +39,153 @@
++}
++
++// A generation is irreversible. Every request/worker acquires ownership before
++// being scheduled; stop seals admission and cancellation, then Wait observes the
++// same completion channel on every retry (no per-wait goroutine can leak).
++type resolverGeneration struct {
++	mu      sync.Mutex
++	ctx     context.Context
++	cancel  context.CancelFunc
++	stopped bool
++	active  int
++	done    chan struct{}
++}
++
++type resolverGenerationKey struct{}
++
++var resolverGenerationInit sync.Mutex
++
++func newResolverGeneration() *resolverGeneration {
++	ctx, cancel := context.WithCancel(context.Background())
++	return &resolverGeneration{ctx: ctx, cancel: cancel, done: make(chan struct{})}
++}
++func (g *resolverGeneration) begin() error {
++	g.mu.Lock()
++	defer g.mu.Unlock()
++	if g.stopped {
++		return context.Canceled
++	}
++	g.active++
++	return nil
++}
++func (g *resolverGeneration) end() {
++	g.mu.Lock()
++	defer g.mu.Unlock()
++	g.active--
++	if g.stopped && g.active == 0 {
++		close(g.done)
++	}
++}
++func (g *resolverGeneration) stop() {
++	g.mu.Lock()
++	if g.stopped {
++		g.mu.Unlock()
++		return
++	}
++	g.stopped = true
++	if g.active == 0 {
++		close(g.done)
++	}
++	g.mu.Unlock()
++	g.cancel()
++}
++func (g *resolverGeneration) wait(ctx context.Context) error {
++	g.mu.Lock()
++	if g.active == 0 {
++		g.mu.Unlock()
++		return nil
++	}
++	done := g.done
++	g.mu.Unlock()
++	select {
++	case <-done:
++		return nil
++	case <-ctx.Done():
++		return ctx.Err()
++	}
++}
++func (g *resolverGeneration) put(c dnsCache, q D.Question, m *D.Msg) {
++	g.mu.Lock()
++	defer g.mu.Unlock()
++	if !g.stopped {
++		putMsgToCache(c, q, m)
++	}
++}
++func (r *Resolver) resolverGeneration() *resolverGeneration {
++	// Some upstream/package callers use Resolver literals, rather than constructors.
++	// All reads of this lazily initialized pointer use the same lock.
++	resolverGenerationInit.Lock()
++	defer resolverGenerationInit.Unlock()
++	if r.generation == nil {
++		r.generation = newResolverGeneration()
++	}
++	return r.generation
++}
++func beginResolverTask(ctx context.Context) (func(), bool) {
++	g, _ := ctx.Value(resolverGenerationKey{}).(*resolverGeneration)
++	if g == nil {
++		return func() {}, true
++	}
++	if g.begin() != nil {
++		return func() {}, false
++	}
++	return g.end, true
++}
++func startResolverTask(ctx context.Context, fn func(context.Context)) bool {
++	done, ok := beginResolverTask(ctx)
++	if !ok {
++		return false
++	}
++	go func() { defer done(); fn(ctx) }()
++	return true
++}
++func resolverTaskContext(ctx context.Context) context.Context {
++	if g, _ := ctx.Value(resolverGenerationKey{}).(*resolverGeneration); g != nil {
++		return context.WithValue(g.ctx, resolverGenerationKey{}, g)
++	}
++	return context.WithoutCancel(ctx)
++}
++func resolverRequestError(ctx context.Context) error {
++	if err := ctx.Err(); err != nil {
++		return err
++	}
++	if g, _ := ctx.Value(resolverGenerationKey{}).(*resolverGeneration); g != nil {
++		g.mu.Lock()
++		stopped := g.stopped
++		g.mu.Unlock()
++		if stopped {
++			return context.Canceled
++		}
++	}
++	return nil
++}
++
++// Publish only immutable/local transport state while holding the generation
++// retirement lock. The callback must not block or call generation APIs.
++func commitResolverTask(ctx context.Context, publish func()) bool {
++	g, _ := ctx.Value(resolverGenerationKey{}).(*resolverGeneration)
++	if g != nil {
++		g.mu.Lock()
++		defer g.mu.Unlock()
++		if g.stopped {
++			return false
++		}
++	}
++	if ctx.Err() != nil {
++		return false
++	}
++	publish()
++	return true
++}
++
++func (r *Resolver) beginResolverRequest(parent context.Context) (context.Context, func(), error) {
++	g := r.resolverGeneration()
++	if err := g.begin(); err != nil {
++		return nil, nil, err
++	}
++	ctx, cancel := context.WithCancel(parent)
++	stop := context.AfterFunc(g.ctx, cancel)
++	if g.ctx.Err() != nil {
++		cancel()
++	}
++	ctx = context.WithValue(ctx, resolverGenerationKey{}, g)
++	return ctx, func() { stop(); cancel(); g.end() }, nil
+@@ -50 +205,4 @@
 -	defaultResolver       *Resolver
 +	// Immutable ownership inventory for clients reachable only through policies.
 +	policyClients   []dnsClient
 +	defaultResolver *Resolver
- }
- 
- func (r *Resolver) LookupIPPrimaryIPv4(ctx context.Context, host string) (ips []netip.Addr, err error) {
-@@ -396,17 +399,62 @@
- 	}
- }
- 
++	generation      *resolverGeneration
+@@ -53,0 +212,13 @@
++	var finish func()
++	ctx, finish, err = r.beginResolverRequest(ctx)
++	if err != nil {
++		return nil, err
++	}
++	defer finish()
++	defer func() {
++		if e := resolverRequestError(ctx); e != nil {
++			ips = nil
++			err = e
++		}
++	}()
++
+@@ -55 +226 @@
+-	go func() {
++	if !startResolverTask(ctx, func(ctx context.Context) {
+@@ -58,5 +229,6 @@
+-		if err != nil {
+-			return
+-		}
+-		ch <- ip
+-	}()
++		if err == nil {
++			ch <- ip
++		}
++	}) {
++		close(ch)
++	}
+@@ -77,0 +250,13 @@
++	var finish func()
++	ctx, finish, err = r.beginResolverRequest(ctx)
++	if err != nil {
++		return nil, err
++	}
++	defer finish()
++	defer func() {
++		if e := resolverRequestError(ctx); e != nil {
++			ips = nil
++			err = e
++		}
++	}()
++
+@@ -79 +264 @@
+-	go func() {
++	if !startResolverTask(ctx, func(ctx context.Context) {
+@@ -82,6 +267,6 @@
+-		if err != nil {
+-			return
+-		}
+-
+-		ch <- ip
+-	}()
++		if err == nil {
++			ch <- ip
++		}
++	}) {
++		close(ch)
++	}
+@@ -129 +314,13 @@
+-func (r *Resolver) ResolveECH(ctx context.Context, host string) ([]byte, error) {
++func (r *Resolver) ResolveECH(ctx context.Context, host string) (ech []byte, err error) {
++	var finish func()
++	ctx, finish, err = r.beginResolverRequest(ctx)
++	if err != nil {
++		return nil, err
++	}
++	defer finish()
++	defer func() {
++		if e := resolverRequestError(ctx); e != nil {
++			ech = nil
++			err = e
++		}
++	}()
+@@ -152,0 +350,13 @@
++	var finish func()
++	ctx, finish, err = r.beginResolverRequest(ctx)
++	if err != nil {
++		return nil, err
++	}
++	defer finish()
++	defer func() {
++		if e := resolverRequestError(ctx); e != nil {
++			msg = nil
++			err = e
++		}
++	}()
++
+@@ -159,2 +369,3 @@
+-			go func() {
+-				ctx, cancel := context.WithTimeout(context.Background(), resolver.DefaultDNSTimeout)
++			query := m.Copy()
++			startResolverTask(resolverTaskContext(ctx), func(ctx context.Context) {
++				ctx, cancel := context.WithTimeout(ctx, resolver.DefaultDNSTimeout)
+@@ -162,2 +373,2 @@
+-				_, _ = r.exchangeWithoutCache(ctx, m) // ignore result, just for putMsgToCache
+-			}()
++				_, _ = r.exchangeWithoutCache(ctx, query)
++			})
+@@ -187,0 +399,3 @@
++	g := r.resolverGeneration()
++	workerCtx := resolverTaskContext(ctx)
++	m = m.Copy() // A detached refresh/retry must not retain caller-owned message data.
+@@ -192 +406 @@
+-		ctx, cancel := context.WithTimeout(context.Background(), resolver.DefaultDNSTimeout) // reset timeout in singleflight
++		ctx, cancel := context.WithTimeout(workerCtx, resolver.DefaultDNSTimeout) // independent caller timeout, generation-owned
+@@ -205 +419 @@
+-				putMsgToCache(r.cache, q, result)
++				g.put(r.cache, q, result)
+@@ -223 +437,11 @@
+-	ch := r.group.DoChan(q.String(), fn)
++	run := func() <-chan singleflight.Result[*D.Msg] {
++		ch := make(chan singleflight.Result[*D.Msg], 1)
++		if !startResolverTask(workerCtx, func(context.Context) {
++			val, err, shared := r.group.Do(q.String(), fn)
++			ch <- singleflight.Result[*D.Msg]{Val: val, Err: err, Shared: shared}
++		}) {
++			ch <- singleflight.Result[*D.Msg]{Val: &D.Msg{}, Err: context.Canceled}
++		}
++		return ch
++	}
++	ch := run()
+@@ -235 +459 @@
+-			go func() { // start a retrying monitor in background
++			startResolverTask(workerCtx, func(context.Context) {
+@@ -238,2 +462,2 @@
+-				if err != nil && !shared && ret.Opcode < retryMax { // retry
+-					r.group.DoChan(q.String(), fn)
++				if err != nil && !shared && ret != nil && ret.Opcode < retryMax {
++					run() // run owns the retry even when its result is not consumed.
+@@ -241 +465 @@
+-			}()
++			})
+@@ -248 +472 @@
+-		r.group.DoChan(q.String(), fn)
++		run()
+@@ -345,0 +570,13 @@
++	var finish func()
++	ctx, finish, err = r.beginResolverRequest(ctx)
++	if err != nil {
++		return nil, err
++	}
++	defer finish()
++	defer func() {
++		if e := resolverRequestError(ctx); e != nil {
++			ips = nil
++			err = e
++		}
++	}()
++
+@@ -378 +615 @@
+-	go func() {
++	if !startResolverTask(ctx, func(ctx context.Context) {
+@@ -379,0 +617,3 @@
++		if e := resolverRequestError(ctx); e != nil {
++			res, err = nil, e
++		}
+@@ -381 +621,3 @@
+-	}()
++	}) {
++		ch <- &result{Error: context.Canceled}
++	}
+@@ -398,0 +641 @@
 +// ResetConnection resets transports, not in-flight query or worker ownership.
- func (r *Resolver) ResetConnection() {
+@@ -400,10 +643,54 @@
 -	if r != nil {
 -		for _, c := range r.main {
 -			c.ResetConnection()
@@ -1143,24 +1446,66 @@
 +	}
 +	for _, root := range roots {
 +		visit(root)
- 	}
- }
- 
-@@ -510,9 +558,7 @@
- }
- 
- func (rs Resolvers) ResetConnection() {
+@@ -505,0 +793,41 @@
++func (rs Resolvers) generations() []*resolverGeneration {
++	seenResolvers := map[*Resolver]bool{}
++	seenGenerations := map[*resolverGeneration]bool{}
++	var result []*resolverGeneration
++	var visit func(*Resolver)
++	visit = func(r *Resolver) {
++		if r == nil || seenResolvers[r] {
++			return
++		}
++		seenResolvers[r] = true
++		g := r.resolverGeneration()
++		if !seenGenerations[g] {
++			seenGenerations[g] = true
++			result = append(result, g)
++		}
++		visit(r.defaultResolver)
++	}
++	visit(rs.Resolver)
++	visit(rs.ProxyResolver)
++	visit(rs.DirectResolver)
++	return result
++}
++func (rs Resolvers) Cancel() {
++	for _, g := range rs.generations() {
++		g.stop()
++	}
++}
++
++// Wait is a retirement barrier only after Cancel; it does not prevent future
++// admission to a still-active generation. Timeout never discards its work debt.
++func (rs Resolvers) Wait(ctx context.Context) error {
++	var failures []error
++	for _, g := range rs.generations() {
++		if err := g.wait(ctx); err != nil {
++			failures = append(failures, err)
++		}
++	}
++	return errors.Join(failures...)
++}
++func (rs Resolvers) Stop(ctx context.Context) error { rs.Cancel(); return rs.Wait(ctx) }
++
+@@ -513,3 +841 @@
 -	rs.Resolver.ResetConnection()
 -	rs.ProxyResolver.ResetConnection()
 -	rs.DirectResolver.ResetConnection()
 +	resetResolverConnections(rs.Resolver, rs.ProxyResolver, rs.DirectResolver)
- }
- 
- func NewResolverFromClient(client dnsClient) *Resolver {
-@@ -565,7 +611,12 @@
- 		return
- 	}
- 
+@@ -526,0 +853,11 @@
++	generation := newResolverGeneration()
++	defer func() {
++		for _, r := range []*Resolver{rs.Resolver, rs.ProxyResolver, rs.DirectResolver} {
++			if r != nil {
++				r.generation = generation
++				if r.defaultResolver != nil {
++					r.defaultResolver.generation = generation
++				}
++			}
++		}
++	}()
+@@ -568 +905,6 @@
 -	makePolicy := func(policies []Policy) (dnsPolicies []dnsPolicy) {
 +	makePolicy := func(policies []Policy) (dnsPolicies []dnsPolicy, clients []dnsClient) {
 +		policyTransform := func(servers []NameServer) []dnsClient {
@@ -1168,31 +1513,16 @@
 +			clients = append(clients, transformed...)
 +			return transformed
 +		}
- 		var triePolicy *trie.DomainTrie[[]dnsClient]
- 		insertPolicy := func(policy dnsPolicy) {
- 			if triePolicy != nil {
-@@ -580,12 +631,12 @@
- 
- 		for _, policy := range policies {
- 			if policy.Matcher != nil {
+@@ -583 +925 @@
 -				insertPolicy(domainMatcherPolicy{matcher: policy.Matcher, dnsClients: cacheTransform(policy.NameServers)})
 +				insertPolicy(domainMatcherPolicy{matcher: policy.Matcher, dnsClients: policyTransform(policy.NameServers)})
- 			} else {
- 				if triePolicy == nil {
- 					triePolicy = trie.New[[]dnsClient]()
- 				}
+@@ -588 +930 @@
 -				if err := triePolicy.Insert(policy.Domain, cacheTransform(policy.NameServers)); err != nil {
 +				if err := triePolicy.Insert(policy.Domain, policyTransform(policy.NameServers)); err != nil {
- 					log.Warnln("[DNS] skip invalid nameserver policy: %s", err)
- 				}
- 			}
-@@ -594,23 +645,29 @@
- 		return
- 	}
- 
+@@ -596,0 +939,2 @@
 +	mainClients := cacheTransform(config.Main)
 +	policies, policyClients := makePolicy(config.Policy)
- 	r := &Resolver{
+@@ -598,5 +942,6 @@
 -		ipv6:        config.IPv6,
 -		main:        cacheTransform(config.Main),
 -		cache:       config.newCache(),
@@ -1204,14 +1534,10 @@
 +		ipv6Timeout:   time.Duration(config.IPv6Timeout) * time.Millisecond,
 +		policy:        policies,
 +		policyClients: policyClients,
- 	}
- 	r.defaultResolver = defaultResolver
- 	rs.Resolver = r
- 
- 	if len(config.ProxyServer) != 0 {
+@@ -607,0 +953,2 @@
 +		proxyMain := cacheTransform(config.ProxyServer)
 +		proxyPolicies, proxyClients := makePolicy(config.ProxyServerPolicy)
- 		rs.ProxyResolver = &Resolver{
+@@ -609,5 +956,6 @@
 -			ipv6:        config.IPv6,
 -			main:        cacheTransform(config.ProxyServer),
 -			cache:       config.newCache(),
@@ -1223,17 +1549,8 @@
 +			ipv6Timeout:   time.Duration(config.IPv6Timeout) * time.Millisecond,
 +			policy:        proxyPolicies,
 +			policyClients: proxyClients,
- 		}
- 	}
- 
-@@ -623,6 +680,7 @@
- 		}
- 		if config.DirectFollowPolicy {
- 			rs.DirectResolver.policy = r.policy
+@@ -625,0 +974 @@
 +			rs.DirectResolver.policyClients = r.policyClients
- 		}
- 	}
- 
 --- dns/server.go
 +++ dns/server.go
 @@ -4,0 +5,2 @@
@@ -1779,6 +2096,19 @@
 +	if err := doh.closeRetiredLocked(); err != nil {
 +		return nil, false, fmt.Errorf("retiring old DoH client: %w", err)
 +	}
+@@ -610,2 +666,10 @@
+-	go doh.probeQUIC(ctx, addr, probeTLSCfg, chQuic)
+-	go doh.probeTLS(ctx, probeTLSCfg, chTLS)
++	if !startResolverTask(ctx, func(ctx context.Context) {
++		doh.probeQUIC(ctx, addr, probeTLSCfg, chQuic)
++	}) {
++		chQuic <- context.Canceled
++	}
++	if !startResolverTask(ctx, func(ctx context.Context) {
++		doh.probeTLS(ctx, probeTLSCfg, chTLS)
++	}) {
++		chTLS <- context.Canceled
++	}
 --- component/resource/fetcher.go
 +++ component/resource/fetcher.go
 @@ -4,0 +5 @@
@@ -2231,3 +2561,164 @@
 +// cover health checks. Both components share the Android stop drain deadline.
 +func (pp *proxySetProvider) WaitClosed(ctx context.Context) error {
 +	return errors.Join(pp.Fetcher.WaitClosed(ctx), pp.baseProvider.WaitClosed(ctx))
+--- dns/client.go
++++ dns/client.go
+@@ -51 +51 @@
+-	go func() {
++	if !startResolverTask(ctx, func(ctx context.Context) {
+@@ -79 +79,3 @@
+-	}()
++	}) {
++		return nil, context.Canceled
++	}
+--- dns/dot.go
++++ dns/dot.go
+@@ -50 +50 @@
+-	go func() {
++	if !startResolverTask(ctx, func(ctx context.Context) {
+@@ -98,0 +99 @@
++				var evicted net.Conn
+@@ -100,3 +101,10 @@
+-				if t.connections.Len() >= maxOldDotConns {
+-					oldConn := t.connections.PopFront()
+-					go oldConn.Close() // close in a new goroutine, not blocking the current task
++				published := commitResolverTask(ctx, func() {
++					if t.connections.Len() >= maxOldDotConns {
++						evicted = t.connections.PopFront()
++					}
++					t.connections.PushBack(conn)
++				})
++				t.access.Unlock()
++				if !published {
++					_ = conn.Close()
++					return
+@@ -104,2 +112,7 @@
+-				t.connections.PushBack(conn)
+-				t.access.Unlock()
++				if evicted != nil {
++					if !startResolverTask(ctx, func(context.Context) { _ = evicted.Close() }) {
++						// The current exchange task retains the close debt. Never
++						// run arbitrary connection Close while holding access.
++						_ = evicted.Close()
++					}
++				}
+@@ -111 +124,3 @@
+-	}()
++	}) {
++		return nil, context.Canceled
++	}
+--- dns/dhcp.go
++++ dns/dhcp.go
+@@ -38,0 +39,3 @@
++	d.lock.Lock()
++	clients := append([]dnsClient(nil), d.clients...)
++	d.lock.Unlock()
+@@ -40 +43 @@
+-	for _, c := range d.clients {
++	for _, c := range clients {
+@@ -57 +60,4 @@
+-	for _, client := range d.clients {
++	d.lock.Lock()
++	clients := append([]dnsClient(nil), d.clients...)
++	d.lock.Unlock()
++	for _, client := range clients {
+@@ -69,32 +75 @@
+-		done := make(chan struct{})
+-
+-		d.done = done
+-
+-		go func() {
+-			ctx, cancel := context.WithTimeout(context.Background(), DHCPTimeout)
+-			defer cancel()
+-
+-			var res []dnsClient
+-			dns, err := dhcp.ResolveDNSFromDHCP(ctx, d.ifaceName)
+-			// dns never empty if err is nil
+-			if err == nil {
+-				nameserver := make([]NameServer, 0, len(dns))
+-				for _, item := range dns {
+-					nameserver = append(nameserver, NameServer{
+-						Addr:      net.JoinHostPort(item.String(), "53"),
+-						ProxyName: d.ifaceName,
+-					})
+-				}
+-
+-				res = transform(nameserver, nil)
+-			}
+-
+-			d.lock.Lock()
+-			defer d.lock.Unlock()
+-
+-			close(done)
+-
+-			d.done = nil
+-			d.clients = res
+-			d.err = err
+-		}()
++		d.startRefresh(ctx, dhcp.ResolveDNSFromDHCP)
+@@ -123,0 +99,34 @@
++	}
++}
++
++// Caller holds d.lock. Discovery remains a generation-owned task even when a
++// dirty cached answer lets resolve return immediately.
++func (d *dhcpClient) startRefresh(ctx context.Context, discover func(context.Context, string) ([]netip.Addr, error)) {
++	done := make(chan struct{})
++	d.done = done
++	taskCtx := resolverTaskContext(ctx)
++	if !startResolverTask(taskCtx, func(ctx context.Context) {
++		ctx, cancel := context.WithTimeout(ctx, DHCPTimeout)
++		defer cancel()
++		addresses, err := discover(ctx, d.ifaceName)
++		var clients []dnsClient
++		if err == nil && resolverRequestError(ctx) == nil {
++			nameservers := make([]NameServer, 0, len(addresses))
++			for _, address := range addresses {
++				nameservers = append(nameservers, NameServer{Addr: net.JoinHostPort(address.String(), "53"), ProxyName: d.ifaceName})
++			}
++			clients = transform(nameservers, nil)
++		}
++		d.lock.Lock()
++		defer d.lock.Unlock()
++		close(done)
++		d.done = nil
++		if !commitResolverTask(ctx, func() { d.clients = clients; d.err = err }) && d.clients == nil {
++			d.err = context.Canceled
++		}
++	}) {
++		close(done)
++		d.done = nil
++		if d.clients == nil {
++			d.err = context.Canceled
++		}
+--- dns/util.go
++++ dns/util.go
+@@ -426,0 +427,4 @@
++		done, ok := beginResolverTask(ctx)
++		if !ok {
++			continue
++		}
+@@ -427,0 +432 @@
++			defer done()
+--- component/dhcp/dhcp.go
++++ component/dhcp/dhcp.go
+@@ -23,0 +24 @@
++	owned := true
+@@ -25 +26,3 @@
+-		_ = conn.Close()
++		if owned {
++			_ = conn.Close()
++		}
+@@ -40 +43,3 @@
+-	go receiveOffer(conn, discovery.TransactionID, result)
++	owned = false // exchangeDNSFromDHCP closes the socket and joins its receiver.
++	return exchangeDNSFromDHCP(context, conn, discovery, result)
++}
+@@ -42 +47,6 @@
+-	_, err = conn.WriteTo(discovery.ToBytes(), &net.UDPAddr{IP: net.IPv4bcast, Port: 67})
++func exchangeDNSFromDHCP(context context.Context, conn net.PacketConn, discovery *dhcpv4.DHCPv4, result chan []netip.Addr) ([]netip.Addr, error) {
++	done := make(chan struct{})
++	go func() { defer close(done); receiveOffer(conn, discovery.TransactionID, result) }()
++	defer func() { _ = conn.Close(); <-done }()
++
++	_, err := conn.WriteTo(discovery.ToBytes(), &net.UDPAddr{IP: net.IPv4bcast, Port: 67})

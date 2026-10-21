@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -806,5 +807,56 @@ func TestConfigurationGenerationRejectsRequestsAcrossStop(t *testing.T) {
 	}
 	if err := lifecycle.checkConfigurationGeneration(lifecycle.stopGeneration.Load()); err != nil {
 		t.Fatalf("fresh configuration after stop was rejected: %v", err)
+	}
+}
+
+type lifecycleResolverGeneration struct {
+	canceled bool
+	waitErr  error
+	onWait   func()
+}
+
+func (g *lifecycleResolverGeneration) Cancel() { g.canceled = true }
+func (g *lifecycleResolverGeneration) Wait(context.Context) error {
+	if g.onWait != nil {
+		g.onWait()
+	}
+	return g.waitErr
+}
+
+func TestResolverGenerationsCancelAllBeforeJoinAndRetainDebt(t *testing.T) {
+	var lifecycle androidTunLifecycle
+	old := &lifecycleResolverGeneration{waitErr: context.DeadlineExceeded}
+	newer := &lifecycleResolverGeneration{}
+	for _, generation := range []*lifecycleResolverGeneration{old, newer} {
+		generation.onWait = func() {
+			if !old.canceled || !newer.canceled {
+				t.Fatal("one resolver was joined before every generation was canceled")
+			}
+		}
+		lifecycle.ownResolvers(generation)
+	}
+	// Duplicate registration must not create duplicate cleanup ownership.
+	lifecycle.ownResolvers(old)
+	lifecycle.cancelResolvers()
+	if !lifecycle.resolversStopped {
+		t.Fatal("stopped resolver generations remained attachable")
+	}
+	if err := lifecycle.waitResolvers(context.Background()); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("resolver timeout was lost: %v", err)
+	}
+	if len(lifecycle.resolvers) != 1 {
+		t.Fatalf("failed generation ownership lost or clean generation retained: %d", len(lifecycle.resolvers))
+	}
+	if _, ok := lifecycle.resolvers[old]; !ok {
+		t.Fatal("timed-out old generation is not owned for retry")
+	}
+	old.waitErr = nil
+	lifecycle.cancelResolvers()
+	if err := lifecycle.waitResolvers(context.Background()); err != nil || len(lifecycle.resolvers) != 0 {
+		t.Fatalf("retry did not drain generation ownership: %v", err)
+	}
+	if !lifecycle.resolversStopped {
+		t.Fatal("successful retry silently reopened a stopped generation")
 	}
 }

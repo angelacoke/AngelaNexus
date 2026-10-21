@@ -18,7 +18,7 @@ const workflow = yaml.load(read(".github/workflows/mihomo-android-native-build.y
 });
 
 // Exercise the real verification function with a complete pinned source fixture.
-for (const mode of ["clean", "exact-fetcher", "modified-fetcher", "exact-dns", "exact-doh", "exact-dns-server", "exact-server", "exact-statistics", "exact-late", "exact-quic", "marker-server", "modified-tracker", "modified-nat", "modified-connection", "modified-quic", "exact-tproxy", "modified-tproxy", "modified-dns", "modified-doh", "modified-dns-server", "unknown-dirty", "wrong-commit"]) {
+for (const mode of ["clean", "exact-fetcher", "modified-fetcher", "exact-dns", "exact-doh", "exact-dns-server", "exact-dns-client", "exact-dns-tls", "exact-dns-dhcp", "exact-dns-util", "exact-server", "exact-statistics", "exact-late", "exact-quic", "marker-server", "modified-tracker", "modified-nat", "modified-connection", "modified-quic", "exact-tproxy", "modified-tproxy", "modified-dns", "modified-doh", "modified-dns-server", "unknown-dirty", "wrong-commit"]) {
   test(`owned-fd source verification is fail-closed: ${mode}`, () => {
     const result = spawnSync("python3", ["-B", "-c", `
 import hashlib, importlib.util, json, pathlib, sys, tempfile
@@ -109,16 +109,18 @@ with tempfile.TemporaryDirectory() as tmp:
     m.subprocess.check_output = output
     try: m.verify_source(root)
     except SystemExit:
-        assert mode not in ("clean", "exact-fetcher", "exact-dns", "exact-doh", "exact-dns-server", "exact-server", "exact-statistics", "exact-late", "exact-quic", "exact-tproxy"), mode
-    else: assert mode in ("clean", "exact-fetcher", "exact-dns", "exact-doh", "exact-dns-server", "exact-server", "exact-statistics", "exact-late", "exact-quic", "exact-tproxy"), "accepted incompatible source: " + mode
+        assert mode not in ("clean", "exact-fetcher", "exact-dns", "exact-doh", "exact-dns-server", "exact-dns-client", "exact-dns-tls", "exact-dns-dhcp", "exact-dns-util", "exact-server", "exact-statistics", "exact-late", "exact-quic", "exact-tproxy"), mode
+    else: assert mode in ("clean", "exact-fetcher", "exact-dns", "exact-doh", "exact-dns-server", "exact-dns-client", "exact-dns-tls", "exact-dns-dhcp", "exact-dns-util", "exact-server", "exact-statistics", "exact-late", "exact-quic", "exact-tproxy"), "accepted incompatible source: " + mode
 `, adapter.pathname, mode], { encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr || result.stdout);
   });
 }
 
-// Directly exercise the thirteen-file late patch. Every rejected input/output/path
-// must leave all thirteen upstream files byte-for-byte untouched.
-for (const mode of ["clean", "all-final", "late-patch-tampered", "manager-input-tampered", "tracker-input-tampered", "tunnel-input-tampered", "nat-input-tampered", "connection-input-tampered", "quic-input-tampered", "quic-partial-final-mixed", "tproxy-input-tampered", "dns-input-tampered", "dns-server-input-tampered", "doh-input-tampered", "dns-output-hash-error", "dns-server-output-hash-error", "doh-output-hash-error", "fetcher-input-tampered", "fetcher-output-hash-error", "fetcher-partial-final-mixed", "fetcher-path-traversal", "fetcher-section-invalid", "log-input-tampered", "log-output-hash-error", "log-path-traversal", "log-section-invalid", "healthcheck-input-tampered", "healthcheck-output-hash-error", "healthcheck-partial-final-mixed", "healthcheck-path-traversal", "healthcheck-section-invalid", "proxy-provider-input-tampered", "proxy-provider-output-hash-error", "proxy-provider-partial-final-mixed", "proxy-provider-path-traversal", "proxy-provider-section-invalid", "unknown-source-section", "tproxy-output-hash-error", "connection-output-hash-error", "nat-output-hash-error", "last-output-hash-error", "last-section-invalid", "path-traversal-section", "partial-final-mixed", "dns-server-partial-final-mixed", "dns-server-path-traversal", "dns-server-section-invalid", "doh-partial-final-mixed", "doh-path-traversal", "doh-section-invalid"]) {
+// Exercise all reviewed source sections in their exact application order.
+// Every rejected input/output/path must leave every source byte untouched.
+const lateSourceNames = ["manager", "tracker", "tunnel", "nat", "connection", "quic", "tproxy", "dns", "dns-server", "doh", "fetcher", "log", "healthcheck", "proxy-provider", "client", "tls", "dhcp", "util", "dhcp-discovery"];
+const lateAtomicModes = ["clean", "all-final", "late-patch-tampered", "last-output-hash-error", "last-section-invalid", "path-traversal-section", "partial-final-mixed", "unknown-source-section", ...lateSourceNames.flatMap(name => ["input-tampered", "output-hash-error", "partial-final-mixed", "path-traversal", "section-invalid"].map(fault => `${name}-${fault}`))];
+for (const mode of lateAtomicModes) {
   test(`late patch application is exact and atomic: ${mode}`, () => {
     const result = spawnSync("python3", ["-B", "-c", `
 import difflib, hashlib, importlib.util, pathlib, sys, tempfile
@@ -126,66 +128,77 @@ spec = importlib.util.spec_from_file_location("adapter", sys.argv[1]); m = impor
 mode = sys.argv[2]
 with tempfile.TemporaryDirectory() as tmp:
     root = pathlib.Path(tmp); m.__file__ = str(root / "prepare-upstream.py")
-    rels = ["tunnel/statistic/manager.go", "tunnel/statistic/tracker.go", "tunnel/tunnel.go", "component/nat/table.go", "tunnel/connection.go", "component/sniffer/quic_sniffer.go", "listener/tproxy/packet.go", "dns/resolver.go", "dns/server.go", "dns/doh.go", "component/resource/fetcher.go", "log/log.go", "adapter/provider/healthcheck.go", "adapter/provider/provider.go"]
-    labels = ["manager", "tracker", "tunnel", "NAT", "connection", "quic", "packet", "resolver", "DNS server", "DNS DoH", "fetcher", "log", "healthcheck", "provider"]
-    packages = ["statistic", "statistic", "tunnel", "nat", "tunnel", "sniffer", "tproxy", "dns", "dns", "dns", "resource", "log", "provider", "provider"]
-    pristine = {r: f"package {packages[i]}\\n// pristine {labels[i]}\\n" for i, r in enumerate(rels)}
-    final = {r: f"package {packages[i]}\\n// final {labels[i]}\\n" for i, r in enumerate(rels)}
+    entries = [
+        ("manager", "tunnel/statistic/manager.go", "PATCHED_LATE_MANAGER_SHA256"),
+        ("tracker", "tunnel/statistic/tracker.go", "PATCHED_TRACKER_SHA256"),
+        ("tunnel", "tunnel/tunnel.go", "PATCHED_TUNNEL_SHA256"),
+        ("nat", "component/nat/table.go", "PATCHED_NAT_TABLE_SHA256"),
+        ("connection", "tunnel/connection.go", "PATCHED_CONNECTION_SHA256"),
+        ("quic", "component/sniffer/quic_sniffer.go", "PATCHED_QUIC_SNIFFER_SHA256"),
+        ("tproxy", "listener/tproxy/packet.go", "PATCHED_TPROXY_PACKET_SHA256"),
+        ("dns", "dns/resolver.go", "PATCHED_DNS_RESOLVER_SHA256"),
+        ("dns-server", "dns/server.go", "PATCHED_DNS_SERVER_SHA256"),
+        ("doh", "dns/doh.go", "PATCHED_DNS_DOH_SHA256"),
+        ("fetcher", "component/resource/fetcher.go", "PATCHED_PROVIDER_FETCHER_SHA256"),
+        ("log", "log/log.go", "PATCHED_LOG_SHA256"),
+        ("healthcheck", "adapter/provider/healthcheck.go", "PATCHED_PROVIDER_HEALTHCHECK_SHA256"),
+        ("proxy-provider", "adapter/provider/provider.go", "PATCHED_PROXY_PROVIDER_SHA256"),
+        ("client", "dns/client.go", "PATCHED_DNS_CLIENT_SHA256"),
+        ("tls", "dns/dot.go", "PATCHED_DNS_TLS_SHA256"),
+        ("dhcp", "dns/dhcp.go", "PATCHED_DNS_DHCP_SHA256"),
+        ("util", "dns/util.go", "PATCHED_DNS_UTIL_SHA256"),
+        ("dhcp-discovery", "component/dhcp/dhcp.go", "PATCHED_DHCP_DISCOVERY_SHA256"),
+    ]
+    rels = [r for _, r, _ in entries]
+    indices = {name:i for i,(name,_,_) in enumerate(entries)}
+    pristine = {r: f"package {pathlib.Path(r).parent.name}\\n// pristine {r}\\n" for r in rels}
+    final = {r: f"package {pathlib.Path(r).parent.name}\\n// final {r}\\n" for r in rels}
     for rel in rels:
         p = root / rel; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(pristine[rel])
     patch = root / "late-connections.patch"
     sections = ["".join(difflib.unified_diff(pristine[r].splitlines(True), final[r].splitlines(True), fromfile=r, tofile=r)) for r in rels]
-    patch.write_text("".join(sections)); m.LATE_CONNECTIONS_PATCH_SHA256 = m.sha256(patch)
-    m.EXPECTED = {r: m.sha256(root / r) for r in rels}
-    m.PATCHED_STATISTICS_SHA256 = hashlib.sha256(b"package statistic\\n// statistics output\\n").hexdigest()
-    # Late application starts after statistics.patch: manager is its statistics output.
-    (root / rels[0]).write_text("package statistic\\n// statistics output\\n")
-    hashes = ["PATCHED_LATE_MANAGER_SHA256", "PATCHED_TRACKER_SHA256", "PATCHED_TUNNEL_SHA256", "PATCHED_NAT_TABLE_SHA256", "PATCHED_CONNECTION_SHA256", "PATCHED_QUIC_SNIFFER_SHA256", "PATCHED_TPROXY_PACKET_SHA256", "PATCHED_DNS_RESOLVER_SHA256", "PATCHED_DNS_SERVER_SHA256", "PATCHED_DNS_DOH_SHA256", "PATCHED_PROVIDER_FETCHER_SHA256", "PATCHED_LOG_SHA256", "PATCHED_PROVIDER_HEALTHCHECK_SHA256", "PATCHED_PROXY_PROVIDER_SHA256"]
-    for name, rel in zip(hashes, rels): setattr(m, name, hashlib.sha256(final[rel].encode()).hexdigest())
-    m.EXPECTED[rels[0]] = m.sha256(root / rels[0])
-    # Generate manager section from the actual statistics output so patching is valid.
-    sections[0] = "".join(difflib.unified_diff((root / rels[0]).read_text().splitlines(True), final[rels[0]].splitlines(True), fromfile=rels[0], tofile=rels[0]))
-    patch.write_text("".join(sections)); m.LATE_CONNECTIONS_PATCH_SHA256 = m.sha256(patch)
-    if mode == "all-final":
-        for r in rels: (root / r).write_text(final[r])
-    elif mode == "late-patch-tampered": patch.write_text(patch.read_text() + "tampered\\n"); m.LATE_CONNECTIONS_PATCH_SHA256 = "0" * 64
-    elif mode == "last-output-hash-error": m.PATCHED_QUIC_SNIFFER_SHA256 = "0" * 64
-    elif mode == "last-section-invalid":
-        sections[5] = "--- component/sniffer/quic_sniffer.go\\n+++ component/sniffer/quic_sniffer.go\\n@@ invalid\\nnot a patch\\n"; patch.write_text("".join(sections)); m.LATE_CONNECTIONS_PATCH_SHA256 = m.sha256(patch)
-    elif mode.endswith("-input-tampered"):
-        prefix = mode.removesuffix("-input-tampered")
-        index = {"manager": 0, "tracker": 1, "tunnel": 2, "nat": 3, "connection": 4, "quic": 5, "tproxy": 6, "dns": 7, "dns-server": 8, "doh": 9, "fetcher": 10, "log": 11, "healthcheck": 12, "proxy-provider": 13}[prefix]
-        (root / rels[index]).write_text("wrong " + prefix + "\\n")
-    elif mode.endswith("-output-hash-error"):
-        prefix = mode.removesuffix("-output-hash-error")
-        index = {"dns": 7, "dns-server": 8, "doh": 9, "fetcher": 10, "log": 11, "healthcheck": 12, "proxy-provider": 13, "connection": 4, "nat": 3, "quic": 5, "tproxy": 6}[prefix]
-        setattr(m, hashes[index], "0" * 64)
-    elif mode.endswith("-partial-final-mixed"):
-        prefix = mode.removesuffix("-partial-final-mixed")
-        index = {"dns-server": 8, "doh": 9, "fetcher": 10, "healthcheck": 12, "proxy-provider": 13, "quic": 5}[prefix]
-        (root / rels[index]).write_text(final[rels[index]])
-    elif mode.endswith("-path-traversal"):
-        prefix = mode.removesuffix("-path-traversal")
-        index = {"dns-server": 8, "doh": 9, "fetcher": 10, "log": 11, "healthcheck": 12, "proxy-provider": 13}[prefix]
-        sections[index] = sections[index].replace(f"--- {rels[index]}\\n+++ {rels[index]}\\n", "--- ../escape.go\\n+++ ../escape.go\\n", 1); patch.write_text("".join(sections)); m.LATE_CONNECTIONS_PATCH_SHA256 = m.sha256(patch)
-    elif mode.endswith("-section-invalid"):
-        prefix = mode.removesuffix("-section-invalid")
-        index = {"dns-server": 8, "doh": 9, "fetcher": 10, "log": 11, "healthcheck": 12, "proxy-provider": 13}[prefix]
-        sections[index] = f"--- {rels[index]}\\n+++ {rels[index]}\\n@@ invalid\\nnot a patch\\n"; patch.write_text("".join(sections)); m.LATE_CONNECTIONS_PATCH_SHA256 = m.sha256(patch)
+    m.EXPECTED = {r:m.sha256(root/r) for r in rels}
+    statistics = "package statistic\\n// statistics output\\n"
+    m.PATCHED_STATISTICS_SHA256 = hashlib.sha256(statistics.encode()).hexdigest()
+    (root/rels[0]).write_text(statistics)
+    sections[0] = "".join(difflib.unified_diff(statistics.splitlines(True), final[rels[0]].splitlines(True), fromfile=rels[0], tofile=rels[0]))
+    for _,rel,name in entries: setattr(m,name,hashlib.sha256(final[rel].encode()).hexdigest())
+    patch.write_text("".join(sections)); m.LATE_CONNECTIONS_PATCH_SHA256=m.sha256(patch)
+    if mode == "clean": pass
+    elif mode == "all-final":
+        for r in rels:(root/r).write_text(final[r])
+    elif mode == "late-patch-tampered":
+        patch.write_text(patch.read_text()+"tampered\\n")
     elif mode == "unknown-source-section":
-        sections.append("--- unknown/source.go\\n+++ unknown/source.go\\n@@ -0,0 +1 @@\\n+unknown\\n"); patch.write_text("".join(sections)); m.LATE_CONNECTIONS_PATCH_SHA256 = m.sha256(patch)
-    elif mode == "path-traversal-section":
-        sections[5] = sections[5].replace("--- component/sniffer/quic_sniffer.go\\n+++ component/sniffer/quic_sniffer.go\\n", "--- ../escape.go\\n+++ ../escape.go\\n", 1); patch.write_text("".join(sections)); m.LATE_CONNECTIONS_PATCH_SHA256 = m.sha256(patch)
-    elif mode == "partial-final-mixed": (root / rels[2]).write_text(final[rels[2]])
-    before = {r: (root / r).read_bytes() for r in rels}
-    try:
-        m.apply_late(root); m.apply_late(root)
-    except SystemExit:
-        assert mode not in ("clean", "all-final"), mode
-        assert {r: (root / r).read_bytes() for r in rels} == before, "failed late verification modified source"
+        sections.append("--- unknown/source.go\\n+++ unknown/source.go\\n@@ -0,0 +1 @@\\n+unknown\\n")
+        patch.write_text("".join(sections));m.LATE_CONNECTIONS_PATCH_SHA256=m.sha256(patch)
+    elif mode == "partial-final-mixed": (root/rels[2]).write_text(final[rels[2]])
     else:
-        assert mode in ("clean", "all-final"), mode
-        assert {r: (root / r).read_text() for r in rels} == final
+        if mode == "last-output-hash-error": index, fault = len(entries)-1, "output-hash-error"
+        elif mode == "last-section-invalid": index, fault = len(entries)-1, "section-invalid"
+        elif mode == "path-traversal-section": index, fault = indices["quic"], "path-traversal"
+        else:
+            faults = ["input-tampered", "output-hash-error", "partial-final-mixed", "path-traversal", "section-invalid"]
+            fault = next(f for f in faults if mode.endswith("-"+f))
+            index = indices[mode.removesuffix("-"+fault)]
+        rel=rels[index]
+        if fault == "input-tampered":(root/rel).write_text("wrong source\\n")
+        elif fault == "output-hash-error":setattr(m,entries[index][2],"0"*64)
+        elif fault == "partial-final-mixed":(root/rel).write_text(final[rel])
+        elif fault == "path-traversal":
+            sections[index]=sections[index].replace(f"--- {rel}\\n+++ {rel}\\n","--- ../escape.go\\n+++ ../escape.go\\n",1)
+            patch.write_text("".join(sections));m.LATE_CONNECTIONS_PATCH_SHA256=m.sha256(patch)
+        elif fault == "section-invalid":
+            sections[index]=f"--- {rel}\\n+++ {rel}\\n@@ invalid\\nnot a patch\\n"
+            patch.write_text("".join(sections));m.LATE_CONNECTIONS_PATCH_SHA256=m.sha256(patch)
+    before={r:(root/r).read_bytes() for r in rels}
+    try:m.apply_late(root);m.apply_late(root)
+    except SystemExit:
+        assert mode not in ("clean","all-final"),mode
+        assert {r:(root/r).read_bytes() for r in rels}==before,"failed validation modified source"
+    else:
+        assert mode in ("clean","all-final"),"accepted incompatible patch: "+mode
+        assert {r:(root/r).read_text() for r in rels}==final
 `, adapter.pathname, mode], { encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr || result.stdout);
   });

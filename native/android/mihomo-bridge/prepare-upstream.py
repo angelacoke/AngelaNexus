@@ -19,6 +19,11 @@ COMMIT = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36"
 SING_TUN_VERSION = "v0.4.27"
 # Hashes are of the pristine pinned checkout/module files, before this adapter.
 EXPECTED = {
+    "dns/client.go": "b11cea570b82d782aa222a1fa994a91534aa845e340ffac0cc55b3fce7fad9c6",
+    "dns/dot.go": "0c018bc055d511c0e87dfdc36c64cc4a1dcd88b6f07251a37864820749a62049",
+    "dns/dhcp.go": "0e3f4b9faae24e1c3b0928a5876cd6fe0986ebf8649f88e31c63ea492a07a5dc",
+    "dns/util.go": "24831a2b5e10fe3b8d074d537a1512025adc298968b3afa6bdef0ac3e10bae6e",
+    "component/dhcp/dhcp.go": "ce31f33684bfa587249e2559aead5a03567ad61613d8e6773b5ec3685ad5ee07",
     "dns/doh.go": "1ba0170bed4aabf6b295471f9fddb03da20122d339526a97170dff537fbde57b",
     "dns/server.go": "a825b81da408052892bbc5333525e39a79eff5113895ae63cc0bcc60442d763b",
     "log/log.go": "5ed821bf17536b7a012506baa1fe00550451c81b7f36e291799234ccdd7940df",
@@ -44,7 +49,7 @@ SING_TUN_TUN_LINUX_SHA256 = "34d3c504a859006bf2981709d86e104c9a2b7c9542ef5895201
 PATCHED_SERVER_SHA256 = "1a77f3a7416b8074bc5e91c4944079c059fe766991bccfaa921780ad0068b8e1"
 PATCHED_STATISTICS_SHA256 = "316e372b7de3735a9a44c8f2357092ee1023fb21c6bbb899ea6a5228cc1dbb09"
 STATISTICS_PATCH_SHA256 = "293330f8b4ba6ed0fb318ea43f5bb759b0946fa98f44c563131135441d4c124b"
-LATE_CONNECTIONS_PATCH_SHA256 = "c6eb8a6c5fda6c8a6fe0ce9e6ae27fb0d2343b46917fb7d1de6c31606a4f39f7"
+LATE_CONNECTIONS_PATCH_SHA256 = "127ae31afac4404edcf4d16b7c16e9db573394b306bf726f5b6175f522e55555"
 PATCHED_LATE_MANAGER_SHA256 = "3b72343588f7d84cd6665798dc454fee02af2caaf9afe27177c337f9b6dc02ca"
 PATCHED_TPROXY_PACKET_SHA256 = "f417e4776d8dcdeb97b194fff2de83b76f3cf8e181ae01ee3fc15218fb376c5f"
 PATCHED_NAT_TABLE_SHA256 = "a024e1281fea19bdfcf67d4b8b72f9924d87bcd45a0d603a4e7555e05dd447d4"
@@ -53,7 +58,7 @@ PATCHED_TRACKER_SHA256 = "790b996d9e8144ecc453c6624b11664f2956d068e8ccb284f046be
 PATCHED_QUIC_SNIFFER_SHA256 = "51a3e923cf1d58a5fe05c43793bb53f5edfb588e61cafd6d7f82d42e4dd11a9b"
 PATCHED_TUNNEL_SHA256 = "380428b14dc6e45b6f52298df87cdec24601b2188d5358aacb2d2e0e14c1224c"
 
-PATCHED_DNS_RESOLVER_SHA256 = "4d72255d1e672cba762752dfd732353d55ada80a6bfc5bbfda5600a046c14890"
+PATCHED_DNS_RESOLVER_SHA256 = "c441ac4c55af90b7afc0e1c3d7bfba34ac0885f4941e68daa95db66666072ecc"
 
 
 PATCHED_LOG_SHA256 = "0e81036280690bc39feabdb54181f805663706dc17c7c42060b7db4249b3e70b"
@@ -63,9 +68,15 @@ PATCHED_PROVIDER_FETCHER_SHA256 = "9712e8b28c32345bd186696e2cd6b6048a91a3f7904eb
 PATCHED_PROVIDER_HEALTHCHECK_SHA256 = "ec8bbc125c942b0aab0e2953e9eef070f5d2a9f3c54092388f3c80efe9ce6e1a"
 PATCHED_PROXY_PROVIDER_SHA256 = "3bb335935a0599ef6c4f05d72e52a13ee7fa35f9dee79f093a7e340685800a06"
 
-PATCHED_DNS_DOH_SHA256 = "91f31a7eaed7be72816056a643221b66f6c1c4875f6860f72881eceda1ac019a"
+PATCHED_DNS_DOH_SHA256 = "f23acc9aec7d8d93c8bb10de507b7dca536877076880240fec037383bf847c8d"
 
 PATCHED_DNS_SERVER_SHA256 = "fdf923b1091f6440a843443609a61f2da6adb5ebd02e114c3731a3b0134b9a46"
+
+PATCHED_DNS_CLIENT_SHA256 = "6b3118ba290776ed661fdaeb0dc6d7728329a6e55f1b966b5f3fe15b863b8b25"
+PATCHED_DNS_TLS_SHA256 = "b810d265b0b7c468b0c1eb6c846e8a70365dc07eca054b1fa287b3a8f18ffad6"
+PATCHED_DNS_DHCP_SHA256 = "f2ac556bfe0475b39f01d494c99abceb7d93086f1fd6fbd503641315fc53896a"
+PATCHED_DNS_UTIL_SHA256 = "aee38a085812395c5719b149abdb1a475082c43a64df32fa21894a137944b8b1"
+PATCHED_DHCP_DISCOVERY_SHA256 = "6db2c7543c69d5e36ac68345f6071e9bbc72b63f97e9e37e3939500bd8c38bdb"
 
 def sha256(path: Path) -> str:
     h = hashlib.sha256()
@@ -110,6 +121,13 @@ def verify_source(root: Path) -> None:
     tproxy_packet = root / "listener/tproxy/packet.go"
     tproxy_packet_hash = sha256(tproxy_packet) if tproxy_packet.is_file() else None
     dns_doh_hash = sha256(root / "dns/doh.go") if (root / "dns/doh.go").is_file() else None
+    extra_dns_hashes = {
+        "dns/client.go": PATCHED_DNS_CLIENT_SHA256,
+        "dns/dot.go": PATCHED_DNS_TLS_SHA256,
+        "dns/dhcp.go": PATCHED_DNS_DHCP_SHA256,
+        "dns/util.go": PATCHED_DNS_UTIL_SHA256,
+        "component/dhcp/dhcp.go": PATCHED_DHCP_DISCOVERY_SHA256,
+    }
     dns_server = root / "dns/server.go"
     dns_server_hash = sha256(dns_server) if dns_server.is_file() else None
     dns_resolver = root / "dns/resolver.go"
@@ -129,6 +147,9 @@ def verify_source(root: Path) -> None:
         "adapter/provider/angelanexus_healthcheck_lifecycle_integration_test.go",
         "dns/angelanexus_dns_doh_lifecycle_integration_test.go",
         "dns/angelanexus_dns_reset_integration_test.go",
+        "dns/angelanexus_dns_resolver_lifecycle_integration_test.go",
+        "dns/angelanexus_dns_transport_generation_integration_test.go",
+        "component/dhcp/angelanexus_dhcp_discovery_lifecycle_integration_test.go",
         "dns/angelanexus_dns_server_lifecycle_integration_test.go",
         "angelanexus_android/bridge_dns_integration_test.go",
         "angelanexus_android/bridge.go",
@@ -147,6 +168,8 @@ def verify_source(root: Path) -> None:
     }
     for line in dirty.splitlines():
         path = line[3:] if len(line) >= 4 else ""
+        if path in extra_dns_hashes and sha256(root / path) == extra_dns_hashes[path]:
+            continue
         if path == "listener/sing_tun/server.go" and patched_hash == PATCHED_SERVER_SHA256:
             continue
         if path == "component/nat/table.go" and nat_table_hash == PATCHED_NAT_TABLE_SHA256:
@@ -185,6 +208,8 @@ def verify_source(root: Path) -> None:
             fail(f"missing pinned source file: {rel}")
         actual_hash = sha256(path)
         if actual_hash != expected:
+            if rel in extra_dns_hashes and actual_hash == extra_dns_hashes[rel]:
+                continue
             # A patched server.go is handled below, but every other source must
             # remain pristine.  Idempotent reruns are checked by markers.
             if rel == "listener/sing_tun/server.go" and patched_hash == PATCHED_SERVER_SHA256:
@@ -340,7 +365,12 @@ def apply_late(root: Path) -> None:
              "component/resource/fetcher.go": PATCHED_PROVIDER_FETCHER_SHA256,
              "log/log.go": PATCHED_LOG_SHA256,
              "adapter/provider/healthcheck.go": PATCHED_PROVIDER_HEALTHCHECK_SHA256,
-             "adapter/provider/provider.go": PATCHED_PROXY_PROVIDER_SHA256}
+             "adapter/provider/provider.go": PATCHED_PROXY_PROVIDER_SHA256,
+             "dns/client.go": PATCHED_DNS_CLIENT_SHA256,
+             "dns/dot.go": PATCHED_DNS_TLS_SHA256,
+             "dns/dhcp.go": PATCHED_DNS_DHCP_SHA256,
+             "dns/util.go": PATCHED_DNS_UTIL_SHA256,
+             "component/dhcp/dhcp.go": PATCHED_DHCP_DISCOVERY_SHA256}
     if all(sha256(root / rel) == digest for rel, digest in paths.items()):
         return
     inputs = {"tunnel/statistic/manager.go": PATCHED_STATISTICS_SHA256,
@@ -356,7 +386,12 @@ def apply_late(root: Path) -> None:
               "component/resource/fetcher.go": EXPECTED["component/resource/fetcher.go"],
               "log/log.go": EXPECTED["log/log.go"],
              "adapter/provider/healthcheck.go": EXPECTED["adapter/provider/healthcheck.go"],
-             "adapter/provider/provider.go": EXPECTED["adapter/provider/provider.go"]}
+             "adapter/provider/provider.go": EXPECTED["adapter/provider/provider.go"],
+             "dns/client.go": EXPECTED["dns/client.go"],
+             "dns/dot.go": EXPECTED["dns/dot.go"],
+             "dns/dhcp.go": EXPECTED["dns/dhcp.go"],
+             "dns/util.go": EXPECTED["dns/util.go"],
+             "component/dhcp/dhcp.go": EXPECTED["component/dhcp/dhcp.go"]}
     for rel, digest in inputs.items():
         if sha256(root / rel) != digest:
             fail(f"late patch input {rel} does not match reviewed source")

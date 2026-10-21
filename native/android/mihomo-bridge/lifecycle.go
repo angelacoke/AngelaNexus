@@ -44,8 +44,12 @@ type androidTunLifecycle struct {
 	providers        map[io.Closer]string
 	providersStopped bool
 	// Serialized by androidTunMu. A failed bounded DNS stop retains upstream
-	// listener ownership; only a successful explicit stop retry clears this debt.
+	// listener/resolver ownership; only a successful explicit stop retry clears debt.
 	dnsCleanupPending bool
+	// Retain every applied generation, including configurations replaced or disabled
+	// before explicit stop. Stopped resolvers cannot be reopened by TUN attachment.
+	resolvers        map[androidResolverGeneration]struct{}
+	resolversStopped bool
 }
 
 func (l *androidTunLifecycle) socketHook(conn syscall.RawConn, protect func(int) bool) error {
@@ -275,6 +279,43 @@ func (l *androidTunLifecycle) closeProviders(ctx context.Context) error {
 		if !failed[provider] {
 			delete(l.providers, provider)
 		}
+	}
+	return errors.Join(failures...)
+}
+
+// Concrete DNS resolver sets are comparable values of pointer roots. Keeping this
+// interface here lets the ownership layer be tested without importing the kernel.
+type androidResolverGeneration interface {
+	Cancel()
+	Wait(context.Context) error
+}
+
+func (l *androidTunLifecycle) ownResolvers(generation androidResolverGeneration) {
+	if l.resolvers == nil {
+		l.resolvers = make(map[androidResolverGeneration]struct{})
+	}
+	l.resolvers[generation] = struct{}{}
+}
+
+// Cancel all generations before waiting for any worker. A timed-out generation
+// remains an owner and a replacement barrier until a subsequent stop joins it.
+func (l *androidTunLifecycle) cancelResolvers() {
+	if len(l.resolvers) != 0 {
+		l.resolversStopped = true
+	}
+	for generation := range l.resolvers {
+		generation.Cancel()
+	}
+}
+
+func (l *androidTunLifecycle) waitResolvers(ctx context.Context) error {
+	var failures []error
+	for generation := range l.resolvers {
+		if err := generation.Wait(ctx); err != nil {
+			failures = append(failures, fmt.Errorf("drain DNS resolver generation: %w", err))
+			continue
+		}
+		delete(l.resolvers, generation)
 	}
 	return errors.Join(failures...)
 }
