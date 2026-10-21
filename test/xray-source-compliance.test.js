@@ -144,3 +144,24 @@ test("Xray toolchain is isolated from the original fixed sing-box toolchain", ()
   const native = yaml.load(readFileSync(join(root, ".github/workflows/xray-android-native-build.yml"), "utf8"));
   assert.equal(native.env.GOTOOLCHAIN, "go1.27.1");
 });
+
+test("Portal regressions authenticate the reachable VLESS entry and independent old-reverse controls", () => {
+  const lock = JSON.parse(readFileSync(join(bridge, "source-lock.json")));
+  for (const rel of ["app/reverse/portal.go", "proxy/vless/inbound/inbound.go"]) {
+    assert.match(lock.core.files[rel].before, /^[a-f0-9]{64}$/);
+    assert.match(lock.core.files[rel].after, /^[a-f0-9]{64}$/);
+    assert.notEqual(lock.core.files[rel].before, lock.core.files[rel].after);
+  }
+  assert.ok(lock.tests.core["app/reverse/angelanexus_portal_lifecycle_test.go"]);
+  assert.ok(lock.tests.core["proxy/vless/inbound/angelanexus_reverse_lifecycle_test.go"]);
+  assert.ok(lock.tests.core["app/proxyman/outbound/angelanexus_reverse_ownership_test.go"]);
+  assert.equal(lock.tests.wrapper["xray/stop_portal_test.go"].sha256, sha(join(bridge, "stop_portal_test.go")));
+  const host = readFileSync(join(bridge, "test-host.sh"), "utf8");
+  assert.match(host, /\.\/proxy\/vless\/inbound/);
+  assert.match(host, /go test -race -count=3 -timeout=90s -run '\^TestAngelaNexusStopClosesPortalTransport\$'/);
+  assert.match(host, /for rel in app\/reverse\/portal.go proxy\/vless\/inbound\/inbound.go/);
+  assert.match(host, /cp "\$CORE\/\$rel" "\$NEGATIVE\/Xray-core\/\$rel"/);
+  assert.match(host, /portal-old-\$attempt\.log/);
+  assert.match(host, /Portal peer did not observe clean EOF after StopXray/);
+  assert.match(host, /Portal owned mux workers remain after StopXray/);
+});

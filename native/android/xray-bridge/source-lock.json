@@ -28,7 +28,7 @@
       },
       "app/proxyman/outbound/outbound.go": {
         "before": "dea17216b8c93544f8136047c11a77ceb7c684ecf0837117131c50eb956f0eea",
-        "after": "403ebf791c3a10f5c63e8f1f2b36d5dadfe63c37b56e3541c13dba89e45c3866"
+        "after": "59db9772702a501440d7c0f669a5c2ec91fa0dd409b58eaf4f5bb0c843403bf3"
       },
       "common/mux/client.go": {
         "before": "82399a810093ef5e761980faa0053f81340370d92f366b39dc5765a408d96478",
@@ -49,12 +49,20 @@
       "go.sum": {
         "before": "a636d6f564c23070b8034ff81451069c6d674ea26ded28e8b2a70be7dd0aa24a",
         "after": "a636d6f564c23070b8034ff81451069c6d674ea26ded28e8b2a70be7dd0aa24a"
+      },
+      "app/reverse/portal.go": {
+        "before": "60c416f100b1b23a91f2b112939a3062e0119528214dc0f518309c8d2953ca9e",
+        "after": "da638636c20d413349fbad844bd1fa79578718a4bbebe352034b846d943f14f1"
+      },
+      "proxy/vless/inbound/inbound.go": {
+        "before": "085d5050213104dda60f5385982372e062541d7e0ff3a1d58f9e42d33b06b84a",
+        "after": "1d8741f7d831e713b324bfaa97dfa480d2f98a74c30dc38650c33964306b35af"
       }
     }
   },
   "patch": {
     "file": "core-lifecycle.patch",
-    "sha256": "12530f21af0956d5f652c7e89b228250ef4773e0e5d5af341108154335a4973b"
+    "sha256": "2fcea71597651dbc602b7b927fb75bf55fd3789000fbd0e02263c23f55c56311"
   },
   "tests": {
     "core": {
@@ -65,12 +73,28 @@
       "proxy/vless/outbound/angelanexus_lifecycle_test.go": {
         "file": "vless_lifecycle_test.go",
         "sha256": "c85921c54cf9cc22b95890d0da0a2075ad6161a08a8f9766529207661445a8de"
+      },
+      "app/reverse/angelanexus_portal_lifecycle_test.go": {
+        "file": "portal_lifecycle_test.go",
+        "sha256": "b504a246726c0dc49d210bbc24c1c9829d62c23608ba0e7cd52ec91ac7475617"
+      },
+      "proxy/vless/inbound/angelanexus_reverse_lifecycle_test.go": {
+        "file": "reverse_lifecycle_test.go",
+        "sha256": "90a1ebdd88e28e41db03474535eaf6ab15bbde72204a01c1ee966aa92bbabe10"
+      },
+      "app/proxyman/outbound/angelanexus_reverse_ownership_test.go": {
+        "file": "reverse_ownership_test.go",
+        "sha256": "49b532a26c85de0017adb19bc3ab07cb312ea7f25f7fa5fd1f7a55a56e2ae881"
       }
     },
     "wrapper": {
       "xray/stop_mux_test.go": {
         "file": "stop_mux_test.go",
         "sha256": "24141dd232047b6f1d0c9fab73b63d2b09545f5bfdd8eb4d2ce86c431e89fca7"
+      },
+      "xray/stop_portal_test.go": {
+        "file": "stop_portal_test.go",
+        "sha256": "3ec926c6fc74e81b0305cf848a3839352badd906a045a9c1b0e60b655f0ab130"
       }
     }
   }

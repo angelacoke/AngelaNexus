@@ -76,7 +76,7 @@ jobs:
           git -C "$RUNNER_TEMP/xray-pair/Xray-core" fetch origin "$CORE_COMMIT"
           git -C "$RUNNER_TEMP/xray-pair/Xray-core" checkout --detach "$CORE_COMMIT"
           python3 native/android/xray-bridge/prepare-upstream.py --wrapper "$RUNNER_TEMP/xray-pair/libXray" --core "$RUNNER_TEMP/xray-pair/Xray-core" --provenance "$RUNNER_TEMP/xray/libxray-provenance-${{ matrix.abi }}.json"
-      - name: Full related upstream race and three mux-only negative controls
+      - name: Full related upstream race and independent mux and Portal negative controls
         shell: bash
         env:
           WRAPPER: ${{ runner.temp }}/xray-pair/libXray

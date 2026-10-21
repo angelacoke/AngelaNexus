@@ -12,10 +12,12 @@ python3 "$HERE/prepare-upstream.py" --wrapper "$WRAPPER" --core "$CORE" --verify
 
 # Run the complete relevant upstream packages, including the previously racy
 # TestTagsCache. Never select only our new tests or suppress a race report.
-(cd "$CORE" && go test -race -count=3 -timeout=180s ./common/mux ./app/proxyman/outbound ./app/reverse ./proxy/vless/outbound)
+(cd "$CORE" && go test -race -count=3 -timeout=180s ./common/mux ./app/proxyman/outbound ./app/reverse ./proxy/vless/outbound ./proxy/vless/inbound)
 (cd "$WRAPPER" && go test -race -count=3 -timeout=180s ./xray)
 (cd "$WRAPPER" && go test -list '^TestAngelaNexusStopClosesMuxTransport$' ./xray) | grep -Fx 'TestAngelaNexusStopClosesMuxTransport'
 (cd "$WRAPPER" && go test -race -count=3 -timeout=90s -run '^TestAngelaNexusStopClosesMuxTransport$' ./xray)
+(cd "$WRAPPER" && go test -list '^TestAngelaNexusStopClosesPortalTransport$' ./xray) | grep -Fx 'TestAngelaNexusStopClosesPortalTransport'
+(cd "$WRAPPER" && go test -race -count=3 -timeout=90s -run '^TestAngelaNexusStopClosesPortalTransport$' ./xray)
 
 # Disposable copies retain the Manager/test race fixes and VLESS task join.
 # Only the two mux implementation files are restored to the pinned old version.
@@ -47,5 +49,28 @@ for attempt in 1 2 3; do
   }
   echo "negative $attempt/3 intercepted pinned old mux close behavior"
 done
+# Independent Portal controls retain the reviewed mux fix. Restore only the
+# Portal/picker and VLESS reverse admission implementation, not their tests.
+for rel in common/mux/client.go common/mux/session.go; do
+  cp "$CORE/$rel" "$NEGATIVE/Xray-core/$rel"
+done
+for rel in app/reverse/portal.go proxy/vless/inbound/inbound.go; do
+  git -C "$CORE" show "b26a91de4f3294e26a0ad0a970b81a386a41f789:$rel" > "$NEGATIVE/Xray-core/$rel"
+done
+for attempt in 1 2 3; do
+  log="$LOG_DIR/portal-old-$attempt.log"
+  set +e
+  (cd "$NEGATIVE/libXray" && go test -race -count=1 -timeout=45s -run '^TestAngelaNexusStopClosesPortalTransport$' ./xray) > "$log" 2>&1
+  rc=$?
+  set -e
+  [[ $rc -ne 0 ]] || { echo "Portal negative $attempt unexpectedly passed" >&2; exit 1; }
+  if grep -Eiq 'DATA RACE|panic:|test timed out|build failed|cannot find package|no test files' "$log"; then
+    cat "$log"; echo "Portal negative $attempt failed for an unrelated reason" >&2; exit 1
+  fi
+  grep -Fq -- '--- FAIL: TestAngelaNexusStopClosesPortalTransport' "$log"
+  grep -Fq 'Portal peer did not observe clean EOF after StopXray' "$log"
+  grep -Fq 'Portal owned mux workers remain after StopXray' "$log"
+  echo "Portal negative $attempt/3 intercepted pinned old reverse close behavior"
+done
 python3 "$HERE/prepare-upstream.py" --wrapper "$WRAPPER" --core "$CORE" --verify-prepared
-echo 'All pinned Xray host race and three mux-only negative gates passed'
+echo 'All pinned Xray host race, three mux-only and three Portal-only negative gates passed'

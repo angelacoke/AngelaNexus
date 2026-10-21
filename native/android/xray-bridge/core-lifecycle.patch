@@ -62,10 +62,33 @@ index 70294429..2c67332c 100644
  	wg_get.Wait()
  }
 diff --git a/app/proxyman/outbound/outbound.go b/app/proxyman/outbound/outbound.go
-index d8654288..1e0aa071 100644
+index d8654288..2fd96cc1 100644
 --- a/app/proxyman/outbound/outbound.go
 +++ b/app/proxyman/outbound/outbound.go
-@@ -162,14 +162,14 @@ func (m *Manager) ListHandlers(ctx context.Context) []outbound.Handler {
+@@ -145,6 +145,22 @@ func (m *Manager) RemoveHandler(ctx context.Context, tag string) error {
+ 	return nil
+ }
+ 
++// RemoveHandlerIf removes only the exact owner under the same manager lock.
++// The caller closes resources first; no handler callbacks run while locked.
++func (m *Manager) RemoveHandlerIf(ctx context.Context, tag string, owner outbound.Handler) error {
++	m.access.Lock()
++	defer m.access.Unlock()
++	if m.taggedHandler[tag] != owner {
++		return nil
++	}
++	m.tagsCache = &sync.Map{}
++	delete(m.taggedHandler, tag)
++	if m.defaultHandler == owner {
++		m.defaultHandler = nil
++	}
++	return nil
++}
++
+ // ListHandlers implements outbound.Manager.
+ func (m *Manager) ListHandlers(ctx context.Context) []outbound.Handler {
+ 	m.access.RLock()
+@@ -162,14 +178,14 @@ func (m *Manager) ListHandlers(ctx context.Context) []outbound.Handler {
  
  // Select implements outbound.HandlerSelector.
  func (m *Manager) Select(selectors []string) []string {
@@ -83,6 +106,390 @@ index d8654288..1e0aa071 100644
  	tags := make([]string, 0, len(selectors))
  
  	for tag := range m.taggedHandler {
+diff --git a/app/reverse/portal.go b/app/reverse/portal.go
+index 0e595983..fe2bc48d 100644
+--- a/app/reverse/portal.go
++++ b/app/reverse/portal.go
+@@ -3,6 +3,7 @@ package reverse
+ import (
+ 	"context"
+ 	"sync"
++	"sync/atomic"
+ 	"time"
+ 
+ 	"github.com/xtls/xray-core/common"
+@@ -12,8 +13,6 @@ import (
+ 	"github.com/xtls/xray-core/common/net"
+ 	"github.com/xtls/xray-core/common/serial"
+ 	"github.com/xtls/xray-core/common/session"
+-	"github.com/xtls/xray-core/common/signal"
+-	"github.com/xtls/xray-core/common/task"
+ 	"github.com/xtls/xray-core/features/outbound"
+ 	"github.com/xtls/xray-core/transport"
+ 	"github.com/xtls/xray-core/transport/pipe"
+@@ -21,11 +20,15 @@ import (
+ )
+ 
+ type Portal struct {
+-	ohm    outbound.Manager
+-	tag    string
+-	domain string
+-	picker *StaticMuxPicker
+-	client *mux.ClientManager
++	lifecycle  sync.Mutex
++	closed     atomic.Bool
++	handler    *Outbound
++	registered bool
++	ohm        outbound.Manager
++	tag        string
++	domain     string
++	picker     *StaticMuxPicker
++	client     *mux.ClientManager
+ }
+ 
+ func NewPortal(config *PortalConfig, ohm outbound.Manager) (*Portal, error) {
+@@ -54,14 +57,45 @@ func NewPortal(config *PortalConfig, ohm outbound.Manager) (*Portal, error) {
+ }
+ 
+ func (p *Portal) Start() error {
+-	return p.ohm.AddHandler(context.Background(), &Outbound{
+-		portal: p,
+-		tag:    p.tag,
+-	})
++	p.lifecycle.Lock()
++	defer p.lifecycle.Unlock()
++	if p.closed.Load() {
++		return errors.New("portal is closed")
++	}
++	if p.registered {
++		return nil
++	}
++	if p.handler == nil {
++		p.handler = &Outbound{portal: p, tag: p.tag}
++	}
++	if err := p.ohm.AddHandler(context.Background(), p.handler); err != nil {
++		p.closed.Store(true)
++		p.picker.Close()
++		return err
++	}
++	p.registered = true
++	return nil
+ }
+ 
+ func (p *Portal) Close() error {
+-	return p.ohm.RemoveHandler(context.Background(), p.tag)
++	p.lifecycle.Lock()
++	defer p.lifecycle.Unlock()
++	p.closed.Store(true)
++	p.picker.Close()
++	if !p.registered {
++		return nil
++	}
++	manager, ok := p.ohm.(interface {
++		RemoveHandlerIf(context.Context, string, outbound.Handler) error
++	})
++	if !ok {
++		return errors.New("portal manager lacks ownership-aware removal")
++	}
++	if err := manager.RemoveHandlerIf(context.Background(), p.tag, p.handler); err != nil {
++		return err
++	}
++	p.registered = false
++	return nil
+ }
+ 
+ func (p *Portal) HandleConnection(ctx context.Context, link *transport.Link) error {
+@@ -82,7 +116,9 @@ func (p *Portal) HandleConnection(ctx context.Context, link *transport.Link) err
+ 			return errors.New("failed to create portal worker").Base(err)
+ 		}
+ 
+-		p.picker.AddWorker(worker)
++		if err := p.picker.AddWorker(worker); err != nil {
++			return err
++		}
+ 
+ 		if _, ok := link.Reader.(*pipe.Reader); !ok {
+ 			select {
+@@ -123,7 +159,8 @@ func (o *Outbound) Start() error {
+ }
+ 
+ func (o *Outbound) Close() error {
+-	return nil
++	o.portal.closed.Store(true)
++	return o.portal.picker.Close()
+ }
+ 
+ // SenderSettings implements outbound.Handler.
+@@ -137,38 +174,70 @@ func (o *Outbound) ProxySettings() *serial.TypedMessage {
+ }
+ 
+ type StaticMuxPicker struct {
+-	access  sync.Mutex
+-	workers []*PortalWorker
+-	cTask   *task.Periodic
++	access    sync.Mutex
++	workers   []*PortalWorker
++	closed    bool
++	cancel    context.CancelFunc
++	done      chan struct{}
++	closeOnce sync.Once
+ }
+ 
+ func NewStaticMuxPicker() (*StaticMuxPicker, error) {
+-	p := &StaticMuxPicker{}
+-	p.cTask = &task.Periodic{
+-		Execute:  p.cleanup,
+-		Interval: time.Second * 30,
+-	}
+-	p.cTask.Start()
++	ctx, cancel := context.WithCancel(context.Background())
++	p := &StaticMuxPicker{cancel: cancel, done: make(chan struct{})}
++	go func() {
++		defer close(p.done)
++		ticker := time.NewTicker(30 * time.Second)
++		defer ticker.Stop()
++		for {
++			select {
++			case <-ctx.Done():
++				return
++			case <-ticker.C:
++				p.cleanup()
++			}
++		}
++	}()
+ 	return p, nil
+ }
+ 
+ func (p *StaticMuxPicker) cleanup() error {
+ 	p.access.Lock()
+ 	defer p.access.Unlock()
+-
+-	var activeWorkers []*PortalWorker
++	active := p.workers[:0]
+ 	for _, w := range p.workers {
+ 		if !w.Closed() {
+-			activeWorkers = append(activeWorkers, w)
++			active = append(active, w)
+ 		} else {
+-			w.timer.SetTimeout(0)
++			w.Close()
+ 		}
+ 	}
+-
+-	if len(activeWorkers) != len(p.workers) {
+-		p.workers = activeWorkers
++	// Drop stale pointers as well as joining signaled workers.
++	for i := len(active); i < len(p.workers); i++ {
++		p.workers[i] = nil
+ 	}
++	p.workers = active
++	return nil
++}
+ 
++// Close is terminal. Signal every owned worker before joining any of them.
++// It never calls the outbound manager (which may hold its lock while closing us).
++func (p *StaticMuxPicker) Close() error {
++	p.closeOnce.Do(func() {
++		p.access.Lock()
++		p.closed = true
++		workers := p.workers
++		p.workers = nil
++		p.access.Unlock()
++		p.cancel()
++		for _, w := range workers {
++			w.stop()
++		}
++		<-p.done
++		for _, w := range workers {
++			w.Close()
++		}
++	})
+ 	return nil
+ }
+ 
+@@ -176,6 +245,9 @@ func (p *StaticMuxPicker) PickAvailable() (*mux.ClientWorker, error) {
+ 	p.access.Lock()
+ 	defer p.access.Unlock()
+ 
++	if p.closed {
++		return nil, errors.New("portal picker is closed")
++	}
+ 	if len(p.workers) == 0 {
+ 		return nil, errors.New("empty worker list")
+ 	}
+@@ -183,7 +255,7 @@ func (p *StaticMuxPicker) PickAvailable() (*mux.ClientWorker, error) {
+ 	var minIdx int = -1
+ 	var minConn uint32 = 9999
+ 	for i, w := range p.workers {
+-		if w.draining {
++		if w.draining.Load() {
+ 			continue
+ 		}
+ 		if w.IsFull() {
+@@ -214,21 +286,39 @@ func (p *StaticMuxPicker) PickAvailable() (*mux.ClientWorker, error) {
+ 	return nil, errors.New("no mux client worker available")
+ }
+ 
+-func (p *StaticMuxPicker) AddWorker(worker *PortalWorker) {
++// AddWorker transfers ownership, including closing a rejected late worker.
++func (p *StaticMuxPicker) AddWorker(worker *PortalWorker) error {
+ 	p.access.Lock()
+-	defer p.access.Unlock()
+-
++	if p.closed {
++		p.access.Unlock()
++		worker.Close()
++		return errors.New("portal picker is closed")
++	}
+ 	p.workers = append(p.workers, worker)
++	p.access.Unlock()
++	return nil
+ }
+ 
+ type PortalWorker struct {
+ 	client   *mux.ClientWorker
+-	control  *task.Periodic
+ 	writer   buf.Writer
+ 	reader   buf.Reader
+-	draining bool
+-	counter  uint32
+-	timer    *signal.ActivityTimer
++	draining atomic.Bool
++	counter  uint32 // heartbeat loop only
++	cancel   context.CancelFunc
++	done     chan struct{}
++}
++
++func (w *PortalWorker) stop() {
++	w.cancel()
++	common.Interrupt(w.writer)
++	common.Interrupt(w.reader)
++}
++
++func (w *PortalWorker) Close() error {
++	w.stop()
++	<-w.done
++	return nil
+ }
+ 
+ func NewPortalWorker(client *mux.ClientWorker) (*PortalWorker, error) {
+@@ -236,7 +326,7 @@ func NewPortalWorker(client *mux.ClientWorker) (*PortalWorker, error) {
+ 	uplinkReader, uplinkWriter := pipe.New(opt...)
+ 	downlinkReader, downlinkWriter := pipe.New(opt...)
+ 
+-	ctx := context.Background()
++	ctx, cancel := context.WithCancel(context.Background())
+ 	outbounds := []*session.Outbound{{
+ 		Target: net.UDPDestination(net.DomainAddress(internalDomain), 0),
+ 	}}
+@@ -246,23 +336,59 @@ func NewPortalWorker(client *mux.ClientWorker) (*PortalWorker, error) {
+ 		Writer: downlinkWriter,
+ 	})
+ 	if !f {
+-		return nil, errors.New("unable to dispatch control connection")
+-	}
+-	terminate := func() {
++		cancel()
++		common.Interrupt(uplinkReader)
++		common.Interrupt(uplinkWriter)
++		common.Interrupt(downlinkReader)
++		common.Interrupt(downlinkWriter)
+ 		client.Close()
++		return nil, errors.New("unable to dispatch control connection")
+ 	}
+-	w := &PortalWorker{
+-		client: client,
+-		reader: downlinkReader,
+-		writer: uplinkWriter,
+-		timer:  signal.CancelAfterInactivity(ctx, terminate, 24*time.Hour), // // prevent leak
++	w := &PortalWorker{client: client, reader: downlinkReader, writer: uplinkWriter, cancel: cancel, done: make(chan struct{})}
++	go w.run(ctx, 2*time.Second, 24*time.Hour)
++	return w, nil
++}
++
++// One owned loop replaces detached periodic/timer callbacks. Cancellation
++// interrupts control pipes; client.Close joins mux tasks before done is closed.
++func (w *PortalWorker) run(ctx context.Context, heartbeatInterval, idleTimeout time.Duration) {
++	defer close(w.done)
++	defer w.client.Close()
++	defer w.stop()
++	ticker := time.NewTicker(heartbeatInterval)
++	defer ticker.Stop()
++	idle := time.NewTimer(idleTimeout)
++	defer idle.Stop()
++	heartbeat := func() bool {
++		if err := w.heartbeat(); err != nil {
++			return false
++		}
++		if !w.draining.Load() {
++			if !idle.Stop() {
++				select {
++				case <-idle.C:
++				default:
++				}
++			}
++			idle.Reset(idleTimeout)
++		}
++		return true
+ 	}
+-	w.control = &task.Periodic{
+-		Execute:  w.heartbeat,
+-		Interval: time.Second * 2,
++	active := heartbeat()
++	for {
++		select {
++		case <-ctx.Done():
++			return
++		case <-w.client.WaitClosed():
++			return
++		case <-idle.C:
++			return
++		case <-ticker.C:
++			if active {
++				active = heartbeat()
++			}
++		}
+ 	}
+-	w.control.Start()
+-	return w, nil
+ }
+ 
+ func (w *PortalWorker) heartbeat() error {
+@@ -270,7 +396,7 @@ func (w *PortalWorker) heartbeat() error {
+ 		return errors.New("client worker stopped")
+ 	}
+ 
+-	if w.draining || w.writer == nil {
++	if w.draining.Load() {
+ 		return errors.New("already disposed")
+ 	}
+ 
+@@ -278,22 +404,21 @@ func (w *PortalWorker) heartbeat() error {
+ 	msg.FillInRandom()
+ 
+ 	if w.client.TotalConnections() > 256 {
+-		w.draining = true
++		w.draining.Store(true)
+ 		msg.State = Control_DRAIN
+ 
+ 		defer func() {
+ 			common.Close(w.writer)
+ 			common.Interrupt(w.reader)
+-			w.writer = nil
++			// writer remains immutable for concurrent stop interruption
+ 		}()
+ 	}
+ 
+ 	w.counter = (w.counter + 1) % 5
+-	if w.draining || w.counter == 1 {
++	if w.draining.Load() || w.counter == 1 {
+ 		b, err := proto.Marshal(msg)
+ 		common.Must(err)
+ 		mb := buf.MergeBytes(nil, b)
+-		w.timer.Update()
+ 		return w.writer.WriteMultiBuffer(mb)
+ 	}
+ 	return nil
 diff --git a/common/mux/client.go b/common/mux/client.go
 index 0463be5f..84c8209b 100644
 --- a/common/mux/client.go
@@ -331,6 +738,240 @@ index 66b9674c..9306255e 100644
  	m.sessions[s.ID] = s
  	return s
  }
+diff --git a/proxy/vless/inbound/inbound.go b/proxy/vless/inbound/inbound.go
+index d6a9d8ef..357a18f5 100644
+--- a/proxy/vless/inbound/inbound.go
++++ b/proxy/vless/inbound/inbound.go
+@@ -9,6 +9,8 @@ import (
+ 	"reflect"
+ 	"strconv"
+ 	"strings"
++	"sync"
++	"sync/atomic"
+ 	"time"
+ 	"unsafe"
+ 
+@@ -74,6 +76,9 @@ func init() {
+ 
+ // Handler is an inbound connection handler that handles messages in VLess protocol.
+ type Handler struct {
++	reverseAccess          sync.Mutex // admission, registration, removal and retry ownership
++	reverseClosed          bool
++	reverses               map[string]*Reverse
+ 	inboundHandlerManager  feature_inbound.Manager
+ 	policyManager          policy.Manager
+ 	stats                  stats.Manager
+@@ -191,59 +196,122 @@ func isMuxAndNotXUDP(request *protocol.RequestHeader, first *buf.Buffer) bool {
+ }
+ 
+ func (h *Handler) GetReverse(a *vless.MemoryAccount) (*Reverse, error) {
++	h.reverseAccess.Lock()
++	defer h.reverseAccess.Unlock()
++	if h.reverseClosed {
++		return nil, errors.New("reverse inbound is closed")
++	}
+ 	u := h.validator.Get(a.ID.UUID())
+ 	if u == nil {
+-		return nil, errors.New("reverse: user " + a.ID.String() + " doesn't exist anymore")
++		return nil, errors.New("reverse user no longer exists")
+ 	}
+ 	a = u.Account.(*vless.MemoryAccount)
+ 	if a.Reverse == nil || a.Reverse.Tag == "" {
+-		return nil, errors.New("reverse: user " + a.ID.String() + " is not allowed to create reverse proxy")
++		return nil, errors.New("reverse is not allowed for user")
+ 	}
+-	r := h.outboundHandlerManager.GetHandler(a.Reverse.Tag)
+-	if r == nil {
+-		picker, _ := reverse.NewStaticMuxPicker()
+-		r = &Reverse{tag: a.Reverse.Tag, picker: picker, client: &mux.ClientManager{Picker: picker}}
+-		for len(h.outboundHandlerManager.ListHandlers(h.ctx)) == 0 {
+-			time.Sleep(time.Second) // prevents this outbound from becoming the default outbound
++	if r := h.reverses[a.Reverse.Tag]; r != nil {
++		if r.closed.Load() {
++			return nil, errors.New("reverse removal requires retry")
+ 		}
+-		if err := h.outboundHandlerManager.AddHandler(h.ctx, r); err != nil {
+-			return nil, err
+-		}
+-	}
+-	if r, ok := r.(*Reverse); ok {
+ 		return r, nil
+ 	}
+-	return nil, errors.New("reverse: outbound " + a.Reverse.Tag + " is not type Reverse")
++	// Never wait indefinitely for a default outbound while holding admission.
++	// The peer owns retrying a rejected handshake once configuration is ready.
++	if len(h.outboundHandlerManager.ListHandlers(h.ctx)) == 0 {
++		return nil, errors.New("reverse requires a default outbound")
++	}
++	if h.outboundHandlerManager.GetHandler(a.Reverse.Tag) != nil {
++		return nil, errors.New("reverse tag is owned by another handler")
++	}
++	picker, _ := reverse.NewStaticMuxPicker()
++	r := &Reverse{tag: a.Reverse.Tag, picker: picker, client: &mux.ClientManager{Picker: picker}}
++	if err := h.outboundHandlerManager.AddHandler(h.ctx, r); err != nil {
++		r.Close()
++		return nil, err
++	}
++	if h.reverses == nil {
++		h.reverses = make(map[string]*Reverse)
++	}
++	h.reverses[r.tag] = r
++	return r, nil
+ }
+ 
+-func (h *Handler) RemoveReverse(u *protocol.MemoryUser) {
+-	if u != nil {
+-		a := u.Account.(*vless.MemoryAccount)
+-		if a.Reverse != nil && a.Reverse.Tag != "" {
+-			h.outboundHandlerManager.RemoveHandler(h.ctx, a.Reverse.Tag)
+-		}
++// Caller holds reverseAccess. A failed deregistration retains the closed
++// handler in our map so the next RemoveUser/Close retries that same removal.
++func (h *Handler) removeReverse(u *protocol.MemoryUser) error {
++	if u == nil {
++		return nil
++	}
++	a := u.Account.(*vless.MemoryAccount)
++	if a.Reverse == nil {
++		return nil
+ 	}
++	return h.removeReverseTag(a.Reverse.Tag)
+ }
+ 
+-// Close implements common.Closable.Close().
++func (h *Handler) removeReverseTag(tag string) error {
++	r := h.reverses[tag]
++	if r == nil {
++		return nil
++	}
++	if err := r.Close(); err != nil {
++		return err
++	}
++	// A GetHandler/RemoveHandler pair is not atomic against API tag replacement.
++	manager, ok := h.outboundHandlerManager.(interface {
++		RemoveHandlerIf(context.Context, string, outbound.Handler) error
++	})
++	if !ok {
++		return errors.New("reverse manager lacks ownership-aware removal")
++	}
++	if err := manager.RemoveHandlerIf(h.ctx, tag, r); err != nil {
++		return err
++	}
++
++	delete(h.reverses, tag)
++	return nil
++}
++
++func (h *Handler) RemoveReverse(u *protocol.MemoryUser) error {
++	h.reverseAccess.Lock()
++	defer h.reverseAccess.Unlock()
++	return h.removeReverse(u)
++}
++
++// Close rejects new handshakes before closing owned workers. Ownership of
++// failed manager removals survives this call; retries do not recreate workers.
+ func (h *Handler) Close() error {
++	h.reverseAccess.Lock()
++	defer h.reverseAccess.Unlock()
++	h.reverseClosed = true
++	var errs []error
++	for tag := range h.reverses {
++		errs = append(errs, h.removeReverseTag(tag))
++	}
+ 	if h.decryption != nil {
+ 		h.decryption.Close()
+ 	}
+-	for _, u := range h.validator.GetAll() {
+-		h.RemoveReverse(u)
+-	}
+-	return errors.Combine(common.Close(h.validator))
++	errs = append(errs, common.Close(h.validator))
++	return errors.Combine(errs...)
+ }
+ 
+ // AddUser implements proxy.UserManager.AddUser().
+ func (h *Handler) AddUser(ctx context.Context, u *protocol.MemoryUser) error {
++	h.reverseAccess.Lock()
++	defer h.reverseAccess.Unlock()
++	if h.reverseClosed {
++		return errors.New("reverse inbound is closed")
++	}
+ 	return h.validator.Add(u)
+ }
+ 
+ // RemoveUser implements proxy.UserManager.RemoveUser().
+ func (h *Handler) RemoveUser(ctx context.Context, e string) error {
+-	h.RemoveReverse(h.validator.GetByEmail(e))
++	h.reverseAccess.Lock()
++	defer h.reverseAccess.Unlock()
++	if err := h.removeReverse(h.validator.GetByEmail(e)); err != nil {
++		return err
++	}
+ 	return h.validator.Del(e)
+ }
+ 
+@@ -627,7 +695,7 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection s
+ 		if err != nil {
+ 			return err
+ 		}
+-		return r.NewMux(ctx, dispatcher.WrapLink(ctx, h.policyManager, h.stats, &transport.Link{Reader: clientReader, Writer: clientWriter}), h.observer)
++		return r.NewMux(ctx, dispatcher.WrapLink(ctx, h.policyManager, h.stats, &transport.Link{Reader: clientReader, Writer: clientWriter}), h.observer, connection)
+ 	}
+ 
+ 	if err := dispatch.DispatchLink(
+@@ -642,25 +710,39 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection s
+ }
+ 
+ type Reverse struct {
++	closed atomic.Bool
+ 	tag    string
+ 	picker *reverse.StaticMuxPicker
+ 	client *mux.ClientManager
+ }
+ 
++type reverseTransport struct {
++	buf.Reader
++	buf.Writer
++	io.Closer
++}
++
+ func (r *Reverse) Tag() string {
+ 	return r.tag
+ }
+ 
+-func (r *Reverse) NewMux(ctx context.Context, link *transport.Link, observer features.Feature) error {
+-	muxClient, err := mux.NewClientWorker(*link, mux.ClientStrategy{})
++func (r *Reverse) NewMux(ctx context.Context, link *transport.Link, observer features.Feature, connection net.Conn) error {
++	// The wrapped buf interfaces do not expose the underlying TCP closer.
++	// Give mux cancellation an explicit transport owner so Close can unblock IO.
++	stream := &reverseTransport{Reader: link.Reader, Writer: link.Writer, Closer: connection}
++	muxClient, err := mux.NewClientWorker(transport.Link{Reader: stream, Writer: stream}, mux.ClientStrategy{})
+ 	if err != nil {
+ 		return errors.New("failed to create mux client worker").Base(err)
+ 	}
+ 	worker, err := reverse.NewPortalWorker(muxClient)
+ 	if err != nil {
++		muxClient.Close()
+ 		return errors.New("failed to create portal worker").Base(err)
+ 	}
+-	r.picker.AddWorker(worker)
++	if err := r.picker.AddWorker(worker); err != nil {
++		return err
++	}
++	defer worker.Close()
+ 	if burstObs, ok := observer.(extension.BurstObservatory); ok {
+ 		go burstObs.Check([]string{r.Tag()})
+ 	}
+@@ -688,7 +770,8 @@ func (r *Reverse) Start() error {
+ }
+ 
+ func (r *Reverse) Close() error {
+-	return nil
++	r.closed.Store(true)
++	return r.picker.Close()
+ }
+ 
+ func (r *Reverse) SenderSettings() *serial.TypedMessage {
 diff --git a/proxy/vless/outbound/outbound.go b/proxy/vless/outbound/outbound.go
 index 56a2fd04..96aec1b1 100644
 --- a/proxy/vless/outbound/outbound.go
