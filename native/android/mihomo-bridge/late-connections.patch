@@ -3192,3 +3192,172 @@
 +	}
 +	return false
 +}
+--- adapter/outbound/dns.go
++++ adapter/outbound/dns.go
+@@ -4,0 +5 @@
++	"fmt"
+@@ -6,0 +8 @@
++	"sync"
+@@ -39,7 +41 @@
+-	ctx, cancel := context.WithCancel(context.Background())
+-
+-	return NewPacketConn(&dnsPacketConn{
+-		response: make(chan dnsPacket, 1),
+-		ctx:      ctx,
+-		cancel:   cancel,
+-	}, d), nil
++	return NewPacketConn(newDNSPacketConn(resolver.RelayDnsPacket), d), nil
+@@ -65,0 +62,29 @@
++	relay    func(context.Context, []byte, []byte) ([]byte, error)
++	get      func(int) []byte
++	put      func([]byte) error
++
++	mu          sync.Mutex
++	closing     bool
++	generation  uint64
++	workers     sync.WaitGroup
++	closeWaiter *dnsCloseWaiter
++}
++
++type dnsCloseWaiter struct {
++	done chan struct{}
++	err  error
++}
++
++func newDNSPacketConn(relay func(context.Context, []byte, []byte) ([]byte, error)) *dnsPacketConn {
++	ctx, cancel := context.WithCancel(context.Background())
++	if relay == nil {
++		relay = resolver.RelayDnsPacket
++	}
++	return &dnsPacketConn{
++		response: make(chan dnsPacket, 1),
++		ctx:      ctx,
++		cancel:   cancel,
++		relay:    relay,
++		get:      pool.Get,
++		put:      pool.Put,
++	}
+@@ -69,0 +95,5 @@
++	case <-d.ctx.Done():
++		return nil, nil, nil, net.ErrClosed
++	default:
++	}
++	select {
+@@ -70,0 +101,9 @@
++		d.mu.Lock()
++		closed := d.closing
++		d.mu.Unlock()
++		if closed {
++			if packet.put != nil {
++				packet.put()
++			}
++			return nil, nil, nil, net.ErrClosed
++		}
+@@ -78,0 +118,5 @@
++	case <-d.ctx.Done():
++		return 0, nil, net.ErrClosed
++	default:
++	}
++	select {
+@@ -79,0 +124,9 @@
++		d.mu.Lock()
++		closed := d.closing
++		d.mu.Unlock()
++		if closed {
++			if packet.put != nil {
++				packet.put()
++			}
++			return 0, nil, net.ErrClosed
++		}
+@@ -91,2 +144,3 @@
+-	select {
+-	case <-d.ctx.Done():
++	d.mu.Lock()
++	if d.closing {
++		d.mu.Unlock()
+@@ -94,3 +148,2 @@
+-	default:
+-	}
+-
++	}
++	d.mu.Unlock()
+@@ -102,2 +155,12 @@
+-	buf := pool.Get(resolver.SafeDnsPacketSize)
+-	put := func() { _ = pool.Put(buf) }
++	d.mu.Lock()
++	if d.closing {
++		d.mu.Unlock()
++		return 0, net.ErrClosed
++	}
++	generation := d.generation
++	d.workers.Add(1)
++	d.mu.Unlock()
++
++	buf := d.get(resolver.SafeDnsPacketSize)
++	var putOnce sync.Once
++	put := func() { putOnce.Do(func() { _ = d.put(buf) }) }
+@@ -106 +169,2 @@
+-	go func() { // don't block the WriteTo function
++	go func() { // admission is counted until final buffer/queue cleanup
++		defer d.workers.Done()
+@@ -110 +174 @@
+-		buf, err := resolver.RelayDnsPacket(ctx, buf[:len(p)], buf)
++		buf, err := d.relay(ctx, buf[:len(p)], buf)
+@@ -120,0 +185,7 @@
++		d.mu.Lock()
++		publish := !d.closing && generation == d.generation
++		d.mu.Unlock()
++		if !publish {
++			put()
++			return
++		}
+@@ -123 +194 @@
+-			break
++			return
+@@ -132,2 +203,44 @@
+-	d.cancel()
+-	return nil
++	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
++	defer cancel()
++	return d.closeWithContext(ctx)
++}
++
++func (d *dnsPacketConn) closeWithContext(ctx context.Context) error {
++	d.mu.Lock()
++	if d.closeWaiter == nil {
++		w := &dnsCloseWaiter{done: make(chan struct{})}
++		d.closeWaiter = w
++		d.closing = true
++		d.generation++
++		d.cancel()
++		go d.finishClose(w)
++	}
++	w := d.closeWaiter
++	d.mu.Unlock()
++	select {
++	case <-w.done:
++		return w.err
++	default:
++	}
++	select {
++	case <-w.done:
++		return w.err
++	case <-ctx.Done():
++		return fmt.Errorf("DNS packet cleanup: %w", ctx.Err())
++	}
++}
++
++func (d *dnsPacketConn) finishClose(w *dnsCloseWaiter) {
++	d.workers.Wait()
++	for {
++		select {
++		case packet := <-d.response:
++			if packet.put != nil {
++				packet.put()
++			}
++		default:
++			w.err = nil
++			close(w.done)
++			return
++		}
++	}

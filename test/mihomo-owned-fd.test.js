@@ -123,7 +123,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
 // Exercise all reviewed source sections in their exact application order.
 // Every rejected input/output/path must leave every source byte untouched.
-const lateSourceNames = ["manager", "tracker", "tunnel", "nat", "connection", "quic", "tproxy", "dns", "dns-server", "doh", "fetcher", "log", "healthcheck", "proxy-provider", "client", "tls", "dhcp", "util", "dhcp-discovery", "ntp"];
+const lateSourceNames = ["manager", "tracker", "tunnel", "nat", "connection", "quic", "tproxy", "dns", "dns-server", "doh", "fetcher", "log", "healthcheck", "proxy-provider", "client", "tls", "dhcp", "util", "dhcp-discovery", "ntp", "dns-outbound"];
 const lateAtomicModes = ["clean", "all-final", "late-patch-tampered", "last-output-hash-error", "last-section-invalid", "path-traversal-section", "partial-final-mixed", "unknown-source-section", ...lateSourceNames.flatMap(name => ["input-tampered", "output-hash-error", "partial-final-mixed", "path-traversal", "section-invalid"].map(fault => `${name}-${fault}`))];
 for (const mode of lateAtomicModes) {
   test(`late patch application is exact and atomic: ${mode}`, () => {
@@ -155,6 +155,7 @@ with tempfile.TemporaryDirectory() as tmp:
         ("dhcp-discovery", "component/dhcp/dhcp.go", "PATCHED_DHCP_DISCOVERY_SHA256"),
         ("ntp", "ntp/ntp/service.go", "PATCHED_NTP_SERVICE_SHA256"),
         ("socks5", "adapter/outbound/socks5.go", "PATCHED_SOCKS5_SHA256"),
+        ("dns-outbound", "adapter/outbound/dns.go", "PATCHED_DNS_OUTBOUND_SHA256"),
     ]
     rels = [r for _, r, _ in entries]
     indices = {name:i for i,(name,_,_) in enumerate(entries)}
