@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/netip"
@@ -1449,5 +1450,197 @@ func TestAngelaNexusLateTunnelReplyHandlerContextLifetime(t *testing.T) {
 	}
 	if conn.writes.Load() != 1 {
 		t.Fatalf("fresh UDP sent %d times", conn.writes.Load())
+	}
+}
+
+func TestAngelaNexusLateTunnelSenderParentCancelAfterResolve(t *testing.T) {
+	parent, cancel := context.WithCancel(context.Background())
+	s := newPacketSenderWithContext(parent).(*packetSender)
+	metadata := lateGateMetadata(C.UDP, 9)
+	metadata.Host = "parent-cancel.invalid"
+	metadata.DstIP = netip.Addr{}
+	p := &lateProcessPacket{metadata: metadata}
+	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	c := &lateProcessConn{resolve: func(_ context.Context, m *C.Metadata) error {
+		close(entered)
+		<-release
+		m.DstIP = netip.MustParseAddr("127.0.0.1")
+		return nil
+	}}
+	t.Cleanup(func() { cancel(); unblock(); lateGateWait(t, done, "parent-canceled resolver Process exit") })
+	s.Send(p)
+	go func() { defer close(done); s.Process(c, nil) }()
+	lateGateWait(t, entered, "parent-canceled resolver entry")
+	cancel()
+	unblock()
+	lateGateWait(t, done, "parent-canceled resolver completion")
+	if c.writes.Load() != 0 || p.dataCalls.Load() != 0 || p.drops.Load() != 1 {
+		t.Fatalf("parent cancellation forwarded late resolver result: writes=%d data=%d drops=%d", c.writes.Load(), p.dataCalls.Load(), p.drops.Load())
+	}
+	fresh := &lateProcessPacket{metadata: lateGateMetadata(C.UDP, 9)}
+	s.Send(fresh)
+	if fresh.drops.Load() != 1 {
+		t.Fatalf("Send after parent cancellation dropped %d times, want 1", fresh.drops.Load())
+	}
+}
+
+func TestAngelaNexusLateTunnelSenderParentCancelDrainsQueue(t *testing.T) {
+	parent, cancel := context.WithCancel(context.Background())
+	s := newPacketSenderWithContext(parent).(*packetSender)
+	nested := &lateQueuePacket{}
+	const count = 8
+	packets := make([]lateProcessPacket, count)
+	for i := range packets {
+		packets[i].metadata = lateGateMetadata(C.UDP, 9)
+		if i == 0 {
+			packets[i].onDrop = func() { s.Close(); s.Send(nested) }
+		}
+		s.Send(&packets[i])
+	}
+	cancel()
+	done := make(chan struct{})
+	go func() { defer close(done); s.Process(nil, nil) }()
+	lateGateWait(t, done, "parent-canceled queued Process exit")
+	for i := range packets {
+		if got := packets[i].drops.Load(); got != 1 {
+			t.Fatalf("queued packet %d Drop calls=%d, want 1", i, got)
+		}
+	}
+	if nested.drops.Load() != 1 {
+		t.Fatal("reentrant nested packet not dropped exactly once")
+	}
+	if len(s.ch) != 0 {
+		t.Fatalf("parent-canceled Process retained %d queued packets", len(s.ch))
+	}
+	late := &lateProcessPacket{metadata: lateGateMetadata(C.UDP, 9)}
+	s.Send(late)
+	if late.drops.Load() != 1 {
+		t.Fatalf("Send after drained cancellation dropped %d times, want 1", late.drops.Load())
+	}
+}
+
+func TestAngelaNexusLateTunnelSenderParentCancelAfterWriteBack(t *testing.T) {
+	parent, cancel := context.WithCancel(context.Background())
+	s := newPacketSenderWithContext(parent).(*packetSender)
+	first := &lateProcessPacket{metadata: lateGateMetadata(C.UDP, 9)}
+	second := &lateProcessPacket{metadata: lateGateMetadata(C.UDP, 9)}
+	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	proxy := &lateProcessWriteBack{update: func() { close(entered); <-release }}
+	c := &lateProcessConn{}
+	t.Cleanup(func() { cancel(); unblock(); lateGateWait(t, done, "parent-canceled write-back Process exit") })
+	s.Send(first)
+	s.Send(second)
+	go func() { defer close(done); s.Process(c, proxy) }()
+	lateGateWait(t, entered, "parent-canceled write-back entry")
+	cancel()
+	if first.drops.Load() != 0 || second.drops.Load() != 0 {
+		t.Fatal("parent cancellation reclaimed packets before blocked write-back returned")
+	}
+	unblock()
+	lateGateWait(t, done, "parent-canceled write-back completion")
+	if first.drops.Load() != 1 || second.drops.Load() != 1 || proxy.calls.Load() != 1 || c.writes.Load() != 0 || first.dataCalls.Load() != 0 {
+		t.Fatalf("write-back cancellation ownership: first=%d second=%d proxy=%d writes=%d data=%d", first.drops.Load(), second.drops.Load(), proxy.calls.Load(), c.writes.Load(), first.dataCalls.Load())
+	}
+}
+
+func TestAngelaNexusLateTunnelSenderParentCancelFreshWrite(t *testing.T) {
+	parent, cancel := context.WithCancel(context.Background())
+	s := newPacketSenderWithContext(parent).(*packetSender)
+	p := &lateProcessPacket{metadata: lateGateMetadata(C.UDP, 9)}
+	entered := make(chan struct{})
+	c := &lateProcessConn{onWrite: func() { close(entered); cancel() }}
+	done := make(chan struct{})
+	s.Send(p)
+	go func() { defer close(done); s.Process(c, nil) }()
+	lateGateWait(t, entered, "fresh WriteTo entry")
+	lateGateWait(t, done, "fresh parent-canceled Process exit")
+	if c.writes.Load() != 1 || c.deadlines.Load() != 0 || p.dataCalls.Load() != 1 || p.drops.Load() != 1 {
+		t.Fatalf("fresh admitted write was not completed: writes=%d deadlines=%d data=%d drops=%d", c.writes.Load(), c.deadlines.Load(), p.dataCalls.Load(), p.drops.Load())
+	}
+}
+
+func TestAngelaNexusLateTunnelSenderParentCancelDataAndIdle(t *testing.T) {
+	for _, mode := range []string{"data-cancel", "idle-cancel"} {
+		t.Run(mode, func(t *testing.T) {
+			parent, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			s := newPacketSenderWithContext(parent).(*packetSender)
+			p := &lateProcessPacket{metadata: lateGateMetadata(C.UDP, 9), onData: cancel}
+			c := &lateProcessConn{}
+			done := make(chan struct{})
+			if mode == "data-cancel" {
+				s.Send(p)
+			}
+			go func() { defer close(done); s.Process(c, nil) }()
+			if mode == "idle-cancel" {
+				cancel()
+			}
+			lateGateWait(t, done, "parent cancel data/idle Process exit")
+			want := int32(0)
+			if mode == "data-cancel" {
+				want = 1
+			}
+			if c.writes.Load() != 0 || c.deadlines.Load() != 0 || p.dataCalls.Load() != want || p.drops.Load() != want {
+				t.Fatalf("data/idle cancellation: writes=%d data=%d drops=%d", c.writes.Load(), p.dataCalls.Load(), p.drops.Load())
+			}
+		})
+	}
+}
+
+func TestAngelaNexusLateTunnelSenderHandlerParentCancellation(t *testing.T) {
+	raw, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+	conn := &lateGatePacketConn{EnhancePacketConn: N.NewEnhancePacketConn(raw), closed: make(chan struct{}), readStarted: make(chan struct{}), readDone: make(chan struct{})}
+	proxy := &lateGateProxy{udp: conn, entered: make(chan struct{}), release: make(chan struct{})}
+	lateGateSetup(t, proxy)
+	oldSniffing := sniffingEnable
+	sniffingEnable = false
+	defer func() { sniffingEnable = oldSniffing }()
+	epoch, _ := statistic.DefaultManager.Registration()
+	packet := &lateGatePacket{data: []byte("parent-generation"), local: raw.LocalAddr(), dropped: make(chan struct{})}
+	adapter := C.NewPacketAdapter(packet, lateGateMetadata(C.UDP, uint16(peer.LocalAddr().(*net.UDPAddr).Port)))
+	t.Cleanup(func() {
+		conn.Close()
+		peer.Close()
+		lateGateWait(t, packet.dropped, "handler parent packet release")
+		lateGateWait(t, conn.readDone, "handler parent reverse reader exit")
+	})
+	close(proxy.release)
+	handleUDPConn(adapter)
+	lateGateWait(t, conn.readStarted, "handler parent blocked reverse reader entry")
+	lateGateWait(t, packet.dropped, "handler parent healthy request release")
+	// Looking up the same actual NAT entry validates production wiring, not only a helper.
+	sender, loaded := natTable.GetOrCreate(fmt.Sprintf("%d:%s", epoch, adapter.Key()), func() C.PacketSender { t.Error("handler NAT entry absent"); return newPacketSender() })
+	if !loaded {
+		t.Fatal("handler NAT entry was not reused")
+	}
+	s, ok := sender.(*packetSender)
+	if !ok {
+		t.Fatalf("unexpected sender %T", sender)
+	}
+	statistic.DefaultManager.StopRegistrations()
+	if s.ctx.Err() != context.Canceled {
+		t.Fatal("handler sender did not inherit registration cancellation while reverse reader blocked")
+	}
+	select {
+	case <-conn.readDone:
+		t.Fatal("reverse read exited before explicit socket cleanup")
+	default:
+	}
+	late := &lateQueuePacket{}
+	s.Send(late)
+	if late.drops.Load() != 1 {
+		t.Fatal("actual stopped handler sender admitted a late packet")
 	}
 }

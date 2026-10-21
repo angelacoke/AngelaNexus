@@ -247,3 +247,19 @@ test("reverse UDP regressions cover stale reads, reentry, buffer ownership and r
   assert.match(source, /fresh UDP write-back/);
   assert.match(source, /lateGateWait\(t, conn\.readStarted, "fresh UDP reverse read entry"\)/);
 });
+
+test("UDP senders observe registration cancellation independently of reverse cleanup", () => {
+  const patch = read("native/android/mihomo-bridge/late-connections.patch");
+  assert.match(patch, /sender := newPacketSenderWithContext\(registrationCtx\)/);
+  assert.match(patch, /return newPacketSenderWithContext\(context\.Background\(\)\)/);
+  assert.match(patch, /func newPacketSenderWithContext\(parent context\.Context\) C\.PacketSender/);
+  assert.match(patch, /ctx, cancel := context\.WithCancel\(parent\)/);
+  assert.doesNotMatch(patch, /context\.AfterFunc/);
+});
+
+test("UDP Process owns a final serialized drain when parent cancellation ends it", () => {
+  const patch = read("native/android/mihomo-bridge/late-connections.patch");
+  const process = patch.slice(patch.indexOf("func (s *packetSender) Process"));
+  assert.match(process, /defer s\.Close\(\)/);
+  assert.match(process, /not a join of callbacks or writes already in flight/);
+});
