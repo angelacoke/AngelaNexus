@@ -30,15 +30,16 @@ with tempfile.TemporaryDirectory() as tmp:
     pristine = {
       "go.mod": "github.com/metacubex/sing-tun v0.4.27\\n", "go.sum": "github.com/metacubex/sing-tun v0.4.27 h1:fixture\\n",
       "listener/sing_tun/server.go": "pristine server\\n", "listener/sing_tun/server_notwindows.go": "pristine notwindows\\n",
-      "tunnel/statistic/manager.go": "pristine manager\\n", "tunnel/statistic/tracker.go": "pristine tracker\\n", "tunnel/tunnel.go": "pristine tunnel\\n", "component/nat/table.go": "pristine nat\\n", "tunnel/connection.go": "pristine connection\\n", "component/sniffer/quic_sniffer.go": "pristine QUIC\\n", "listener/tproxy/packet.go": "pristine TProxy packet\\n", "dns/resolver.go": "pristine DNS resolver\\n", "component/resource/fetcher.go": "pristine fetcher\\n"}
+      "tunnel/statistic/manager.go": "pristine manager\\n", "tunnel/statistic/tracker.go": "pristine tracker\\n", "tunnel/tunnel.go": "pristine tunnel\\n", "component/nat/table.go": "pristine nat\\n", "tunnel/connection.go": "pristine connection\\n", "component/sniffer/quic_sniffer.go": "pristine QUIC\\n", "listener/tproxy/packet.go": "pristine TProxy packet\\n", "dns/resolver.go": "pristine DNS resolver\\n", "component/resource/fetcher.go": "pristine fetcher\\n", "log/log.go": "pristine log\\n"}
     for rel, text in pristine.items():
         p = root / rel; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(text)
-    final = {"listener/sing_tun/server.go": "reviewed server\\n", "tunnel/statistic/manager.go": "reviewed manager\\n", "tunnel/statistic/tracker.go": "reviewed tracker\\n", "tunnel/tunnel.go": "reviewed tunnel\\n", "component/nat/table.go": "reviewed nat\\n", "tunnel/connection.go": "reviewed connection\\n", "component/sniffer/quic_sniffer.go": "reviewed QUIC\\n", "listener/tproxy/packet.go": "reviewed TProxy packet\\n", "dns/resolver.go": "reviewed DNS resolver\\n", "component/resource/fetcher.go": "reviewed fetcher\\n"}
+    final = {"listener/sing_tun/server.go": "reviewed server\\n", "tunnel/statistic/manager.go": "reviewed manager\\n", "tunnel/statistic/tracker.go": "reviewed tracker\\n", "tunnel/tunnel.go": "reviewed tunnel\\n", "component/nat/table.go": "reviewed nat\\n", "tunnel/connection.go": "reviewed connection\\n", "component/sniffer/quic_sniffer.go": "reviewed QUIC\\n", "listener/tproxy/packet.go": "reviewed TProxy packet\\n", "dns/resolver.go": "reviewed DNS resolver\\n", "component/resource/fetcher.go": "reviewed fetcher\\n", "log/log.go": "reviewed log\\n"}
     m.EXPECTED = {rel: m.sha256(root / rel) for rel in pristine}
     for rel, text in final.items():
         p = root / rel; p.write_text(text)
     m.PATCHED_SERVER_SHA256 = m.sha256(root / "listener/sing_tun/server.go")
     m.PATCHED_PROVIDER_FETCHER_SHA256 = m.sha256(root / "component/resource/fetcher.go")
+    m.PATCHED_LOG_SHA256 = m.sha256(root / "log/log.go")
     m.PATCHED_DNS_RESOLVER_SHA256 = m.sha256(root / "dns/resolver.go")
     m.PATCHED_STATISTICS_SHA256 = m.sha256(root / "tunnel/statistic/manager.go")
     m.PATCHED_LATE_MANAGER_SHA256 = m.PATCHED_STATISTICS_SHA256
@@ -103,9 +104,9 @@ with tempfile.TemporaryDirectory() as tmp:
   });
 }
 
-// Directly exercise the nine-file late patch. Every rejected input/output/path
-// must leave all nine upstream files byte-for-byte untouched.
-for (const mode of ["clean", "all-final", "late-patch-tampered", "manager-input-tampered", "tracker-input-tampered", "tunnel-input-tampered", "nat-input-tampered", "connection-input-tampered", "quic-input-tampered", "quic-partial-final-mixed", "tproxy-input-tampered", "dns-input-tampered", "dns-output-hash-error", "fetcher-input-tampered", "fetcher-output-hash-error", "fetcher-partial-final-mixed", "fetcher-path-traversal", "fetcher-section-invalid", "tproxy-output-hash-error", "connection-output-hash-error", "nat-output-hash-error", "last-output-hash-error", "last-section-invalid", "path-traversal-section", "partial-final-mixed"]) {
+// Directly exercise the ten-file late patch. Every rejected input/output/path
+// must leave all ten upstream files byte-for-byte untouched.
+for (const mode of ["clean", "all-final", "late-patch-tampered", "manager-input-tampered", "tracker-input-tampered", "tunnel-input-tampered", "nat-input-tampered", "connection-input-tampered", "quic-input-tampered", "quic-partial-final-mixed", "tproxy-input-tampered", "dns-input-tampered", "dns-output-hash-error", "fetcher-input-tampered", "fetcher-output-hash-error", "fetcher-partial-final-mixed", "fetcher-path-traversal", "fetcher-section-invalid", "log-input-tampered", "log-output-hash-error", "log-path-traversal", "log-section-invalid", "unknown-source-section", "tproxy-output-hash-error", "connection-output-hash-error", "nat-output-hash-error", "last-output-hash-error", "last-section-invalid", "path-traversal-section", "partial-final-mixed"]) {
   test(`late patch application is exact and atomic: ${mode}`, () => {
     const result = spawnSync("python3", ["-B", "-c", `
 import difflib, hashlib, importlib.util, pathlib, sys, tempfile
@@ -113,17 +114,17 @@ spec = importlib.util.spec_from_file_location("adapter", sys.argv[1]); m = impor
 mode = sys.argv[2]
 with tempfile.TemporaryDirectory() as tmp:
     root = pathlib.Path(tmp); m.__file__ = str(root / "prepare-upstream.py")
-    rels = ["tunnel/statistic/manager.go", "tunnel/statistic/tracker.go", "tunnel/tunnel.go", "component/nat/table.go", "tunnel/connection.go", "component/sniffer/quic_sniffer.go", "listener/tproxy/packet.go", "dns/resolver.go", "component/resource/fetcher.go"]
+    rels = ["tunnel/statistic/manager.go", "tunnel/statistic/tracker.go", "tunnel/tunnel.go", "component/nat/table.go", "tunnel/connection.go", "component/sniffer/quic_sniffer.go", "listener/tproxy/packet.go", "dns/resolver.go", "component/resource/fetcher.go", "log/log.go"]
     pristine = {rels[0]: "package statistic\\n// pristine manager\\n", rels[1]: "package statistic\\n// pristine tracker\\n", rels[2]: "package tunnel\\n// pristine tunnel\\n"}
     pristine.update({rels[3]: "package nat\\n// pristine NAT\\n", rels[4]: "package tunnel\\n// pristine connection\\n"})
     pristine[rels[5]] = "package sniffer\\n// pristine quic\\n";
     pristine[rels[6]] = "package tproxy\\n// pristine packet\\n"; pristine[rels[7]] = "package dns\\n// pristine resolver\\n";
-    pristine[rels[8]] = "package resource\\n// pristine fetcher\\n"
+    pristine[rels[8]] = "package resource\\n// pristine fetcher\\n"; pristine[rels[9]] = "package log\\n// pristine log\\n"
     final = {rels[0]: "package statistic\\n// final manager\\n", rels[1]: "package statistic\\n// final tracker\\n", rels[2]: "package tunnel\\n// final tunnel\\n"}
     final.update({rels[3]: "package nat\\n// final NAT\\n", rels[4]: "package tunnel\\n// final connection\\n"})
     final[rels[5]] = "package sniffer\\n// final quic\\n";
     final[rels[6]] = "package tproxy\\n// final packet\\n"; final[rels[7]] = "package dns\\n// final resolver\\n";
-    final[rels[8]] = "package resource\\n// final fetcher\\n"
+    final[rels[8]] = "package resource\\n// final fetcher\\n"; final[rels[9]] = "package log\\n// final log\\n"
     for rel in rels:
         p = root / rel; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(pristine[rel])
     patch = root / "late-connections.patch"
@@ -143,6 +144,7 @@ with tempfile.TemporaryDirectory() as tmp:
     m.PATCHED_TPROXY_PACKET_SHA256 = hashlib.sha256(final[rels[6]].encode()).hexdigest()
     m.PATCHED_DNS_RESOLVER_SHA256 = hashlib.sha256(final[rels[7]].encode()).hexdigest()
     m.PATCHED_PROVIDER_FETCHER_SHA256 = hashlib.sha256(final[rels[8]].encode()).hexdigest()
+    m.PATCHED_LOG_SHA256 = hashlib.sha256(final[rels[9]].encode()).hexdigest()
     m.EXPECTED[rels[0]] = m.sha256(root / rels[0])
     m.EXPECTED[rels[7]] = m.sha256(root / rels[7])
     # Generate manager section from the actual statistics output so patching is valid.
@@ -168,6 +170,14 @@ with tempfile.TemporaryDirectory() as tmp:
         sections[8] = sections[8].replace("--- component/resource/fetcher.go\\n+++ component/resource/fetcher.go\\n", "--- ../escape.go\\n+++ ../escape.go\\n", 1); patch.write_text("".join(sections)); m.LATE_CONNECTIONS_PATCH_SHA256 = m.sha256(patch)
     elif mode == "fetcher-section-invalid":
         sections[8] = "--- component/resource/fetcher.go\\n+++ component/resource/fetcher.go\\n@@ invalid\\nnot a patch\\n"; patch.write_text("".join(sections)); m.LATE_CONNECTIONS_PATCH_SHA256 = m.sha256(patch)
+    elif mode == "log-input-tampered": (root / rels[9]).write_text("wrong log\\n")
+    elif mode == "log-output-hash-error": m.PATCHED_LOG_SHA256 = "0" * 64
+    elif mode == "log-path-traversal":
+        sections[9] = sections[9].replace("--- log/log.go\\n+++ log/log.go\\n", "--- ../escape.go\\n+++ ../escape.go\\n", 1); patch.write_text("".join(sections)); m.LATE_CONNECTIONS_PATCH_SHA256 = m.sha256(patch)
+    elif mode == "log-section-invalid":
+        sections[9] = "--- log/log.go\\n+++ log/log.go\\n@@ invalid\\nnot a patch\\n"; patch.write_text("".join(sections)); m.LATE_CONNECTIONS_PATCH_SHA256 = m.sha256(patch)
+    elif mode == "unknown-source-section":
+        sections.append("--- unknown/source.go\\n+++ unknown/source.go\\n@@ -0,0 +1 @@\\n+unknown\\n"); patch.write_text("".join(sections)); m.LATE_CONNECTIONS_PATCH_SHA256 = m.sha256(patch)
     elif mode == "quic-partial-final-mixed": (root / rels[5]).write_text(final[rels[5]])
     elif mode == "connection-output-hash-error": m.PATCHED_CONNECTION_SHA256 = "0" * 64
     elif mode == "nat-output-hash-error": m.PATCHED_NAT_TABLE_SHA256 = "0" * 64

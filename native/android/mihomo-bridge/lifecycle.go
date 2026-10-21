@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -37,6 +38,11 @@ type androidTunLifecycle struct {
 	// Serialized by androidTunMu, not admission. Upstream trackers unregister
 	// before their underlying Close returns, even on failure; retain ownership.
 	pendingConnections map[string]io.Closer
+	// Keep concrete provider ownership across configuration replacement. Upstream
+	// maps only expose the newest config; GC finalizers are not a stop barrier.
+	// Pinned provider implementations are comparable pointer-valued io.Closers.
+	providers        map[io.Closer]string
+	providersStopped bool
 }
 
 func (l *androidTunLifecycle) socketHook(conn syscall.RawConn, protect func(int) bool) error {
@@ -226,4 +232,46 @@ func onlyClosedConnectionError(err error) bool {
 		return onlyClosedConnectionError(wrapped.Unwrap())
 	}
 	return false
+}
+
+// Own before ApplyConfig can publish/start providers, including a panic path.
+// All access is serialized by androidTunMu, never the socket admission lock.
+func (l *androidTunLifecycle) ownProvider(name string, provider io.Closer) {
+	if l.providers == nil {
+		l.providers = make(map[io.Closer]string)
+	}
+	l.providers[provider] = name
+}
+
+type androidProviderWaiter interface {
+	WaitClosed(context.Context) error
+}
+
+// Cancel every provider before joining any one. One shared deadline bounds the
+// whole Fetcher drain; timed-out/failed resources remain owned for stop retry.
+// Compatible/inline proxy Close cancels health checks but does NOT join them.
+func (l *androidTunLifecycle) closeProviders(ctx context.Context) error {
+	if len(l.providers) != 0 {
+		l.providersStopped = true
+	}
+	failed := make(map[io.Closer]bool)
+	var failures []error
+	for provider, name := range l.providers {
+		if err := provider.Close(); err != nil {
+			failed[provider] = true
+			failures = append(failures, fmt.Errorf("close provider %s: %w", name, err))
+		}
+	}
+	for provider, name := range l.providers {
+		if waiter, ok := provider.(androidProviderWaiter); ok {
+			if err := waiter.WaitClosed(ctx); err != nil {
+				failed[provider] = true
+				failures = append(failures, fmt.Errorf("drain provider %s: %w", name, err))
+			}
+		}
+		if !failed[provider] {
+			delete(l.providers, provider)
+		}
+	}
+	return errors.Join(failures...)
 }

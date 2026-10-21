@@ -33,6 +33,7 @@ PATCHED_NAT_TABLE_PATH = "component/nat/table.go"
 PATCHED_CONNECTION_PATH = "tunnel/connection.go"
 PATCHED_QUIC_SNIFFER_PATH = "component/sniffer/quic_sniffer.go"
 PATCHED_TPROXY_PACKET_PATH = "listener/tproxy/packet.go"
+LOG_PATH = "log/log.go"
 
 
 class VerificationError(Exception):
@@ -101,7 +102,7 @@ def adapter_values(repo: Path) -> tuple[str, ...]:
         tree = ast.parse(text, filename=str(path))
     except (SyntaxError, ValueError) as exc:
         fail(f"invalid upstream adapter script {path}: {exc}")
-    wanted = {"PATCHED_SERVER_SHA256": [], "PATCHED_DNS_RESOLVER_SHA256": [], "PATCHED_PROVIDER_FETCHER_SHA256": [], "PATCHED_STATISTICS_SHA256": [], "STATISTICS_PATCH_SHA256": [], "LATE_CONNECTIONS_PATCH_SHA256": [], "PATCHED_LATE_MANAGER_SHA256": [], "PATCHED_TRACKER_SHA256": [], "PATCHED_TUNNEL_SHA256": [], "PATCHED_NAT_TABLE_SHA256": [], "PATCHED_CONNECTION_SHA256": [], "PATCHED_QUIC_SNIFFER_SHA256": [], "PATCHED_TPROXY_PACKET_SHA256": []}
+    wanted = {"PATCHED_SERVER_SHA256": [], "PATCHED_DNS_RESOLVER_SHA256": [], "PATCHED_PROVIDER_FETCHER_SHA256": [], "PATCHED_STATISTICS_SHA256": [], "STATISTICS_PATCH_SHA256": [], "LATE_CONNECTIONS_PATCH_SHA256": [], "PATCHED_LATE_MANAGER_SHA256": [], "PATCHED_TRACKER_SHA256": [], "PATCHED_TUNNEL_SHA256": [], "PATCHED_NAT_TABLE_SHA256": [], "PATCHED_CONNECTION_SHA256": [], "PATCHED_QUIC_SNIFFER_SHA256": [], "PATCHED_TPROXY_PACKET_SHA256": [], "PATCHED_LOG_SHA256": []}
     for node in tree.body:
         if isinstance(node, ast.Assign):
             targets = node.targets
@@ -123,7 +124,7 @@ def adapter_values(repo: Path) -> tuple[str, ...]:
     for name, values in wanted.items():
         if len(values) != 1:
             fail(f"upstream adapter must define exactly one {name} constant")
-    return (sha256(path), wanted["PATCHED_SERVER_SHA256"][0], wanted["PATCHED_DNS_RESOLVER_SHA256"][0], wanted["PATCHED_PROVIDER_FETCHER_SHA256"][0], wanted["STATISTICS_PATCH_SHA256"][0], wanted["PATCHED_STATISTICS_SHA256"][0], wanted["LATE_CONNECTIONS_PATCH_SHA256"][0], wanted["PATCHED_LATE_MANAGER_SHA256"][0], wanted["PATCHED_TRACKER_SHA256"][0], wanted["PATCHED_TUNNEL_SHA256"][0], wanted["PATCHED_NAT_TABLE_SHA256"][0], wanted["PATCHED_CONNECTION_SHA256"][0], wanted["PATCHED_QUIC_SNIFFER_SHA256"][0], wanted["PATCHED_TPROXY_PACKET_SHA256"][0])
+    return (sha256(path), wanted["PATCHED_SERVER_SHA256"][0], wanted["PATCHED_DNS_RESOLVER_SHA256"][0], wanted["PATCHED_PROVIDER_FETCHER_SHA256"][0], wanted["STATISTICS_PATCH_SHA256"][0], wanted["PATCHED_STATISTICS_SHA256"][0], wanted["LATE_CONNECTIONS_PATCH_SHA256"][0], wanted["PATCHED_LATE_MANAGER_SHA256"][0], wanted["PATCHED_TRACKER_SHA256"][0], wanted["PATCHED_TUNNEL_SHA256"][0], wanted["PATCHED_NAT_TABLE_SHA256"][0], wanted["PATCHED_CONNECTION_SHA256"][0], wanted["PATCHED_QUIC_SNIFFER_SHA256"][0], wanted["PATCHED_TPROXY_PACKET_SHA256"][0], wanted["PATCHED_LOG_SHA256"][0])
 
 
 def manifest_values(repo: Path) -> tuple[str, str, str, dict[str, str]]:
@@ -162,7 +163,7 @@ def manifest_values(repo: Path) -> tuple[str, str, str, dict[str, str]]:
 
 def verify(artifacts_root: Path, repo: Path) -> None:
     version, commit, manifest_tproxy_hash, manifest_hashes = manifest_values(repo)
-    adapter_hash, patched_source_hash, dns_resolver_hash, provider_fetcher_hash, statistics_patch_hash, patched_statistics_hash, late_patch_hash, late_manager_hash, tracker_hash, tunnel_hash, nat_table_hash, connection_hash, quic_sniffer_hash, tproxy_packet_hash = adapter_values(repo)
+    adapter_hash, patched_source_hash, dns_resolver_hash, provider_fetcher_hash, statistics_patch_hash, patched_statistics_hash, late_patch_hash, late_manager_hash, tracker_hash, tunnel_hash, nat_table_hash, connection_hash, quic_sniffer_hash, tproxy_packet_hash, log_hash = adapter_values(repo)
     if manifest_tproxy_hash != tproxy_packet_hash:
         fail(f"Kotlin manifest TProxy packet SHA-256 mismatch: manifest {manifest_tproxy_hash}, adapter {tproxy_packet_hash}")
     actual_statistics_patch_hash = sha256(repo / STATISTICS_PATCH_PATH)
@@ -271,9 +272,17 @@ def verify(artifacts_root: Path, repo: Path) -> None:
             expected_digest = require_hash(evidence, "sha256", f"provenance late source {name} {abi}")
             if expected_digest != expected:
                 fail(f"provenance {abi} lateConnectionsPatch {name} SHA-256 mismatch")
-            # Upstream lives only in the native build job, not this application
-            # checkout. Compare its recorded output to the reviewed adapter
-            # constants; the artifact hash remains independently pinned below.
+        # Upstream lives only in the native build job, not this application
+        # checkout. Compare its recorded output to the reviewed adapter
+        # constants; the artifact hash remains independently pinned below.
+        log_source = require_object(record, "logSource", f"provenance {abi}")
+        if require(log_source, "path", f"provenance.logSource {abi}") != LOG_PATH:
+            fail(f"provenance {abi} logSource path mismatch")
+        if require_hash(log_source, "sha256", f"provenance.logSource {abi}") != log_hash:
+            fail(f"provenance {abi} logSource SHA-256 mismatch")
+        log_checkout = repo / LOG_PATH
+        if log_checkout.exists() and sha256(log_checkout) != log_hash:
+            fail(f"provenance {abi} logSource SHA-256 mismatch: checkout source differs")
         partifact = require_object(record, "artifact", f"provenance {abi}")
         if require(partifact, "name", f"provenance.artifact {abi}") != artifact.name:
             fail(f"provenance {abi} artifact name mismatch")

@@ -1734,3 +1734,271 @@ func (c *bridgeSetupSignalConn) Close() error {
 	c.once.Do(func() { close(c.closed) })
 	return err
 }
+
+// Provider cancellation is tested through the real stop body, separately from
+// attachment cleanup. A fake wait barrier models context-agnostic parser debt.
+type bridgeProviderResource struct {
+	closed   chan struct{}
+	drained  chan struct{}
+	once     sync.Once
+	closeErr error
+	closes   int
+	waits    int
+}
+
+func (p *bridgeProviderResource) Close() error {
+	p.closes++
+	p.once.Do(func() { close(p.closed) })
+	return p.closeErr
+}
+func (p *bridgeProviderResource) WaitClosed(ctx context.Context) error {
+	p.waits++
+	select {
+	case <-p.drained:
+		return nil
+	default:
+	}
+	select {
+	case <-p.drained:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func TestAndroidBridgeProviderStopCancelsEveryGenerationAndJoins(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	defer func() { _ = stopTunError() }()
+	first := &bridgeProviderResource{closed: make(chan struct{}), drained: make(chan struct{})}
+	second := &bridgeProviderResource{closed: make(chan struct{}), drained: make(chan struct{})}
+	androidRuntime.ownProvider("old/proxy", first)
+	androidRuntime.ownProvider("new/rule", second)
+	// Stop must cancel both BEFORE waiting on either, independent of map order.
+	done := make(chan error, 1)
+	go func() { done <- stopTunError() }()
+	for _, p := range []*bridgeProviderResource{first, second} {
+		select {
+		case <-p.closed:
+		case <-time.After(5 * time.Second):
+			close(first.drained)
+			close(second.drained)
+			t.Fatal("stop waited before cancelling every provider")
+		}
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("stop returned before provider drain: %v", err)
+	default:
+	}
+	close(first.drained)
+	close(second.drained)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if len(androidRuntime.providers) != 0 || !androidRuntime.providersStopped {
+		t.Fatal("stop did not release provider ownership and invalidate configuration")
+	}
+	if first.closes != 1 || second.closes != 1 || first.waits != 1 || second.waits != 1 {
+		t.Fatal("provider close/drain was not exactly once")
+	}
+	if err := stopTunError(); err != nil {
+		t.Fatal(err)
+	}
+	if first.closes != 1 || second.closes != 1 {
+		t.Fatal("successful stop retained released providers")
+	}
+}
+
+func TestAndroidBridgeProviderStopFailureStillCleansListenerAndRetries(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	p := &bridgeProviderResource{closed: make(chan struct{}), drained: make(chan struct{}), closeErr: errors.New("watcher close failure")}
+	close(p.drained)
+	androidRuntime.ownProvider("failing", p)
+	listener := &bridgeTestListener{}
+	androidRuntime.listener = listener
+	androidRuntime.protected.Store(true)
+	defer func() { p.closeErr = nil; _ = stopTunError() }()
+	if err := stopTunError(); !errors.Is(err, p.closeErr) {
+		t.Fatalf("stop error = %v", err)
+	}
+	if listener.closes != 1 || androidRuntime.listener != nil || androidRuntime.ready() {
+		t.Fatal("provider failure skipped listener cleanup or restored admission")
+	}
+	if len(androidRuntime.providers) != 1 {
+		t.Fatal("failed provider lost retry ownership")
+	}
+	if err := applyAndroidConfigJSON(bridgeConfigJSON("direct")); !errors.Is(err, errAndroidProviderCleanupPending) {
+		t.Fatalf("configuration bypassed pending provider cleanup: %v", err)
+	}
+	if err := updateAndroidDNS("127.0.0.1"); !errors.Is(err, errAndroidProviderCleanupPending) {
+		t.Fatalf("DNS reparse bypassed pending provider cleanup: %v", err)
+	}
+	p.closeErr = nil
+	if err := stopTunError(); err != nil {
+		t.Fatal(err)
+	}
+	if len(androidRuntime.providers) != 0 || p.closes != 2 {
+		t.Fatal("provider retry failed")
+	}
+}
+
+func TestAndroidBridgeProviderDrainTimeoutRetainsOnlyDebt(t *testing.T) {
+	var lifecycle androidTunLifecycle
+	stuck := &bridgeProviderResource{closed: make(chan struct{}), drained: make(chan struct{})}
+	done := &bridgeProviderResource{closed: make(chan struct{}), drained: make(chan struct{})}
+	close(done.drained)
+	lifecycle.ownProvider("stuck", stuck)
+	lifecycle.ownProvider("done", done)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := lifecycle.closeProviders(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("drain = %v", err)
+	}
+	if len(lifecycle.providers) != 1 || lifecycle.providers[stuck] != "stuck" {
+		t.Fatal("timeout lost debt or retained completed resource")
+	}
+	close(stuck.drained)
+	if err := lifecycle.closeProviders(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(lifecycle.providers) != 0 || stuck.closes != 2 || done.closes != 1 {
+		t.Fatal("drain retry ownership incorrect")
+	}
+}
+
+func TestAndroidBridgeProviderAttachmentCleanupDoesNotCancelConfig(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	p := &bridgeProviderResource{closed: make(chan struct{}), drained: make(chan struct{})}
+	close(p.drained)
+	androidRuntime.ownProvider("newly-applied", p)
+	defer func() { _ = stopTunError() }()
+	if err := closeAndroidResources(); err != nil {
+		t.Fatal(err)
+	}
+	if p.closes != 0 || androidRuntime.providersStopped || len(androidRuntime.providers) != 1 {
+		t.Fatal("attachment cleanup cancelled newly applied providers")
+	}
+}
+
+func TestAndroidBridgeProviderStopRequiresFreshApplyBeforeAttach(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	lastConfigJSON = nil
+	if err := initializeAndroid(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stopTunError() }()
+	if err := applyAndroidConfigJSON(bridgeConfigJSON("direct")); err != nil {
+		t.Fatal(err)
+	}
+	if len(androidRuntime.providers) == 0 {
+		t.Fatal("apply did not capture concrete provider ownership")
+	}
+	if err := stopTunError(); err != nil {
+		t.Fatal(err)
+	}
+	if !androidRuntime.providersStopped {
+		t.Fatal("stop did not invalidate closed providers")
+	}
+	file, err := os.CreateTemp(t.TempDir(), "caller-fd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	constructed := false
+	construct := func(options LC.Tun) (io.Closer, error) {
+		constructed = true
+		_ = syscall.Close(options.FileDescriptor)
+		return &bridgeTestListener{}, nil
+	}
+	if startAndroidTUNWithConstructor(int(file.Fd()), "system", "10.0.0.1/30", "", androidRuntime.stopGeneration.Load(), construct) || constructed {
+		t.Fatal("start reused providers closed by stop")
+	}
+	if _, err := file.Stat(); err != nil {
+		t.Fatalf("rejected start consumed caller fd: %v", err)
+	}
+	if err := applyAndroidConfigJSON(bridgeConfigJSON("rule")); err != nil {
+		t.Fatal(err)
+	}
+	if androidRuntime.providersStopped {
+		t.Fatal("fresh apply did not restore provider configuration")
+	}
+	if !startAndroidTUNWithConstructor(int(file.Fd()), "system", "10.0.0.1/30", "", androidRuntime.stopGeneration.Load(), construct) || !constructed {
+		t.Fatal("fresh configuration could not attach")
+	}
+}
+
+func TestAndroidBridgeProviderActualFileFetchersOwnedAcrossReload(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	lastConfigJSON = nil
+	home := t.TempDir()
+	if err := initializeAndroid(home); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stopTunError() }()
+	if err := os.WriteFile(home+"/proxy.yaml", []byte("proxies: [{name: local, type: direct}]\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(home+"/rule.yaml", []byte("payload: [example.com]\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(bridgeConfigJSON("direct"), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg["proxy-providers"] = map[string]any{"local": map[string]any{"type": "file", "path": home + "/proxy.yaml", "health-check": map[string]any{"enable": false}}}
+	cfg["rule-providers"] = map[string]any{"local": map[string]any{"type": "file", "path": home + "/rule.yaml", "behavior": "domain", "format": "yaml"}}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyAndroidConfigJSON(data); err != nil {
+		t.Fatal(err)
+	}
+	proxy := tunnel.Providers()["local"]
+	rule := tunnel.RuleProviders()["local"]
+	for _, provider := range []any{proxy, rule} {
+		if _, ok := provider.(androidProviderWaiter); !ok {
+			t.Fatal("concrete provider does not expose Fetcher drain")
+		}
+	}
+	if err := applyAndroidConfigJSON(bridgeConfigJSON("rule")); err != nil {
+		t.Fatal(err)
+	}
+	if err := stopTunError(); err != nil {
+		t.Fatal(err)
+	}
+	for _, provider := range []interface{ Update() error }{proxy, rule} {
+		if err := provider.Update(); !errors.Is(err, context.Canceled) {
+			t.Fatalf("retired provider Update after stop = %v", err)
+		}
+	}
+	if len(androidRuntime.providers) != 0 {
+		t.Fatal("stop retained drained providers")
+	}
+}
+
+func TestAndroidBridgeProviderActualStopTimeoutBlocksReapplyAndAttach(t *testing.T) {
+	androidRuntime = androidTunLifecycle{}
+	p := &bridgeProviderResource{closed: make(chan struct{}), drained: make(chan struct{})}
+	androidRuntime.ownProvider("blocked-parser", p)
+	listener := &bridgeTestListener{}
+	androidRuntime.listener = listener
+	androidRuntime.protected.Store(true)
+	defer func() { close(p.drained); _ = stopTunError() }()
+	if err := stopTunError(); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("stop did not report bounded provider drain failure: %v", err)
+	}
+	if len(androidRuntime.providers) != 1 || listener.closes != 1 || androidRuntime.ready() {
+		t.Fatal("timeout lost provider ownership or skipped listener cleanup")
+	}
+	if err := applyAndroidConfigJSON(bridgeConfigJSON("direct")); !errors.Is(err, errAndroidProviderCleanupPending) {
+		t.Fatalf("new apply bypassed timed-out provider cleanup: %v", err)
+	}
+	constructed := false
+	if startAndroidTUNWithConstructor(-1, "system", "10.0.0.1/30", "", androidRuntime.stopGeneration.Load(), func(LC.Tun) (io.Closer, error) {
+		constructed = true
+		return nil, errors.New("must not construct")
+	}) || constructed {
+		t.Fatal("attachment bypassed timed-out provider cleanup")
+	}
+}

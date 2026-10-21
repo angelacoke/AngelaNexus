@@ -111,6 +111,19 @@ func init() {
 }
 
 func applyAndroidConfiguration(cfg *config.Config) {
+	// Own every generation, not just tunnel.Providers(), before initialization.
+	// Retired configurations remain owned until explicit stop; this does not
+	// claim synchronous provider retirement on configuration reload.
+	for name, provider := range cfg.Providers {
+		if closer, ok := provider.(io.Closer); ok {
+			androidRuntime.ownProvider("proxy/"+name, closer)
+		}
+	}
+	for name, provider := range cfg.RuleProviders {
+		if closer, ok := provider.(io.Closer); ok {
+			androidRuntime.ownProvider("rule/"+name, closer)
+		}
+	}
 	// ApplyConfig internally resumes the tunnel, even before a TUN is attached.
 	// Keep stopped/failed-start runtimes suspended, including panic paths.
 	defer func() {
@@ -119,6 +132,7 @@ func applyAndroidConfiguration(cfg *config.Config) {
 		}
 	}()
 	androidRuntime.applyConfiguration(func() { executor.ApplyConfig(cfg, true) })
+	androidRuntime.providersStopped = false
 }
 
 //export angelaInit
@@ -163,6 +177,9 @@ func applyAndroidConfigJSONAtGeneration(data []byte, generation uint64) error {
 	if err := androidRuntime.checkConfigurationGeneration(generation); err != nil {
 		return err
 	}
+	if androidRuntime.providersStopped && len(androidRuntime.providers) != 0 {
+		return errAndroidProviderCleanupPending
+	}
 	if len(data) == 0 {
 		return errors.New("config is empty")
 	}
@@ -203,6 +220,9 @@ func updateAndroidDNSAtGeneration(dns string, generation uint64) error {
 		return err
 	}
 
+	if androidRuntime.providersStopped && len(androidRuntime.providers) != 0 {
+		return errAndroidProviderCleanupPending
+	}
 	if len(lastConfigJSON) == 0 {
 		return errors.New("no configuration has been applied")
 	}
@@ -266,6 +286,11 @@ func startAndroidTUNWithConstructor(fd int, stack, address, dns string, generati
 		return false
 	}
 
+	// Fetcher.Close is irreversible. A fresh apply/DNS reparse must construct
+	// new providers before attaching again; never reopen a stopped generation.
+	if androidRuntime.providersStopped {
+		return false
+	}
 	tunnel.OnSuspend()
 	if err := closeAndroidResources(); err != nil {
 		// Keep failed cleanup ownership and the caller's descriptor on failure.
@@ -398,6 +423,9 @@ func closeAndroidResources() error {
 const androidSetupDrainTimeout = 2 * time.Second
 
 var errAndroidLateSetupConnections = errors.New("late setup connections await cleanup retry")
+var errAndroidProviderCleanupPending = errors.New("provider cleanup pending; retry stop before applying configuration")
+
+const androidProviderDrainTimeout = 2 * time.Second
 
 func waitAndroidSetups(timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -413,7 +441,13 @@ func stopTunError() error {
 	androidTunMu.Lock()
 	defer androidTunMu.Unlock()
 	tunnel.OnSuspend()
-	return closeAndroidResources()
+	// Provider cancellation is exclusive to explicit stop, NOT attachment
+	// cleanup: Kotlin applies a config before startTUN replaces the listener.
+	ctx, cancel := context.WithTimeout(context.Background(), androidProviderDrainTimeout)
+	defer cancel()
+	providerErr := androidRuntime.closeProviders(ctx)
+	resourceErr := closeAndroidResources()
+	return errors.Join(providerErr, resourceErr)
 }
 
 //export angelaStopTun

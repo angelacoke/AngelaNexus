@@ -19,6 +19,7 @@ COMMIT = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36"
 SING_TUN_VERSION = "v0.4.27"
 # Hashes are of the pristine pinned checkout/module files, before this adapter.
 EXPECTED = {
+    "log/log.go": "5ed821bf17536b7a012506baa1fe00550451c81b7f36e291799234ccdd7940df",
     "component/resource/fetcher.go": "647fdd5906c41202974577ff96a00ebc6bda441ae3e9d7717037cedff4eee903",
     "dns/resolver.go": "400765c7dde15950c324ab8fce1a7dc1d7730b3c7f3bff6a85fd64e4238e2b48",
     "go.mod": "72b10f80ec33e2e06dee425a75e499d5818039c99d4e25f745d0bca349c90af5",
@@ -39,7 +40,7 @@ SING_TUN_TUN_LINUX_SHA256 = "34d3c504a859006bf2981709d86e104c9a2b7c9542ef5895201
 PATCHED_SERVER_SHA256 = "1a77f3a7416b8074bc5e91c4944079c059fe766991bccfaa921780ad0068b8e1"
 PATCHED_STATISTICS_SHA256 = "316e372b7de3735a9a44c8f2357092ee1023fb21c6bbb899ea6a5228cc1dbb09"
 STATISTICS_PATCH_SHA256 = "293330f8b4ba6ed0fb318ea43f5bb759b0946fa98f44c563131135441d4c124b"
-LATE_CONNECTIONS_PATCH_SHA256 = "3044ab376e0f7df1df07805d64a92c948450d2a00211be5bd830defed9e6f716"
+LATE_CONNECTIONS_PATCH_SHA256 = "ca0570c729c3cb0b98249b01d51e32926c2391c760fef1b9046632f12bbb5fb7"
 PATCHED_LATE_MANAGER_SHA256 = "3b72343588f7d84cd6665798dc454fee02af2caaf9afe27177c337f9b6dc02ca"
 PATCHED_TPROXY_PACKET_SHA256 = "f417e4776d8dcdeb97b194fff2de83b76f3cf8e181ae01ee3fc15218fb376c5f"
 PATCHED_NAT_TABLE_SHA256 = "a024e1281fea19bdfcf67d4b8b72f9924d87bcd45a0d603a4e7555e05dd447d4"
@@ -51,7 +52,9 @@ PATCHED_TUNNEL_SHA256 = "380428b14dc6e45b6f52298df87cdec24601b2188d5358aacb2d2e0
 PATCHED_DNS_RESOLVER_SHA256 = "4d72255d1e672cba762752dfd732353d55ada80a6bfc5bbfda5600a046c14890"
 
 
-PATCHED_PROVIDER_FETCHER_SHA256 = "c634c28c9945aec161091eaccf9de3a1cff9730cf90db48e112e0161270c90e2"
+PATCHED_LOG_SHA256 = "0e81036280690bc39feabdb54181f805663706dc17c7c42060b7db4249b3e70b"
+
+PATCHED_PROVIDER_FETCHER_SHA256 = "9712e8b28c32345bd186696e2cd6b6048a91a3f7904eb4f4b13da2a742a062b9"
 
 def sha256(path: Path) -> str:
     h = hashlib.sha256()
@@ -99,8 +102,11 @@ def verify_source(root: Path) -> None:
     dns_resolver_hash = sha256(dns_resolver) if dns_resolver.is_file() else None
     provider_fetcher = root / "component/resource/fetcher.go"
     provider_fetcher_hash = sha256(provider_fetcher) if provider_fetcher.is_file() else None
+    log_source = root / "log/log.go"
+    log_hash = sha256(log_source) if log_source.is_file() else None
     # Existing adapter output is allowed only when it is exactly our output.
     allowed = {
+        "log/angelanexus_log_level_integration_test.go",
         "component/resource/angelanexus_provider_lifecycle_integration_test.go",
         "dns/angelanexus_dns_reset_integration_test.go",
         "angelanexus_android/bridge.go",
@@ -129,6 +135,8 @@ def verify_source(root: Path) -> None:
         if path == "tunnel/statistic/tracker.go" and tracker_hash == PATCHED_TRACKER_SHA256:
             continue
         if path == "component/sniffer/quic_sniffer.go" and quic_sniffer_hash == PATCHED_QUIC_SNIFFER_SHA256:
+            continue
+        if path == "log/log.go" and log_hash == PATCHED_LOG_SHA256:
             continue
         if path == "component/resource/fetcher.go" and provider_fetcher_hash == PATCHED_PROVIDER_FETCHER_SHA256:
             continue
@@ -159,6 +167,8 @@ def verify_source(root: Path) -> None:
             if rel == "tunnel/statistic/tracker.go" and tracker_hash == PATCHED_TRACKER_SHA256:
                 continue
             if rel == "component/sniffer/quic_sniffer.go" and quic_sniffer_hash == PATCHED_QUIC_SNIFFER_SHA256:
+                continue
+            if rel == "log/log.go" and log_hash == PATCHED_LOG_SHA256:
                 continue
             if rel == "component/resource/fetcher.go" and provider_fetcher_hash == PATCHED_PROVIDER_FETCHER_SHA256:
                 continue
@@ -286,7 +296,8 @@ def apply_late(root: Path) -> None:
              "component/sniffer/quic_sniffer.go": PATCHED_QUIC_SNIFFER_SHA256,
              "listener/tproxy/packet.go": PATCHED_TPROXY_PACKET_SHA256,
              "dns/resolver.go": PATCHED_DNS_RESOLVER_SHA256,
-             "component/resource/fetcher.go": PATCHED_PROVIDER_FETCHER_SHA256}
+             "component/resource/fetcher.go": PATCHED_PROVIDER_FETCHER_SHA256,
+             "log/log.go": PATCHED_LOG_SHA256}
     if all(sha256(root / rel) == digest for rel, digest in paths.items()):
         return
     inputs = {"tunnel/statistic/manager.go": PATCHED_STATISTICS_SHA256,
@@ -297,17 +308,18 @@ def apply_late(root: Path) -> None:
               "component/sniffer/quic_sniffer.go": EXPECTED["component/sniffer/quic_sniffer.go"],
               "listener/tproxy/packet.go": EXPECTED["listener/tproxy/packet.go"],
               "dns/resolver.go": EXPECTED["dns/resolver.go"],
-              "component/resource/fetcher.go": EXPECTED["component/resource/fetcher.go"]}
+              "component/resource/fetcher.go": EXPECTED["component/resource/fetcher.go"],
+              "log/log.go": EXPECTED["log/log.go"]}
     for rel, digest in inputs.items():
         if sha256(root / rel) != digest:
             fail(f"late patch input {rel} does not match reviewed source")
-    # Parse only the exact nine reviewed sections and patch into temporary
+    # Parse only the exact ten reviewed sections and patch into temporary
     # outputs. Never let patch mutate the checkout before every digest matches.
     import re
     sections = re.split(r"(?m)(?=^--- )", patch.read_text())
     sections = [section for section in sections if section]
     if len(sections) != len(paths):
-        fail("late patch must contain exactly the reviewed nine source sections")
+        fail("late patch must contain exactly the reviewed ten source sections")
     outputs = {}
     with tempfile.TemporaryDirectory(prefix="angelanexus-late-") as tmp:
         for index, (rel, digest) in enumerate(paths.items()):

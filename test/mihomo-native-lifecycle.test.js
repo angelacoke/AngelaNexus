@@ -7,6 +7,29 @@ const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8"
 const workflow = yaml.load(read(".github/workflows/mihomo-android-native-build.yml"));
 const steps = workflow.jobs.build.steps;
 
+test("Mihomo explicit stop owns every provider generation and drains without cancelling attachment config", () => {
+  const bridge = read("native/android/mihomo-bridge/bridge.go");
+  const lifecycle = read("native/android/mihomo-bridge/lifecycle.go");
+  const apply = bridge.split("func applyAndroidConfiguration")[1].split("//export angelaInit")[0];
+  assert.match(apply, /range cfg\.Providers/);
+  assert.match(apply, /range cfg\.RuleProviders/);
+  assert.ok(apply.indexOf("androidRuntime.ownProvider") < apply.indexOf("executor.ApplyConfig"));
+  assert.match(apply, /androidRuntime\.providersStopped = false/);
+  const stop = bridge.split("func stopTunError()")[1].split("//export angelaStopTun")[0];
+  assert.match(stop, /context\.WithTimeout\(context\.Background\(\), androidProviderDrainTimeout\)/);
+  assert.ok(stop.indexOf("androidRuntime.closeProviders(ctx)") < stop.indexOf("resourceErr := closeAndroidResources()"));
+  assert.match(stop, /return errors\.Join\(providerErr, resourceErr\)/);
+  const cleanup = bridge.split("func closeAndroidResources()")[1].split("func stopTunError")[0];
+  assert.doesNotMatch(cleanup, /closeProviders/);
+  const start = bridge.split("func startAndroidTUNWithConstructor(")[1].split("func closeAndroidResources()")[0];
+  assert.ok(start.indexOf("if androidRuntime.providersStopped") < start.indexOf("closeAndroidResources()"));
+  assert.equal((bridge.match(/return errAndroidProviderCleanupPending/g) ?? []).length, 2);
+  assert.match(lifecycle, /WaitClosed\(context\.Context\) error/);
+  const close = lifecycle.split("func (l *androidTunLifecycle) closeProviders(")[1];
+  assert.ok(close.indexOf("provider.Close()") < close.indexOf("waiter.WaitClosed(ctx)"));
+  assert.match(close, /if !failed\[provider\] \{\s*delete\(l\.providers, provider\)/);
+});
+
 // These are integration-wiring checks, not native behavior tests. The workflow
 // executes lifecycle_test.go against the actual helper with Go's race detector.
 test("Mihomo JNI stop requires the error-returning export and releases its result", () => {

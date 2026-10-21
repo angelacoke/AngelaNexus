@@ -22,6 +22,10 @@ test("CI stages and runs manager and actual tunnel regressions, rejecting empty 
   assert.ok(host.run.includes("-list '^TestAngelaNexusProviderLifecycle'"));
   assert.ok(host.run.includes("grep '^TestAngelaNexusProviderLifecycle'"));
   assert.match(host.run, /-race -run '\^TestAngelaNexusProviderLifecycle' -count=20 -timeout=120s \.\/component\/resource/);
+  assert.match(host.run, /log_level_integration_test\.go.*log\/angelanexus_log_level_integration_test\.go/);
+  assert.match(host.run, /-list '\^TestAngelaNexusLogLevel'.*log/);
+  assert.match(host.run, /grep '\^TestAngelaNexusLogLevel'/);
+  assert.match(host.run, /-race -run '\^TestAngelaNexusLogLevel' -count=100 -timeout=120s \.\/log/);
   assert.match(host.run, /quic_sender_integration_test\.go.*component\/sniffer\/angelanexus_quic_sender_integration_test\.go/);
   assert.ok(host.run.includes("-list '^TestAngelaNexusQUICSender'"));
   assert.match(host.run, /-list '\^TestAngelaNexusNATLocal'[^\n]*component\/nat/);
@@ -50,6 +54,8 @@ test("the source adapter alone applies the reviewed late patch before bridge sta
   }
   assert.match(provenance.run, /"lateConnectionsPatch"/);
   assert.match(provenance.run, /"manager": \{"path": "tunnel\/statistic\/manager\.go"/);
+  assert.ok(provenance.run.includes("PATCHED_LOG_SHA256"));
+  assert.match(provenance.run, /"logSource": \{"path": "log\/log\.go", "sha256": "\$PATCHED_LOG_SHA256"\}/);
   assert.match(provenance.run, /"tracker": \{"path": "tunnel\/statistic\/tracker\.go"/);
   assert.match(provenance.run, /"tunnel": \{"path": "tunnel\/tunnel\.go"/);
 });
@@ -94,6 +100,7 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
         tproxyPacket: "listener/tproxy/packet.go",
         dnsResolver: "dns/resolver.go",
         providerFetcher: "component/resource/fetcher.go",
+        log: "log/log.go",
       };
       for (const [name, path] of Object.entries(sources)) put(join(root, "mihomo", path), `reviewed final ${name} output\n`);
       const run = step.run.replace(/\$\{\{ matrix\.(\w+) \}\}/g, (_, key) => matrix[key]);

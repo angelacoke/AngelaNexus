@@ -1236,15 +1236,181 @@
  
 --- component/resource/fetcher.go
 +++ component/resource/fetcher.go
-@@ -35,0 +36,2 @@
+@@ -4,0 +5 @@
++	"errors"
+@@ -35,0 +37,8 @@
 +	lifecycleMu  sync.Mutex
 +	started      bool
-@@ -169,0 +172,2 @@
++	closed       bool
++	wg           sync.WaitGroup
++	waitStarted  bool
++	waitDone     chan struct{}
++	watcherErr   error
++	metadataMu   sync.RWMutex
+@@ -52,0 +62,2 @@
++	f.metadataMu.RLock()
++	defer f.metadataMu.RUnlock()
+@@ -55,0 +67,14 @@
++func (f *Fetcher[V]) begin() error {
 +	f.lifecycleMu.Lock()
 +	defer f.lifecycleMu.Unlock()
-@@ -212,0 +217,9 @@
++	if f.closed {
++		return context.Canceled
++	}
++	if err := f.ctx.Err(); err != nil {
++		return err
++	}
++	f.wg.Add(1)
++	return nil
++}
++func (f *Fetcher[V]) end() { f.wg.Done() }
++
+@@ -56,0 +82,4 @@
++	if err := f.begin(); err != nil {
++		return lo.Empty[V](), err
++	}
++	defer f.end()
+@@ -62 +91,3 @@
+-		f.updatedAt = modTime // reset updatedAt to file's modTime
++		f.metadataMu.Lock()
++		f.updatedAt = modTime
++		f.metadataMu.Unlock() // reset updatedAt to file's modTime
+@@ -84 +115,3 @@
+-			f.updatedAt = modTime // reset updatedAt to file's modTime
++			f.metadataMu.Lock()
++			f.updatedAt = modTime
++			f.metadataMu.Unlock() // reset updatedAt to file's modTime
+@@ -117 +150,8 @@
+-	buf, hash, err := f.vehicle.Read(f.ctx, f.hash)
++	if err := f.begin(); err != nil {
++		return lo.Empty[V](), false, err
++	}
++	defer f.end()
++	f.metadataMu.RLock()
++	oldHash := f.hash
++	f.metadataMu.RUnlock()
++	buf, hash, err := f.vehicle.Read(f.ctx, oldHash)
+@@ -119 +159,3 @@
+-		f.backoff.AddAttempt() // add a failed attempt to backoff
++		f.loadBufMutex.Lock()
++		f.backoff.AddAttempt()
++		f.loadBufMutex.Unlock() // add a failed attempt to backoff
+@@ -125,0 +168,4 @@
++	if err := f.begin(); err != nil {
++		return lo.Empty[V](), false, err
++	}
++	defer f.end()
+@@ -132 +178,3 @@
+-
++	if err := f.ctx.Err(); err != nil {
++		return lo.Empty[V](), false, err
++	}
+@@ -134 +182,4 @@
+-	if f.hash.Equal(hash) {
++	f.metadataMu.RLock()
++	same := f.hash.Equal(hash)
++	f.metadataMu.RUnlock()
++	if same {
+@@ -137,0 +189 @@
++		f.metadataMu.Lock()
+@@ -138,0 +191 @@
++		f.metadataMu.Unlock()
+@@ -149 +202,4 @@
+-		f.backoff.AddAttempt() // add a failed attempt to backoff
++		f.backoff.AddAttempt() // loadBufMutex is already held
++		return lo.Empty[V](), false, err
++	}
++	if err := f.ctx.Err(); err != nil {
+@@ -158,0 +215,4 @@
++	if err := f.ctx.Err(); err != nil {
++		return lo.Empty[V](), false, err
++	}
++	f.metadataMu.Lock()
+@@ -160,0 +221 @@
++	f.metadataMu.Unlock()
+@@ -169,0 +231,2 @@
++	f.lifecycleMu.Lock()
++	f.closed = true
+@@ -171,4 +234,40 @@
+-	if f.watcher != nil {
+-		_ = f.watcher.Close()
+-	}
+-	return nil
++	watcher := f.watcher
++	if watcher != nil {
++		if err := watcher.Close(); err != nil {
++			f.watcherErr = err
++		} else {
++			f.watcherErr = nil
++			f.watcher = nil
++		}
++	}
++	if !f.waitStarted {
++		f.waitStarted = true
++		f.waitDone = make(chan struct{})
++		done := f.waitDone
++		go func() { f.wg.Wait(); close(done) }()
++	}
++	err := f.watcherErr
++	f.lifecycleMu.Unlock()
++	return err
++}
++
++func (f *Fetcher[V]) WaitClosed(ctx context.Context) error {
++	f.lifecycleMu.Lock()
++	if !f.closed {
++		f.lifecycleMu.Unlock()
++		return errors.New("fetcher is not closed")
++	}
++	done := f.waitDone
++	f.lifecycleMu.Unlock()
++	// A completed drain wins over an already-expired retry context.
++	select {
++	case <-done:
++		return nil
++	default:
++	}
++	select {
++	case <-done:
++		return nil
++	case <-ctx.Done():
++		return ctx.Err()
++	}
+@@ -178 +277,2 @@
+-	initialInterval := f.interval - time.Since(f.updatedAt)
++	defer f.end()
++	initialInterval := f.interval - time.Since(f.UpdatedAt())
+@@ -187,2 +287,8 @@
+-	if attempt := f.backoff.Attempt(); attempt > 0 { // f.Update() was failed, decrease the interval from backoff to achieve fast retry
+-		if duration := f.backoff.ForAttempt(attempt); duration < initialInterval {
++	f.loadBufMutex.Lock()
++	attempt := f.backoff.Attempt()
++	f.loadBufMutex.Unlock()
++	if attempt > 0 { // f.Update() was failed, decrease the interval from backoff to achieve fast retry
++		f.loadBufMutex.Lock()
++		duration := f.backoff.ForAttempt(attempt)
++		f.loadBufMutex.Unlock()
++		if duration < initialInterval {
+@@ -200,4 +306,9 @@
+-			if attempt := f.backoff.Attempt(); attempt > 0 { // f.Update() was failed, decrease the interval from backoff to achieve fast retry
+-				if duration := f.backoff.ForAttempt(attempt); duration < interval {
+-					interval = duration
+-				}
++			f.loadBufMutex.Lock()
++			attempt := f.backoff.Attempt()
++			duration := time.Duration(0)
++			if attempt > 0 {
++				duration = f.backoff.ForAttempt(attempt)
++			}
++			f.loadBufMutex.Unlock()
++			if attempt > 0 && duration < interval {
++				interval = duration
+@@ -212,0 +324,12 @@
 +	f.lifecycleMu.Lock()
 +	defer f.lifecycleMu.Unlock()
++	if f.closed {
++		return context.Canceled
++	}
 +	if err := f.ctx.Err(); err != nil {
 +		return err
 +	}
@@ -1252,13 +1418,47 @@
 +		return nil
 +	}
 +
-@@ -215 +228 @@
+@@ -215 +338 @@
 -		f.watcher, err = fswatch.NewWatcher(fswatch.Options{
 +		watcher, err := fswatch.NewWatcher(fswatch.Options{
-@@ -222 +235 @@
+@@ -222 +345 @@
 -		err = f.watcher.Start()
 +		err = watcher.Start()
-@@ -225,0 +239 @@
+@@ -225,0 +349 @@
 +		f.watcher = watcher
-@@ -228,0 +243 @@
+@@ -226,0 +351 @@
++		f.wg.Add(1)
+@@ -228,0 +354 @@
 +	f.started = true
+@@ -233 +359,4 @@
+-	f.updateWithLog()
++	if err := f.begin(); err == nil {
++		defer f.end()
++		f.updateWithLog()
++	}
+@@ -260,0 +390 @@
++		waitDone:   make(chan struct{}),
+--- log/log.go
++++ log/log.go
+@@ -5,0 +6 @@
++	"sync"
+@@ -13,3 +14,4 @@
+-	logCh  = make(chan Event)
+-	source = observable.NewObservable[Event](logCh)
+-	level  = INFO
++	logCh   = make(chan Event)
++	source  = observable.NewObservable[Event](logCh)
++	level   = INFO
++	levelMu sync.RWMutex
+@@ -74,0 +77,2 @@
++	levelMu.RLock()
++	defer levelMu.RUnlock()
+@@ -78,0 +83 @@
++	levelMu.Lock()
+@@ -79,0 +85 @@
++	levelMu.Unlock()
+@@ -83 +89,3 @@
+-	if data.LogLevel < level {
++	// Sample under the same lock as SetLevel; never hold it while logging,
++	// which can invoke user hooks or run from a proxy finalizer.
++	if data.LogLevel < Level() {
