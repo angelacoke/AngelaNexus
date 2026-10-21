@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import yaml from "js-yaml";
 
 const root = process.cwd();
 const bridge = join(root, "native/android/xray-bridge");
@@ -130,4 +131,16 @@ for (const [name, mutate] of [
   ["project commit provenance", (f, a, p) => { const x = JSON.parse(readFileSync(p)); x.projectCommit = "another-commit"; writeFileSync(p, JSON.stringify(x)); }],
 ]) test(`artifact verifier rejects ${name} tampering and stamp cannot mask source errors`, () => { const f = makeFixture(); try { f.lock = JSON.parse(readFileSync(f.lockPath)); const p = join(f.d, "provenance.json"); writeFileSync(p, JSON.stringify(provenance(f), null, 2)); const a = artifact(f); must(invoke(f, "--verify-only")); if (name === "artifact") must(verifyArtifact(f, a, p, "--stamp")); mutate(f, a, p); const r = verifyArtifact(f, a, p, "--stamp"); assert.notEqual(r.status, 0); } finally { rmSync(f.d, { recursive: true, force: true }); } });
 
+
 test("both Android workflows retain host, local Android, and artifact verification gates", () => { const files = [join(root, ".github/workflows/android-build.yml"), join(root, ".github/workflows/xray-android-native-build.yml")]; for (const file of files) { const text = readFileSync(file, "utf8"); assert.match(text, /test-host\.sh/); assert.match(text, /build\/main\.py android local/); assert.match(text, /verify-artifact\.py/); assert.match(text, /verify-prepared/); } });
+
+test("Xray toolchain is isolated from the original fixed sing-box toolchain", () => {
+  const workflow = yaml.load(readFileSync(join(root, ".github/workflows/android-build.yml"), "utf8"));
+  const job = workflow.jobs["prepare-xray"];
+  assert.equal(job.env?.GOTOOLCHAIN, undefined);
+  assert.equal(job.steps.find((s) => s.uses === "actions/setup-go@v5").with["go-version"], "1.26.8");
+  assert.equal(job.steps.find((s) => s.name === "Build pinned libXray AAR").env.GOTOOLCHAIN, "go1.27.1");
+  assert.equal(job.steps.find((s) => s.name === "Build pinned sing-box libbox AAR").env.GOTOOLCHAIN, "go1.26.8");
+  const native = yaml.load(readFileSync(join(root, ".github/workflows/xray-android-native-build.yml"), "utf8"));
+  assert.equal(native.env.GOTOOLCHAIN, "go1.27.1");
+});

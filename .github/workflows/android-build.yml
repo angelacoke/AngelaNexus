@@ -7,8 +7,6 @@ on:
 
 jobs:
   prepare-xray:
-    env:
-      GOTOOLCHAIN: go1.27.1
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -19,7 +17,7 @@ jobs:
           java-version: '17'
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.27.1'
+          go-version: '1.26.8'
       - name: Install Android NDK
         shell: bash
         env:
@@ -32,6 +30,7 @@ jobs:
       - name: Build pinned libXray AAR
         shell: bash
         env:
+          GOTOOLCHAIN: go1.27.1
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.0.13004108
           LIBXRAY_COMMIT: "3c694b23290f9849fe52284a345ebd4343bc90cd"
@@ -60,6 +59,7 @@ jobs:
       - name: Build pinned sing-box libbox AAR
         shell: bash
         env:
+          GOTOOLCHAIN: go1.26.8
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.0.13004108
           SINGBOX_REF: "v1.14.0-beta.4"
