@@ -8,6 +8,7 @@ import { spawnSync } from "node:child_process";
 
 const ABIS = ["arm64-v8a", "armeabi-v7a", "x86_64"];
 const COMMIT = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36";
+const PATCHED_TPROXY_PACKET_SHA256 = "f417e4776d8dcdeb97b194fff2de83b76f3cf8e181ae01ee3fc15218fb376c5f";
 const REPOSITORY = "https://github.com/MetaCubeX/mihomo";
 const verifier = join(process.cwd(), "scripts/verify-mihomo-native-artifacts.py");
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
@@ -26,12 +27,15 @@ function fixture() {
   const patchedNatTable = Buffer.from("fixture patched NAT table\n");
   const patchedConnection = Buffer.from("fixture patched connection\n");
   const patchedQuicSniffer = Buffer.from("fixture patched QUIC sniffer\n");
+  const patchedTproxyPacket = Buffer.from("fixture patched TProxy packet\n");
   const lateConnectionsPatch = Buffer.from("fixture late connections patch\n");
   const sourceDir = join(root, "native/android/mihomo-bridge");
   mkdirSync(sourceDir, { recursive: true });
   mkdirSync(join(root, "tunnel/statistic"), { recursive: true });
   mkdirSync(join(root, "listener/sing_tun"), { recursive: true });
+  mkdirSync(join(root, "listener/tproxy"), { recursive: true });
   writeFileSync(join(root, "listener/sing_tun/server.go"), patchedSource);
+  writeFileSync(join(root, "listener/tproxy/packet.go"), patchedTproxyPacket);
   writeFileSync(join(root, "tunnel/statistic/manager.go"), patchedStatistics);
   writeFileSync(join(root, "tunnel/statistic/tracker.go"), patchedTracker);
   writeFileSync(join(root, "tunnel/tunnel.go"), patchedTunnel);
@@ -41,7 +45,7 @@ function fixture() {
   writeFileSync(join(sourceDir, "bridge.go"), bridge);
   writeFileSync(join(sourceDir, "lifecycle.go"), lifecycle);
   writeFileSync(join(sourceDir, "library.go"), libraryEntry);
-  const adapterSource = `PATCHED_SERVER_SHA256 = "${digest(patchedSource)}"\nPATCHED_STATISTICS_SHA256 = "${digest(patchedStatistics)}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${digest(patchedStatistics)}"\nPATCHED_TRACKER_SHA256 = "${digest(patchedTracker)}"\nPATCHED_TUNNEL_SHA256 = "${digest(patchedTunnel)}"\nPATCHED_NAT_TABLE_SHA256 = "${digest(patchedNatTable)}"\nPATCHED_CONNECTION_SHA256 = "${digest(patchedConnection)}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${digest(patchedQuicSniffer)}"\n`;
+  const adapterSource = `PATCHED_SERVER_SHA256 = "${digest(patchedSource)}"\nPATCHED_STATISTICS_SHA256 = "${digest(patchedStatistics)}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${digest(patchedStatistics)}"\nPATCHED_TRACKER_SHA256 = "${digest(patchedTracker)}"\nPATCHED_TUNNEL_SHA256 = "${digest(patchedTunnel)}"\nPATCHED_NAT_TABLE_SHA256 = "${digest(patchedNatTable)}"\nPATCHED_CONNECTION_SHA256 = "${digest(patchedConnection)}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${digest(patchedQuicSniffer)}"\nPATCHED_TPROXY_PACKET_SHA256 = "${digest(patchedTproxyPacket)}"\n`;
   writeFileSync(join(sourceDir, "prepare-upstream.py"), adapterSource);
   const adapterSha = digest(adapterSource);
   const records = {};
@@ -58,6 +62,7 @@ function fixture() {
 object MihomoNativeArtifactManifest {
  const val VERSION = "v1.19.32"
  const val SOURCE_COMMIT = "${COMMIT}"
+ const val PATCHED_TPROXY_PACKET_SHA256 = "${digest(patchedTproxyPacket)}"
 ${ABIS.map((abi) => ` val ${abi.replaceAll("-", "_")} = MihomoNativeLibrarySpec(abi = "${abi}", sha256 = "${records[abi].sha256}")`).join("\n")}
 }`);
   const complianceDir = join(root, "docs/upstream");
@@ -97,6 +102,7 @@ ${ABIS.map((abi) => ` val ${abi.replaceAll("-", "_")} = MihomoNativeLibrarySpec(
           natTable: { path: "component/nat/table.go", sha256: digest(patchedNatTable) },
           connection: { path: "tunnel/connection.go", sha256: digest(patchedConnection) },
           quicSniffer: { path: "component/sniffer/quic_sniffer.go", sha256: digest(patchedQuicSniffer) },
+          tproxyPacket: { path: "listener/tproxy/packet.go", sha256: digest(patchedTproxyPacket) },
         },
       },
       artifact: { name: artifact, sha256: records[abi].sha256 },
@@ -389,6 +395,14 @@ test("packaging does not require an upstream source checkout in the app reposito
   assert.equal(result.status, 0, result.stderr);
 }));
 
+test("rejects TProxy packet provenance tampering", () => withFixture((fx) => {
+  mutate(fx, "arm64-v8a", (p) => {
+    p.lateConnectionsPatch.patchedSources.tproxyPacket.sha256 = "0".repeat(64);
+  });
+  const result = run(fx);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /tproxyPacket SHA-256 mismatch/);
+}));
 for (const name of ["natTable", "connection", "quicSniffer"]) {
   test(`rejects old provenance missing ${name} output evidence`, () => withFixture((fx) => {
     mutate(fx, "x86_64", (p) => { delete p.lateConnectionsPatch.patchedSources[name]; });

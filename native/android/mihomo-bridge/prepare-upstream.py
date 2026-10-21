@@ -23,6 +23,7 @@ EXPECTED = {
     "go.sum": "8fa2b10fe8589a4a1118fd6819f59231f74a27e71c8154de9c3903a69c3735aa",
     "listener/sing_tun/server.go": "8b0d766e346aa5a36ec40dc66c1fe7cd3466ead48a687cfb4a262342ca9a3335",
     "listener/sing_tun/server_notwindows.go": "b455a1c900fa94bde40c09b01183c28414b1bf45810ff79ba5eb58f7c34ee66c",
+    "listener/tproxy/packet.go": "008ebcaea010af878b31a84148fb58e9c31e31456b651a73107a51a95c769c54",
     "component/nat/table.go": "e683db1cc9a41980b0c860d506663ed3d412260df5abc70f903106e1ebf82c54",
     "tunnel/connection.go": "1e48fbdff3551c8d0dcbe5265088c3b56db0b66eb9c7512af5aaa31e8e65af1b",
     "tunnel/statistic/manager.go": "508daa254d05b6414e899e4eb154cb3b83572d6223e5662da9463728cb588886",
@@ -36,9 +37,10 @@ SING_TUN_TUN_LINUX_SHA256 = "34d3c504a859006bf2981709d86e104c9a2b7c9542ef5895201
 PATCHED_SERVER_SHA256 = "1a77f3a7416b8074bc5e91c4944079c059fe766991bccfaa921780ad0068b8e1"
 PATCHED_STATISTICS_SHA256 = "316e372b7de3735a9a44c8f2357092ee1023fb21c6bbb899ea6a5228cc1dbb09"
 STATISTICS_PATCH_SHA256 = "293330f8b4ba6ed0fb318ea43f5bb759b0946fa98f44c563131135441d4c124b"
-LATE_CONNECTIONS_PATCH_SHA256 = "948959b02a2a83eb39147c281322abbd0b2b82e6064ca0c55cd718bdee7a9c60"
+LATE_CONNECTIONS_PATCH_SHA256 = "081141988ce35cf73102ff21c203af5976fb19600182e722847aaf3d0f9bdd50"
 PATCHED_LATE_MANAGER_SHA256 = "3b72343588f7d84cd6665798dc454fee02af2caaf9afe27177c337f9b6dc02ca"
-PATCHED_NAT_TABLE_SHA256 = "14c048a266086e2dec951d8874e1fa67d31085edf86c4b8aae1625caeef29e90"
+PATCHED_TPROXY_PACKET_SHA256 = "f417e4776d8dcdeb97b194fff2de83b76f3cf8e181ae01ee3fc15218fb376c5f"
+PATCHED_NAT_TABLE_SHA256 = "a024e1281fea19bdfcf67d4b8b72f9924d87bcd45a0d603a4e7555e05dd447d4"
 PATCHED_CONNECTION_SHA256 = "7f49df0990618e61ae9c4bd6763a80a7da0627ee1a0ec6fa44c68f7301f1c87a"
 PATCHED_TRACKER_SHA256 = "790b996d9e8144ecc453c6624b11664f2956d068e8ccb284f046be9afc09c99b"
 PATCHED_QUIC_SNIFFER_SHA256 = "51a3e923cf1d58a5fe05c43793bb53f5edfb588e61cafd6d7f82d42e4dd11a9b"
@@ -85,6 +87,8 @@ def verify_source(root: Path) -> None:
     quic_sniffer_hash = sha256(quic_sniffer) if quic_sniffer.is_file() else None
     tunnel = root / "tunnel/tunnel.go"
     tunnel_hash = sha256(tunnel) if tunnel.is_file() else None
+    tproxy_packet = root / "listener/tproxy/packet.go"
+    tproxy_packet_hash = sha256(tproxy_packet) if tproxy_packet.is_file() else None
     # Existing adapter output is allowed only when it is exactly our output.
     allowed = {
         "angelanexus_android/bridge.go",
@@ -94,6 +98,7 @@ def verify_source(root: Path) -> None:
         "angelanexus_android/library_integration_test.go",
         "tunnel/statistic/angelanexus_statistics_test.go",
         "tunnel/statistic/angelanexus_late_connections_test.go",
+        "component/nat/angelanexus_nat_local_integration_test.go",
         "component/nat/table.go",
         "tunnel/connection.go",
         "component/sniffer/angelanexus_quic_sender_integration_test.go",
@@ -112,6 +117,8 @@ def verify_source(root: Path) -> None:
         if path == "tunnel/statistic/tracker.go" and tracker_hash == PATCHED_TRACKER_SHA256:
             continue
         if path == "component/sniffer/quic_sniffer.go" and quic_sniffer_hash == PATCHED_QUIC_SNIFFER_SHA256:
+            continue
+        if path == "listener/tproxy/packet.go" and tproxy_packet_hash == PATCHED_TPROXY_PACKET_SHA256:
             continue
         if path == "tunnel/tunnel.go" and tunnel_hash == PATCHED_TUNNEL_SHA256:
             continue
@@ -136,6 +143,8 @@ def verify_source(root: Path) -> None:
             if rel == "tunnel/statistic/tracker.go" and tracker_hash == PATCHED_TRACKER_SHA256:
                 continue
             if rel == "component/sniffer/quic_sniffer.go" and quic_sniffer_hash == PATCHED_QUIC_SNIFFER_SHA256:
+                continue
+            if rel == "listener/tproxy/packet.go" and tproxy_packet_hash == PATCHED_TPROXY_PACKET_SHA256:
                 continue
             if rel == "tunnel/tunnel.go" and tunnel_hash == PATCHED_TUNNEL_SHA256:
                 continue
@@ -254,7 +263,8 @@ def apply_late(root: Path) -> None:
              "tunnel/tunnel.go": PATCHED_TUNNEL_SHA256,
              "component/nat/table.go": PATCHED_NAT_TABLE_SHA256,
              "tunnel/connection.go": PATCHED_CONNECTION_SHA256,
-             "component/sniffer/quic_sniffer.go": PATCHED_QUIC_SNIFFER_SHA256}
+             "component/sniffer/quic_sniffer.go": PATCHED_QUIC_SNIFFER_SHA256,
+             "listener/tproxy/packet.go": PATCHED_TPROXY_PACKET_SHA256}
     if all(sha256(root / rel) == digest for rel, digest in paths.items()):
         return
     inputs = {"tunnel/statistic/manager.go": PATCHED_STATISTICS_SHA256,
@@ -262,17 +272,18 @@ def apply_late(root: Path) -> None:
               "tunnel/tunnel.go": EXPECTED["tunnel/tunnel.go"],
               "component/nat/table.go": EXPECTED["component/nat/table.go"],
               "tunnel/connection.go": EXPECTED["tunnel/connection.go"],
-              "component/sniffer/quic_sniffer.go": EXPECTED["component/sniffer/quic_sniffer.go"]}
+              "component/sniffer/quic_sniffer.go": EXPECTED["component/sniffer/quic_sniffer.go"],
+              "listener/tproxy/packet.go": EXPECTED["listener/tproxy/packet.go"]}
     for rel, digest in inputs.items():
         if sha256(root / rel) != digest:
             fail(f"late patch input {rel} does not match reviewed source")
-    # Parse only the exact six reviewed sections and patch into temporary
+    # Parse only the exact seven reviewed sections and patch into temporary
     # outputs. Never let patch mutate the checkout before every digest matches.
     import re
     sections = re.split(r"(?m)(?=^--- )", patch.read_text())
     sections = [section for section in sections if section]
     if len(sections) != len(paths):
-        fail("late patch must contain exactly the reviewed six source sections")
+        fail("late patch must contain exactly the reviewed seven source sections")
     outputs = {}
     with tempfile.TemporaryDirectory(prefix="angelanexus-late-") as tmp:
         for index, (rel, digest) in enumerate(paths.items()):

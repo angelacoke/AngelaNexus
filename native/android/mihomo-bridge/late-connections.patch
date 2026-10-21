@@ -558,10 +558,48 @@
  			if fe != nil {
 --- component/nat/table.go
 +++ component/nat/table.go
-@@ -29,6 +29,41 @@
+@@ -12,7 +12,18 @@
+ 	mapping xsync.Map[string, *entry]
+ }
+ 
++type localConnCreation struct {
++	done chan struct{}
++	conn *net.UDPConn
++	err  error
++}
++
+ type entry struct {
++	// localMu protects publication against retirement, never socket creation.
++	localMu         sync.Mutex
++	retired         bool
++	retiredDone     chan struct{}
++	creating        map[string]*localConnCreation
+ 	PacketSender    C.PacketSender
+ 	LocalUDPConnMap xsync.Map[string, *net.UDPConn]
+ 	LocalLockMap    xsync.Map[string, *sync.Cond]
+@@ -22,13 +33,153 @@
+ 	item, loaded := t.mapping.LoadOrStoreFn(key, func() *entry {
+ 		return &entry{
+ 			PacketSender: maker(),
++			retiredDone:  make(chan struct{}),
+ 		}
+ 	})
+ 	return item.PacketSender, loaded
+ }
  
  func (t *Table) Delete(key string) {
- 	t.mapping.Delete(key)
+-	t.mapping.Delete(key)
++	var detached *entry
++	t.mapping.Compute(key, func(current *entry, loaded bool) (*entry, xsync.ComputeOp) {
++		if !loaded {
++			return current, xsync.CancelOp
++		}
++		detached = current
++		return nil, xsync.DeleteOp
++	})
++	if detached != nil {
++		closeLocalConns(detached.retire())
++	}
 +}
 +
 +// detachIf compares ownership and removes a single key under the same bucket
@@ -580,26 +618,137 @@
 +
 +// DeleteIf removes key only when it still belongs to sender.
 +func (t *Table) DeleteIf(key string, sender C.PacketSender) bool {
-+	return t.detachIf(key, sender) != nil
++	item := t.detachIf(key, sender)
++	if item == nil {
++		return false
++	}
++	closeLocalConns(item.retire())
++	return true
 +}
 +
-+// DetachLocalConnsIf removes only the sender-owned entry, then snapshots its
-+// local sockets outside the table lock. Callers close only those sockets.
-+// This does not join local-connection creators already holding that entry.
++// DetachLocalConnsIf retires the sender-owned entry without joining creators.
++// Already-running creators close their own late results. Waiters wake immediately.
++// Socket closes and maker callbacks always run outside table/entry locks.
 +func (t *Table) DetachLocalConnsIf(key string, sender C.PacketSender) []*net.UDPConn {
 +	item := t.detachIf(key, sender)
 +	if item == nil {
 +		return nil
 +	}
++	return item.retire()
++}
++
++// All removal APIs retire entries so failure cleanup also owns late makers.
++func (item *entry) retire() []*net.UDPConn {
++	item.localMu.Lock()
++	item.retired = true
++	close(item.retiredDone)
 +	var conns []*net.UDPConn
 +	item.LocalUDPConnMap.Range(func(remote string, conn *net.UDPConn) bool {
 +		conns = append(conns, conn)
 +		return true
 +	})
++	item.LocalUDPConnMap.Clear()
++	item.localMu.Unlock()
 +	return conns
++}
++
++func closeLocalConns(conns []*net.UDPConn) {
++	for _, conn := range conns {
++		_ = conn.Close()
++	}
++}
++
++// GetOrCreateLocalConn binds creation to the entry captured before maker starts.
++// A late result cannot publish into a replacement entry with the same address.
++// Retirement wakes followers but does not wait for an uncooperative maker.
++func (t *Table) GetOrCreateLocalConn(local, remote string, maker func() (*net.UDPConn, error)) (*net.UDPConn, error) {
++	item, ok := t.getEntry(local)
++	if !ok {
++		return nil, net.ErrClosed
++	}
++	item.localMu.Lock()
++	if item.retired {
++		item.localMu.Unlock()
++		return nil, net.ErrClosed
++	}
++	if conn, ok := item.LocalUDPConnMap.Load(remote); ok {
++		item.localMu.Unlock()
++		return conn, nil
++	}
++	if pending, ok := item.creating[remote]; ok {
++		item.localMu.Unlock()
++		return item.waitLocalConn(pending)
++	}
++	if item.creating == nil {
++		item.creating = make(map[string]*localConnCreation)
++	}
++	pending := &localConnCreation{done: make(chan struct{})}
++	item.creating[remote] = pending
++	item.localMu.Unlock()
++	conn, err := maker()
++	// Failed makers must not transfer an ambiguous socket to callers.
++	if err != nil && conn != nil {
++		_ = conn.Close()
++		conn = nil
++	}
++	if err == nil && conn == nil {
++		err = net.ErrClosed
++	}
++	item.localMu.Lock()
++	retired := item.retired
++	if retired {
++		err = net.ErrClosed
++	}
++	if err == nil {
++		item.LocalUDPConnMap.Store(remote, conn)
++	}
++	pending.conn, pending.err = conn, err
++	if err != nil {
++		pending.conn = nil
++	}
++	delete(item.creating, remote)
++	close(pending.done)
++	item.localMu.Unlock()
++	if retired && conn != nil {
++		_ = conn.Close()
++	}
++	return pending.conn, pending.err
++}
++
++// waitLocalConn never waits for the maker once this entry is retired.
++func (item *entry) waitLocalConn(pending *localConnCreation) (*net.UDPConn, error) {
++	select {
++	case <-item.retiredDone:
++		return nil, net.ErrClosed
++	case <-pending.done:
++		item.localMu.Lock()
++		retired := item.retired
++		item.localMu.Unlock()
++		if retired {
++			return nil, net.ErrClosed
++		}
++		return pending.conn, pending.err
++	}
  }
  
  func (t *Table) GetForLocalConn(lAddr, rAddr string) *net.UDPConn {
+@@ -43,9 +194,16 @@
+ 	return item
+ }
+ 
++// AddForLocalConn is the legacy success-only ownership transfer. On false,
++// the caller still owns conn. TProxy creation uses GetOrCreateLocalConn instead.
+ func (t *Table) AddForLocalConn(lAddr, rAddr string, conn *net.UDPConn) bool {
+ 	entry, exist := t.getEntry(lAddr)
+ 	if !exist {
++		return false
++	}
++	entry.localMu.Lock()
++	defer entry.localMu.Unlock()
++	if entry.retired {
+ 		return false
+ 	}
+ 	entry.LocalUDPConnMap.Store(rAddr, conn)
 --- tunnel/connection.go
 +++ tunnel/connection.go
 @@ -17,6 +17,8 @@
@@ -840,3 +989,66 @@
  	case <-time.After(quicWaitConn):
  		q.close()
  	}
+--- listener/tproxy/packet.go
++++ listener/tproxy/packet.go
+@@ -2,7 +2,6 @@
+ 
+ import (
+ 	"errors"
+-	"fmt"
+ 	"net"
+ 	"net/netip"
+ 
+@@ -56,37 +55,22 @@
+ 	remote := rAddr.String()
+ 	local := lAddr.String()
+ 	natTable := tunnel.NatTable()
+-	localConn := natTable.GetForLocalConn(local, remote)
+-	// localConn not exist
+-	if localConn == nil {
+-		cond, loaded := natTable.GetOrCreateLockForLocalConn(local, remote)
+-		if loaded {
+-			cond.L.Lock()
+-			cond.Wait()
+-			// we should get localConn here
+-			localConn = natTable.GetForLocalConn(local, remote)
+-			if localConn == nil {
+-				return nil, fmt.Errorf("localConn is nil, nat entry not exist")
+-			}
+-			cond.L.Unlock()
+-		} else {
+-			if cond == nil {
+-				return nil, fmt.Errorf("cond is nil, nat entry not exist")
+-			}
+-			defer func() {
+-				natTable.DeleteLockForLocalConn(local, remote)
+-				cond.Broadcast()
+-			}()
+-			conn, err := listenLocalConn(rAddr, lAddr, tunnel, additions...)
+-			if err != nil {
+-				log.Errorln("listenLocalConn failed with error: %s, packet loss (rAddr[%T]=%s lAddr[%T]=%s)", err.Error(), rAddr, remote, lAddr, local)
+-				return nil, err
+-			}
+-			natTable.AddForLocalConn(local, remote, conn)
+-			localConn = conn
++	// The table captures ownership before opening the socket. Retirement wakes
++	// waiters and closes a late creator result instead of leaking it or attaching
++	// it to a replacement sender. No condition-variable lost wakeups.
++	owner, ok := natTable.(interface {
++		GetOrCreateLocalConn(string, string, func() (*net.UDPConn, error)) (*net.UDPConn, error)
++	})
++	if !ok {
++		return nil, net.ErrClosed
++	}
++	return owner.GetOrCreateLocalConn(local, remote, func() (*net.UDPConn, error) {
++		conn, err := listenLocalConn(rAddr, lAddr, tunnel, additions...)
++		if err != nil {
++			log.Errorln("listenLocalConn failed with error: %s, packet loss (rAddr[%T]=%s lAddr[%T]=%s)", err.Error(), rAddr, remote, lAddr, local)
+ 		}
+-	}
+-	return localConn, nil
++		return conn, err
++	})
+ }
+ 
+ // this function listen at rAddr

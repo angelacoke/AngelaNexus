@@ -30,6 +30,7 @@ PATCHED_TUNNEL_PATH = "tunnel/tunnel.go"
 PATCHED_NAT_TABLE_PATH = "component/nat/table.go"
 PATCHED_CONNECTION_PATH = "tunnel/connection.go"
 PATCHED_QUIC_SNIFFER_PATH = "component/sniffer/quic_sniffer.go"
+PATCHED_TPROXY_PACKET_PATH = "listener/tproxy/packet.go"
 
 
 class VerificationError(Exception):
@@ -98,7 +99,7 @@ def adapter_values(repo: Path) -> tuple[str, ...]:
         tree = ast.parse(text, filename=str(path))
     except (SyntaxError, ValueError) as exc:
         fail(f"invalid upstream adapter script {path}: {exc}")
-    wanted = {"PATCHED_SERVER_SHA256": [], "PATCHED_STATISTICS_SHA256": [], "STATISTICS_PATCH_SHA256": [], "LATE_CONNECTIONS_PATCH_SHA256": [], "PATCHED_LATE_MANAGER_SHA256": [], "PATCHED_TRACKER_SHA256": [], "PATCHED_TUNNEL_SHA256": [], "PATCHED_NAT_TABLE_SHA256": [], "PATCHED_CONNECTION_SHA256": [], "PATCHED_QUIC_SNIFFER_SHA256": []}
+    wanted = {"PATCHED_SERVER_SHA256": [], "PATCHED_STATISTICS_SHA256": [], "STATISTICS_PATCH_SHA256": [], "LATE_CONNECTIONS_PATCH_SHA256": [], "PATCHED_LATE_MANAGER_SHA256": [], "PATCHED_TRACKER_SHA256": [], "PATCHED_TUNNEL_SHA256": [], "PATCHED_NAT_TABLE_SHA256": [], "PATCHED_CONNECTION_SHA256": [], "PATCHED_QUIC_SNIFFER_SHA256": [], "PATCHED_TPROXY_PACKET_SHA256": []}
     for node in tree.body:
         if isinstance(node, ast.Assign):
             targets = node.targets
@@ -120,10 +121,10 @@ def adapter_values(repo: Path) -> tuple[str, ...]:
     for name, values in wanted.items():
         if len(values) != 1:
             fail(f"upstream adapter must define exactly one {name} constant")
-    return (sha256(path), wanted["PATCHED_SERVER_SHA256"][0], wanted["STATISTICS_PATCH_SHA256"][0], wanted["PATCHED_STATISTICS_SHA256"][0], wanted["LATE_CONNECTIONS_PATCH_SHA256"][0], wanted["PATCHED_LATE_MANAGER_SHA256"][0], wanted["PATCHED_TRACKER_SHA256"][0], wanted["PATCHED_TUNNEL_SHA256"][0], wanted["PATCHED_NAT_TABLE_SHA256"][0], wanted["PATCHED_CONNECTION_SHA256"][0], wanted["PATCHED_QUIC_SNIFFER_SHA256"][0])
+    return (sha256(path), wanted["PATCHED_SERVER_SHA256"][0], wanted["STATISTICS_PATCH_SHA256"][0], wanted["PATCHED_STATISTICS_SHA256"][0], wanted["LATE_CONNECTIONS_PATCH_SHA256"][0], wanted["PATCHED_LATE_MANAGER_SHA256"][0], wanted["PATCHED_TRACKER_SHA256"][0], wanted["PATCHED_TUNNEL_SHA256"][0], wanted["PATCHED_NAT_TABLE_SHA256"][0], wanted["PATCHED_CONNECTION_SHA256"][0], wanted["PATCHED_QUIC_SNIFFER_SHA256"][0], wanted["PATCHED_TPROXY_PACKET_SHA256"][0])
 
 
-def manifest_values(repo: Path) -> tuple[str, str, dict[str, str]]:
+def manifest_values(repo: Path) -> tuple[str, str, str, dict[str, str]]:
     path = repo / "native/android/app/src/main/kotlin/app/angelanexus/MihomoNativeArtifactManifest.kt"
     try:
         text = path.read_text(encoding="utf-8")
@@ -133,6 +134,9 @@ def manifest_values(repo: Path) -> tuple[str, str, dict[str, str]]:
     commit = re.search(r'const val SOURCE_COMMIT = "([0-9a-f]{40})"', text)
     if not version or not commit:
         fail(f"Kotlin Mihomo manifest is missing VERSION or SOURCE_COMMIT: {path}")
+    source_hash = re.search(r'const val PATCHED_TPROXY_PACKET_SHA256 = "([0-9a-f]{64})"', text)
+    if not source_hash:
+        fail(f"Kotlin Mihomo manifest is missing PATCHED_TPROXY_PACKET_SHA256: {path}")
     hashes: dict[str, str] = {}
     specs = re.findall(r"MihomoNativeLibrarySpec\s*\(([^()]*)\)", text, re.S)
     if not specs:
@@ -151,12 +155,14 @@ def manifest_values(repo: Path) -> tuple[str, str, dict[str, str]]:
     for abi in ABIS:
         if abi not in hashes:
             fail(f"Kotlin Mihomo manifest has no complete spec for ABI {abi}")
-    return version.group(1), commit.group(1), hashes
+    return version.group(1), commit.group(1), source_hash.group(1).lower(), hashes
 
 
 def verify(artifacts_root: Path, repo: Path) -> None:
-    version, commit, manifest_hashes = manifest_values(repo)
-    adapter_hash, patched_source_hash, statistics_patch_hash, patched_statistics_hash, late_patch_hash, late_manager_hash, tracker_hash, tunnel_hash, nat_table_hash, connection_hash, quic_sniffer_hash = adapter_values(repo)
+    version, commit, manifest_tproxy_hash, manifest_hashes = manifest_values(repo)
+    adapter_hash, patched_source_hash, statistics_patch_hash, patched_statistics_hash, late_patch_hash, late_manager_hash, tracker_hash, tunnel_hash, nat_table_hash, connection_hash, quic_sniffer_hash, tproxy_packet_hash = adapter_values(repo)
+    if manifest_tproxy_hash != tproxy_packet_hash:
+        fail(f"Kotlin manifest TProxy packet SHA-256 mismatch: manifest {manifest_tproxy_hash}, adapter {tproxy_packet_hash}")
     actual_statistics_patch_hash = sha256(repo / STATISTICS_PATCH_PATH)
     actual_late_patch_hash = sha256(repo / LATE_CONNECTIONS_PATCH_PATH)
     if actual_late_patch_hash != late_patch_hash:
@@ -246,7 +252,7 @@ def verify(artifacts_root: Path, repo: Path) -> None:
         if require_hash(late, "sha256", f"provenance.lateConnectionsPatch {abi}") != late_patch_hash:
             fail(f"provenance {abi} late connections patch SHA-256 mismatch")
         sources = require_object(late, "patchedSources", f"provenance.lateConnectionsPatch {abi}")
-        for name, relative, expected in (("manager", PATCHED_STATISTICS_PATH, late_manager_hash), ("tracker", PATCHED_TRACKER_PATH, tracker_hash), ("tunnel", PATCHED_TUNNEL_PATH, tunnel_hash), ("natTable", PATCHED_NAT_TABLE_PATH, nat_table_hash), ("connection", PATCHED_CONNECTION_PATH, connection_hash), ("quicSniffer", PATCHED_QUIC_SNIFFER_PATH, quic_sniffer_hash)):
+        for name, relative, expected in (("manager", PATCHED_STATISTICS_PATH, late_manager_hash), ("tracker", PATCHED_TRACKER_PATH, tracker_hash), ("tunnel", PATCHED_TUNNEL_PATH, tunnel_hash), ("natTable", PATCHED_NAT_TABLE_PATH, nat_table_hash), ("connection", PATCHED_CONNECTION_PATH, connection_hash), ("quicSniffer", PATCHED_QUIC_SNIFFER_PATH, quic_sniffer_hash), ("tproxyPacket", PATCHED_TPROXY_PACKET_PATH, tproxy_packet_hash)):
             evidence = require_object(sources, name, f"provenance.lateConnectionsPatch.patchedSources {abi}")
             if require(evidence, "path", f"provenance late source {name} {abi}") != relative:
                 fail(f"provenance {abi} lateConnectionsPatch {name} path mismatch")

@@ -16,6 +16,9 @@ test("CI stages and runs manager and actual tunnel regressions, rejecting empty 
   assert.equal(host.if, "matrix.abi == 'x86_64'");
   assert.match(host.run, /quic_sender_integration_test\.go.*component\/sniffer\/angelanexus_quic_sender_integration_test\.go/);
   assert.ok(host.run.includes("-list '^TestAngelaNexusQUICSender'"));
+  assert.match(host.run, /-list '\^TestAngelaNexusNATLocal'[^\n]*component\/nat/);
+  assert.match(host.run, /grep '\^TestAngelaNexusNATLocal'/);
+  assert.match(host.run, /-run '\^TestAngelaNexusNATLocal' -count=20 -timeout=90s/);
   assert.ok(host.run.includes("grep '^TestAngelaNexusQUICSender'"));
   assert.ok(host.run.includes("-run '^TestAngelaNexusQUICSenderDoSniffCallbackCanReenterClose$' -count=1 -timeout=30s"));
   assert.match(host.run, /late_connections_integration_test\.go.*tunnel\/statistic\/angelanexus_late_connections_test\.go/);
@@ -80,6 +83,7 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
         natTable: "component/nat/table.go",
         connection: "tunnel/connection.go",
         quicSniffer: "component/sniffer/quic_sniffer.go",
+        tproxyPacket: "listener/tproxy/packet.go",
       };
       for (const [name, path] of Object.entries(sources)) put(join(root, "mihomo", path), `reviewed final ${name} output\n`);
       const run = step.run.replace(/\$\{\{ matrix\.(\w+) \}\}/g, (_, key) => matrix[key]);
@@ -96,7 +100,7 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
       assert.equal(evidence.artifact.sha256, hash(artifact));
       assert.equal(evidence.ownershipAdapter.patchedSource.sha256, hash(join(root, "mihomo", sources.server)));
       assert.equal(evidence.statisticsPatch.patchedSource.sha256, hash(join(root, "mihomo", sources.manager)));
-      for (const name of ["manager", "tracker", "tunnel", "natTable", "connection", "quicSniffer"]) {
+      for (const name of ["manager", "tracker", "tunnel", "natTable", "connection", "quicSniffer", "tproxyPacket"]) {
         assert.deepEqual(evidence.lateConnectionsPatch.patchedSources[name], { path: sources[name], sha256: hash(join(root, "mihomo", sources[name])) });
       }
       assert.equal(evidence.lateConnectionsPatch.sha256, hash(join(process.cwd(), "native/android/mihomo-bridge/late-connections.patch")));
@@ -387,4 +391,18 @@ test("successful handshake regression observes inbound writer completion and ret
   assert.match(success, /if err := <-written; err != nil/);
   assert.ok(success.indexOf('writeInbound(relay, "relay success")') < success.indexOf("StopRegistrations()"));
   assert.ok(success.indexOf('writeInbound(relay, "relay after stop")') > success.indexOf("StopRegistrations()"));
+});
+
+
+test("new NAT retirement API, removals, wait helper, TProxy fail-closed interface and CI coverage are structural", () => {
+  const patch = read("native/android/mihomo-bridge/late-connections.patch");
+  assert.match(patch, /func \(t \*Table\) DetachLocalConnsIf\(key string, sender C\.PacketSender\)/);
+  assert.match(patch, /func closeAllLocalCoon\(lAddr string, sender C\.PacketSender\)/);
+  assert.doesNotMatch(patch, /GetOrCreateAtEpoch/);
+  assert.match(patch, /func \(m \*Manager\) WaitSetups\(ctx context\.Context\) error/);
+  assert.match(patch, /--- listener\/tproxy\/packet\.go\n\+\+\+ listener\/tproxy\/packet\.go/);
+  assert.match(patch, /TProxy|TPROXY/);
+  const host = steps.find(step => step.name === "Test bridge state against pinned Mihomo on host (not Android TUN)");
+  assert.match(host.run, /cp .*late_tunnel_integration_test\.go/);
+  assert.match(host.run, /go test -race/);
 });

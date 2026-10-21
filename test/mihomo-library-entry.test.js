@@ -40,6 +40,7 @@ function verifierFixture() {
   const patchedNatTableHash = digest("fixture NAT table");
   const patchedConnectionHash = digest("fixture UDP connection");
   const patchedQuicSnifferHash = digest("fixture QUIC sniffer");
+  const patchedTproxyPacketHash = digest("fixture TProxy packet");
   const statisticsPatch = "fixture statistics patch\n";
   const lateConnectionsPatch = "fixture late connections patch\n";
   mkdirSync(join(repo, "tunnel/statistic"), { recursive: true });
@@ -48,12 +49,12 @@ function verifierFixture() {
   writeFileSync(join(repo, "tunnel/tunnel.go"), patchedTunnel);
   writeFileSync(join(sourceDir, "statistics.patch"), statisticsPatch);
   writeFileSync(join(sourceDir, "late-connections.patch"), lateConnectionsPatch);
-  writeFileSync(join(sourceDir, "prepare-upstream.py"), `PATCHED_SERVER_SHA256 = "${patchedSourceHash}"\nPATCHED_STATISTICS_SHA256 = "${patchedStatisticsHash}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${patchedStatisticsHash}"\nPATCHED_TRACKER_SHA256 = "${patchedTrackerHash}"\nPATCHED_TUNNEL_SHA256 = "${patchedTunnelHash}"\nPATCHED_NAT_TABLE_SHA256 = "${patchedNatTableHash}"\nPATCHED_CONNECTION_SHA256 = "${patchedConnectionHash}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${patchedQuicSnifferHash}"\n`);
+  writeFileSync(join(sourceDir, "prepare-upstream.py"), `PATCHED_SERVER_SHA256 = "${patchedSourceHash}"\nPATCHED_STATISTICS_SHA256 = "${patchedStatisticsHash}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${patchedStatisticsHash}"\nPATCHED_TRACKER_SHA256 = "${patchedTrackerHash}"\nPATCHED_TUNNEL_SHA256 = "${patchedTunnelHash}"\nPATCHED_NAT_TABLE_SHA256 = "${patchedNatTableHash}"\nPATCHED_CONNECTION_SHA256 = "${patchedConnectionHash}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${patchedQuicSnifferHash}"\nPATCHED_TPROXY_PACKET_SHA256 = "${patchedTproxyPacketHash}"\n`);
   const abis = ["arm64-v8a", "armeabi-v7a", "x86_64"];
   const commit = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36";
   const specs = abis.map(abi => `MihomoNativeLibrarySpec(abi = "${abi}", sha256 = "${"a".repeat(64)}")`).join(",\n");
   writeFileSync(join(repo, "native/android/app/src/main/kotlin/app/angelanexus/MihomoNativeArtifactManifest.kt"),
-    `const val VERSION = "v1.19.32"\nconst val SOURCE_COMMIT = "${commit}"\n${specs}\n`);
+    `const val VERSION = "v1.19.32"\nconst val SOURCE_COMMIT = "${commit}"\nconst val PATCHED_TPROXY_PACKET_SHA256 = "${patchedTproxyPacketHash}"\n${specs}\n`);
   const records = {};
   for (const abi of abis) {
     const artifact = `libclash-${abi}.so`;
@@ -82,13 +83,14 @@ function verifierFixture() {
           natTable: { path: "component/nat/table.go", sha256: patchedNatTableHash },
           connection: { path: "tunnel/connection.go", sha256: patchedConnectionHash },
           quicSniffer: { path: "component/sniffer/quic_sniffer.go", sha256: patchedQuicSnifferHash },
+          tproxyPacket: { path: "listener/tproxy/packet.go", sha256: patchedTproxyPacketHash },
         },
       },
     };
     writeFileSync(join(dir, `mihomo-provenance-${abi}.json`), JSON.stringify(provenance));
   }
   writeFileSync(join(repo, "native/android/app/src/main/kotlin/app/angelanexus/MihomoNativeArtifactManifest.kt"),
-    `const val VERSION = "v1.19.32"\nconst val SOURCE_COMMIT = "${commit}"\n` + abis.map(abi => `MihomoNativeLibrarySpec(abi = "${abi}", sha256 = "${records[abi].sha256}")`).join("\n"));
+    `const val VERSION = "v1.19.32"\nconst val SOURCE_COMMIT = "${commit}"\nconst val PATCHED_TPROXY_PACKET_SHA256 = "${patchedTproxyPacketHash}"\n` + abis.map(abi => `MihomoNativeLibrarySpec(abi = "${abi}", sha256 = "${records[abi].sha256}")`).join("\n"));
   mkdirSync(join(repo, "docs/upstream"), { recursive: true });
   writeFileSync(join(repo, "docs/upstream/MIHOMO_ANDROID_RUNTIME_COMPLIANCE.json"), JSON.stringify({
     runtime: { kernel: "mihomo", version: "1.19.32", platform: "android", abis },
@@ -130,6 +132,8 @@ test("provenance records the dedicated package and library entry digest", () => 
   const provenance = step("Generate native build provenance evidence");
   assert.match(provenance.run, /sha256sum .*mihomo-bridge\/library\.go/);
   assert.match(provenance.run, /"package": "\.\/angelanexus_android"/);
+  assert.match(provenance.run, /PATCHED_TPROXY_PACKET_SHA256/);
+  assert.match(provenance.run, /"tproxyPacket": \{\"path\": \"listener\/tproxy\/packet\.go\", \"sha256\": \"\$PATCHED_TPROXY_PACKET_SHA256\"\}/);
   assert.match(provenance.run, /"libraryEntry": \{"path": "native\/android\/mihomo-bridge\/library\.go", "sha256": "\$LIBRARY_ENTRY_SHA256"\}/);
 });
 

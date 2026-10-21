@@ -9,6 +9,7 @@ package app.angelanexus
 object MihomoNativeArtifactManifest {
     const val VERSION = "v1.19.32"
     const val SOURCE_COMMIT = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36"
+    const val PATCHED_TPROXY_PACKET_SHA256 = "f417e4776d8dcdeb97b194fff2de83b76f3cf8e181ae01ee3fc15218fb376c5f"
 
     val ARM64_V8A = MihomoNativeLibrarySpec(
         abi = "arm64-v8a",
