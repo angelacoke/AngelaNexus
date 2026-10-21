@@ -99,7 +99,13 @@ function artifact(f) {
   must(run(f.d, "zip", "-q", a, "classes.jar"));
   return a;
 }
-function verifyArtifact(f, a, p, ...args) { return run(f.d, "python3", join(f.tools, "verify-artifact.py"), a, "--provenance", p, "--lock", f.lockPath, ...args); }
+function verifyArtifact(f, a, p, ...args) {
+  // A fixture has its own simulated CI checkout identity. Never inherit the
+  // real repository's GITHUB_SHA or disable the production identity check.
+  return spawnSync("python3", [join(f.tools, "verify-artifact.py"), a, "--provenance", p, "--lock", f.lockPath, ...args], {
+    cwd: f.d, encoding: "utf8", env: { ...process.env, GITHUB_SHA: "fixture-project" },
+  });
+}
 
 for (const [name, mutate, needle] of [
   ["wrapper input", (f) => writeFileSync(join(f.wrapper, "xray/xray.go"), "tampered\n"), /wrapper input hash mismatch|unexpected dirty input checkout/],
@@ -121,6 +127,7 @@ for (const [name, mutate] of [
   ["output provenance", (f, a, p) => { const x = JSON.parse(readFileSync(p)); x.outputs.core["go.mod"] = "0".repeat(64); writeFileSync(p, JSON.stringify(x)); }],
   ["tests provenance", (f, a, p) => { const x = JSON.parse(readFileSync(p)); x.tests.core[Object.keys(x.tests.core)[0]].sha256 = "0".repeat(64); writeFileSync(p, JSON.stringify(x)); }],
   ["toolchain provenance", (f, a, p) => { const x = JSON.parse(readFileSync(p)); x.toolchain.actual = "go version go1.26.0 linux/amd64"; writeFileSync(p, JSON.stringify(x)); }],
+  ["project commit provenance", (f, a, p) => { const x = JSON.parse(readFileSync(p)); x.projectCommit = "another-commit"; writeFileSync(p, JSON.stringify(x)); }],
 ]) test(`artifact verifier rejects ${name} tampering and stamp cannot mask source errors`, () => { const f = makeFixture(); try { f.lock = JSON.parse(readFileSync(f.lockPath)); const p = join(f.d, "provenance.json"); writeFileSync(p, JSON.stringify(provenance(f), null, 2)); const a = artifact(f); must(invoke(f, "--verify-only")); if (name === "artifact") must(verifyArtifact(f, a, p, "--stamp")); mutate(f, a, p); const r = verifyArtifact(f, a, p, "--stamp"); assert.notEqual(r.status, 0); } finally { rmSync(f.d, { recursive: true, force: true }); } });
 
 test("both Android workflows retain host, local Android, and artifact verification gates", () => { const files = [join(root, ".github/workflows/android-build.yml"), join(root, ".github/workflows/xray-android-native-build.yml")]; for (const file of files) { const text = readFileSync(file, "utf8"); assert.match(text, /test-host\.sh/); assert.match(text, /build\/main\.py android local/); assert.match(text, /verify-artifact\.py/); assert.match(text, /verify-prepared/); } });
