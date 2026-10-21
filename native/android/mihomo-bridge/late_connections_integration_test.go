@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -541,4 +542,214 @@ func TestAngelaNexusLateConnectionsSetupDebtSurvivesReopen(t *testing.T) {
 	if err := m.WaitSetups(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// A stopped token is observed while the gate is closed, not before Stop.
+// Both the zero-value manager and repeated Stop calls must isolate those tokens.
+func TestAngelaNexusLateConnectionsStoppedTokenBeginSetupAfterRestart(t *testing.T) {
+	for _, mode := range []string{"zero-value", "after-stop", "repeated-stop"} {
+		t.Run(mode, func(t *testing.T) {
+			m := &Manager{}
+			if mode != "zero-value" {
+				m.StartRegistrations()
+				m.StopRegistrations()
+			}
+			stoppedEpoch, stoppedCtx := m.Registration()
+			if stoppedCtx.Err() != context.Canceled {
+				t.Fatal("token observed while stopped was not canceled")
+			}
+			if mode == "repeated-stop" {
+				m.StopRegistrations()
+				stoppedEpoch, stoppedCtx = m.Registration()
+			}
+			m.StartRegistrations()
+			if release, err := m.BeginSetup(stoppedEpoch); !errors.Is(err, errRegistrationStopped) || release != nil {
+				if release != nil {
+					release()
+				}
+				t.Fatalf("stopped token acquired setup after restart: %v", err)
+			}
+			freshEpoch, freshCtx := m.Registration()
+			if freshEpoch == stoppedEpoch || freshCtx.Err() != nil || stoppedCtx.Err() != context.Canceled {
+				t.Fatal("restart revived or reused the stopped generation")
+			}
+			release, err := m.BeginSetup(freshEpoch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			release()
+			m.StopRegistrations()
+			if err := m.WaitSetups(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestAngelaNexusLateConnectionsStoppedTokenJoinReentrantClose(t *testing.T) {
+	m := &Manager{}
+	m.StartRegistrations()
+	m.StopRegistrations()
+	stoppedEpoch, _ := m.Registration()
+	m.StartRegistrations()
+	var closeCalls atomic.Int32
+	stale := &angelaFakeTracker{id: "reentrant-stopped"}
+	stale.close = func() error {
+		closeCalls.Add(1)
+		_, _ = m.Registration()
+		if release, err := m.BeginSetup(stoppedEpoch); err == nil {
+			release()
+		}
+		return nil
+	}
+	done := make(chan error, 1)
+	go func() { done <- m.JoinAtEpoch(stoppedEpoch, stale) }()
+	select {
+	case err := <-done:
+		if !errors.Is(err, errRegistrationStopped) {
+			t.Fatalf("stopped token Join error=%v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("reentrant rejected JoinAtEpoch deadlocked")
+	}
+	if closeCalls.Load() != 1 || m.Get(stale.ID()) != nil {
+		t.Fatalf("rejected tracker closeCalls=%d, registered=%v", closeCalls.Load(), m.Get(stale.ID()) != nil)
+	}
+}
+
+func TestAngelaNexusLateConnectionsStoppedTokenRealTrackersAfterRestart(t *testing.T) {
+	for _, protocol := range []string{"tcp", "udp"} {
+		for _, failClose := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/fail-close=%t", protocol, failClose), func(t *testing.T) {
+				m := &Manager{}
+				m.StartRegistrations()
+				m.StopRegistrations()
+				stoppedEpoch, stoppedCtx := m.Registration()
+				if stoppedCtx.Err() != context.Canceled {
+					t.Fatal("expected canceled token")
+				}
+				m.StartRegistrations()
+				plan := &angelaClosePlan{err: errAngelaNexusSentinel}
+				if failClose {
+					plan.failures = 1
+				}
+				var tracker Tracker
+				var err error
+				var assertClosed func()
+				if protocol == "tcp" {
+					local, peer := net.Pipe()
+					defer local.Close()
+					defer peer.Close()
+					conn, e := NewTCPTrackerAtEpoch(&angelaTCPConn{ExtendedConn: N.NewExtendedConn(local), closePlan: plan}, m, &C.Metadata{NetWork: C.TCP}, nil, 0, 0, false, stoppedEpoch)
+					if conn != nil {
+						tracker = conn
+					}
+					err = e
+					assertClosed = func() {
+						if _, e := local.Write([]byte("closed")); !errors.Is(e, io.ErrClosedPipe) {
+							t.Fatalf("stale TCP remained open: %v", e)
+						}
+					}
+				} else {
+					raw, e := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+					if e != nil {
+						t.Fatal(e)
+					}
+					defer raw.Close()
+					conn, e := NewUDPTrackerAtEpoch(&angelaUDPConn{EnhancePacketConn: N.NewEnhancePacketConn(raw), closePlan: plan}, m, &C.Metadata{NetWork: C.UDP}, nil, 0, 0, false, stoppedEpoch)
+					if conn != nil {
+						tracker = conn
+					}
+					err = e
+					assertClosed = func() {
+						if _, _, e := raw.ReadFromUDP(make([]byte, 1)); !errors.Is(e, net.ErrClosed) {
+							t.Fatalf("stale UDP remained open: %v", e)
+						}
+					}
+				}
+				if tracker != nil || !errors.Is(err, errRegistrationStopped) {
+					t.Fatalf("stopped %s constructor admitted tracker: %v", protocol, err)
+				}
+				var retained Tracker
+				m.Range(func(c Tracker) bool { retained = c; return false })
+				if failClose {
+					if !errors.Is(err, errAngelaNexusSentinel) || retained == nil {
+						t.Fatal("failed close lost retry ownership")
+					}
+					if e := retained.Close(); e != nil {
+						t.Fatal(e)
+					}
+					if m.Get(retained.ID()) != nil || plan.calls.Load() != 2 {
+						t.Fatal("successful close retry retained tracker")
+					}
+				} else if retained != nil || plan.calls.Load() != 1 {
+					t.Fatal("successfully rejected tracker was retained")
+				}
+				assertClosed()
+			})
+		}
+	}
+}
+
+func TestAngelaNexusLateConnectionsStoppedTokenStartIdempotentPreservesSetup(t *testing.T) {
+	m := &Manager{}
+	m.StartRegistrations()
+	epoch, ctx := m.Registration()
+	release, err := m.BeginSetup(epoch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	m.StartRegistrations()
+	sameEpoch, sameCtx := m.Registration()
+	if sameEpoch != epoch || sameCtx != ctx {
+		t.Fatal("idempotent Start replaced the live registration generation")
+	}
+	m.StopRegistrations()
+	waitCtx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if err := m.WaitSetups(waitCtx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("setup lost across idempotent Start: %v", err)
+	}
+	release()
+	if err := m.WaitSetups(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAngelaNexusLateConnectionsStoppedTokenConcurrentRestart(t *testing.T) {
+	m := &Manager{}
+	m.StartRegistrations()
+	const n = 16
+	tokens := make([]uint64, n)
+	var wg sync.WaitGroup
+	for i := range tokens {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			m.StopRegistrations()
+			tokens[i], _ = m.Registration()
+			m.StartRegistrations()
+		}(i)
+	}
+	wg.Wait()
+	// This final stop/start invalidates even a token sampled while a concurrent
+	// worker had already reopened. No timing-based assumption about that race.
+	m.StopRegistrations()
+	tokens = append(tokens, m.RegistrationEpoch())
+	m.StartRegistrations()
+	for _, token := range tokens {
+		if release, err := m.BeginSetup(token); !errors.Is(err, errRegistrationStopped) || release != nil {
+			if release != nil {
+				release()
+			}
+			t.Fatalf("concurrent restart admitted old token %d: %v", token, err)
+		}
+	}
+	fresh := m.RegistrationEpoch()
+	release, err := m.BeginSetup(fresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
 }

@@ -412,9 +412,10 @@ func (c *lateHandshakeConn) RemoteDestination() string     { return "127.0.0.1:9
 
 type lateHandshakeProxy struct {
 	C.Proxy
-	conns       []C.Conn
-	secondReady chan struct{}
-	dials       atomic.Int32
+	conns         []C.Conn
+	secondReady   chan struct{}
+	secondEntered chan struct{}
+	dials         atomic.Int32
 }
 
 func (p *lateHandshakeProxy) Name() string                  { return "late-handshake-proxy" }
@@ -427,6 +428,9 @@ func (p *lateHandshakeProxy) DialContext(ctx context.Context, _ *C.Metadata) (C.
 		return nil, errors.New("unexpected extra dial")
 	}
 	if i == 1 && p.secondReady != nil {
+		if p.secondEntered != nil {
+			close(p.secondEntered)
+		}
 		select {
 		case <-p.secondReady:
 		case <-ctx.Done():
@@ -468,7 +472,7 @@ func lateHandshakeConnPair(t *testing.T, writeErr error, chains C.Chain) (*lateH
 func TestAngelaNexusLateTunnelHandshakeRetry(t *testing.T) {
 	first, firstLocal, firstPeer := lateHandshakeConnPair(t, errLateHandshakeSentinel, C.Chain{"late-retry"})
 	second, secondLocal, secondPeer := lateHandshakeConnPair(t, nil, C.Chain{"late-retry"})
-	proxy := &lateHandshakeProxy{conns: []C.Conn{first, second}, secondReady: make(chan struct{})}
+	proxy := &lateHandshakeProxy{conns: []C.Conn{first, second}, secondReady: make(chan struct{}), secondEntered: make(chan struct{})}
 	lateGateSetup(t, &lateGateProxy{Proxy: proxy})
 
 	inbound, inboundPeer := net.Pipe()
@@ -506,6 +510,10 @@ func TestAngelaNexusLateTunnelHandshakeRetry(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for failed tracker close")
 	}
+	// The underlying Close signal precedes the tracker's manager.Leave. Wait
+	// for the next dial to enter (but keep it blocked before registration),
+	// proving the previous tracker Close, including Leave, has returned.
+	lateHandshakeWaitDone(t, proxy.secondEntered, "retry dial after tracker cleanup")
 	if got := lateHandshakeTrackerCount(); got != 0 {
 		t.Fatalf("failed handshake left %d tracker(s), want 0", got)
 	}

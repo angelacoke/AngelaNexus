@@ -334,3 +334,34 @@ test("early TCP cancellation regressions cover real BufferedConn and established
   assert.match(source, /Reading early bytes alone does not prove Write returned or setup released/);
   assert.match(source, /relay after stop/);
 });
+
+test("reopening registration invalidates tokens observed while stopped but open starts stay idempotent", () => {
+  const patch = read("native/android/mihomo-bridge/late-connections.patch");
+  const start = patch.slice(patch.indexOf("+func (m *Manager) StartRegistrations()"), patch.indexOf("+var errRegistrationStopped"));
+  const code = start.split("\n").filter(line => line.startsWith("+")).map(line => line.slice(1)).join("\n");
+  assert.match(code, /if m\.registrationOpen \{\n\s*m\.registrationMu\.Unlock\(\)\n\s*return\n\s*\}/);
+  assert.match(code, /m\.registrationEpoch\+\+\n\s*m\.registrationOpen = true/);
+  assert.ok(code.indexOf("return") < code.indexOf("m.registrationEpoch++"));
+  assert.ok(code.indexOf("m.registrationEpoch++") < code.indexOf("m.registrationGen ="));
+  assert.equal((code.match(/registrationEpoch\+\+/g) || []).length, 1);
+});
+
+test("stopped-token regressions exercise closed-gate acquisition, close retries and open-start compatibility", () => {
+  const source = read("native/android/mihomo-bridge/late_connections_integration_test.go");
+  for (const name of ["BeginSetupAfterRestart", "JoinReentrantClose", "RealTrackersAfterRestart", "StartIdempotentPreservesSetup", "ConcurrentRestart"]) {
+    assert.ok(source.includes(`func TestAngelaNexusLateConnectionsStoppedToken${name}(`));
+  }
+  assert.match(source, /m\.StopRegistrations\(\)\n\s*stoppedEpoch, stoppedCtx := m\.Registration\(\)/);
+  assert.match(source, /zero-value/);
+  assert.match(source, /repeated-stop/);
+  assert.match(source, /failed close lost retry ownership/);
+  assert.match(source, /sameEpoch != epoch \|\| sameCtx != ctx/);
+});
+
+test("handshake retry observes tracker cleanup completion rather than the inner socket close signal", () => {
+  const source = read("native/android/mihomo-bridge/late_tunnel_integration_test.go");
+  const retry = source.slice(source.indexOf("func TestAngelaNexusLateTunnelHandshakeRetry("), source.indexOf("func TestAngelaNexusLateTunnelRejectHandshake("));
+  assert.match(source, /if p\.secondEntered != nil \{\n\s*close\(p\.secondEntered\)/);
+  assert.ok(retry.indexOf("retry dial after tracker cleanup") < retry.indexOf("if got := lateHandshakeTrackerCount()"));
+  assert.ok(retry.indexOf("if got := lateHandshakeTrackerCount()") < retry.indexOf("\n\trelease()"));
+});

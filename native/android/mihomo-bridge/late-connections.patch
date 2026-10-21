@@ -10,7 +10,7 @@
  	"os"
  	"sync"
  	"time"
-@@ -14,32 +17,188 @@
+@@ -14,32 +17,191 @@
  
  func init() {
  	DefaultManager = &Manager{
@@ -118,6 +118,9 @@
 +		m.registrationMu.Unlock()
 +		return
 +	}
++	// Tokens observed while stopped must never become valid after reopening.
++	// Keep an already-open Start idempotent, but give each reopening its own epoch.
++	m.registrationEpoch++
 +	m.registrationOpen = true
 +	ctx, cancel := context.WithCancel(context.Background())
 +	m.registrationGen = &registrationGeneration{epoch: m.registrationEpoch, ctx: ctx, cancel: cancel}
