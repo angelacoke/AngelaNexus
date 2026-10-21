@@ -154,6 +154,7 @@ with tempfile.TemporaryDirectory() as tmp:
         ("util", "dns/util.go", "PATCHED_DNS_UTIL_SHA256"),
         ("dhcp-discovery", "component/dhcp/dhcp.go", "PATCHED_DHCP_DISCOVERY_SHA256"),
         ("ntp", "ntp/ntp/service.go", "PATCHED_NTP_SERVICE_SHA256"),
+        ("socks5", "adapter/outbound/socks5.go", "PATCHED_SOCKS5_SHA256"),
     ]
     rels = [r for _, r, _ in entries]
     indices = {name:i for i,(name,_,_) in enumerate(entries)}

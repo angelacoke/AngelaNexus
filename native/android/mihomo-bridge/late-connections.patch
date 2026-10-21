@@ -3048,3 +3048,147 @@
 +		}
 +		globalMu.Unlock()
 +	}()
+--- adapter/outbound/socks5.go
++++ adapter/outbound/socks5.go
+@@ -10,0 +11,2 @@
++	"sync"
++	"time"
+@@ -147,9 +149 @@
+-	go func() {
+-		io.Copy(io.Discard, c)
+-		c.Close()
+-		// A UDP association terminates when the TCP connection that the UDP
+-		// ASSOCIATE request arrived on terminates. RFC1928
+-		pc.Close()
+-	}()
+-
+-	return NewPacketConn(&socksPacketConn{PacketConn: pc, rAddr: bindUDPAddr, tcpConn: c}, ss), nil
++	return NewPacketConn(newSocksPacketConn(pc, c, bindUDPAddr), ss), nil
+@@ -218,2 +212,5 @@
+-	rAddr   net.Addr
+-	tcpConn net.Conn
++	rAddr        net.Addr
++	tcpConn      net.Conn
++	monitorDone  <-chan struct{}
++	closeMu      sync.Mutex
++	closeAttempt *socks5SocketClose
+@@ -253,0 +251,16 @@
++// newSocksPacketConn owns the RFC1928 control-connection monitor as well as
++// both sockets. The monitor closes raw sockets, never this wrapper: otherwise
++// its cleanup would join itself.
++func newSocksPacketConn(pc net.PacketConn, control net.Conn, relay net.Addr) *socksPacketConn {
++	done := make(chan struct{})
++	uc := &socksPacketConn{PacketConn: pc, tcpConn: control, rAddr: relay, monitorDone: done}
++	go func() {
++		defer close(done)
++		_, _ = io.Copy(io.Discard, control)
++		// The monitor shares the same owned close attempt as external callers.
++		// It must not call wrapper Close, which would join the monitor itself.
++		<-uc.beginSocketClose().done
++	}()
++	return uc
++}
++
+@@ -255,3 +268,99 @@
+-	uc.tcpConn.Close()
+-	return uc.PacketConn.Close()
+-}
++	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
++	defer cancel()
++	return uc.closeWithContext(ctx)
++}
++
++// One attempt owns both raw closes, including dependencies that ignore Close.
++// Timeout does not abandon these workers or start another attempt on retry.
++// A completed failure can be retried; successful socket retirement is cached.
++type socks5SocketClose struct {
++	done chan struct{}
++	err  error // published by closing done
++}
++
++func (uc *socksPacketConn) beginSocketClose() *socks5SocketClose {
++	uc.closeMu.Lock()
++	defer uc.closeMu.Unlock()
++	if previous := uc.closeAttempt; previous != nil {
++		select {
++		case <-previous.done:
++			if previous.err == nil {
++				return previous
++			}
++		default:
++			return previous
++		}
++	}
++	attempt := &socks5SocketClose{done: make(chan struct{})}
++	uc.closeAttempt = attempt
++	// Try both independently: a stuck TCP Close must not skip UDP retirement.
++	tcpDone := make(chan error, 1)
++	udpDone := make(chan error, 1)
++	go func() { tcpDone <- uc.tcpConn.Close() }()
++	go func() { udpDone <- uc.PacketConn.Close() }()
++	go func() {
++		tcpErr, udpErr := <-tcpDone, <-udpDone
++		if socks5ClosedOnly(tcpErr) {
++			tcpErr = nil
++		}
++		if socks5ClosedOnly(udpErr) {
++			udpErr = nil
++		}
++		attempt.err = errors.Join(tcpErr, udpErr)
++		close(attempt.done)
++	}()
++	return attempt
++}
++
++// Wait for raw socket closes AND final monitor cleanup under one deadline.
++// Never discard the attempt/completion owner on timeout or a real close error.
++func (uc *socksPacketConn) closeWithContext(ctx context.Context) error {
++	attempt := uc.beginSocketClose()
++	select {
++	case <-attempt.done:
++	default:
++		select {
++		case <-attempt.done:
++		case <-ctx.Done():
++			return fmt.Errorf("SOCKS5 UDP socket cleanup: %w", ctx.Err())
++		}
++	}
++	if attempt.err != nil {
++		return attempt.err
++	}
++	select {
++	case <-uc.monitorDone:
++		return nil
++	default:
++	}
++	select {
++	case <-uc.monitorDone:
++		return nil
++	case <-ctx.Done():
++		return fmt.Errorf("SOCKS5 UDP control monitor cleanup: %w", ctx.Err())
++	}
++}
++
++// errors.Is alone would also match Join(net.ErrClosed, realFailure), silently
++// discarding a failed cleanup. Normalize only trees made entirely of closed.
++func socks5ClosedOnly(err error) bool {
++	if err == net.ErrClosed {
++		return true
++	}
++	if joined, ok := err.(interface{ Unwrap() []error }); ok {
++		children := joined.Unwrap()
++		if len(children) == 0 {
++			return false
++		}
++		for _, child := range children {
++			if !socks5ClosedOnly(child) {
++				return false
++			}
++		}
++		return true
++	}
++	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
++		return socks5ClosedOnly(wrapped.Unwrap())
++	}
++	return false
++}

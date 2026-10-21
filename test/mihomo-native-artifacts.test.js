@@ -29,6 +29,7 @@ function fixture() {
   const patchedDnsUtil = Buffer.from("fixture patched DNS util\n");
   const patchedDhcpDiscovery = Buffer.from("fixture patched DHCP discovery\n");
   const patchedNtpService = Buffer.from("fixture patched NTP service\n");
+  const patchedSocks5 = Buffer.from("fixture patched SOCKS5 outbound\n");
   const patchedProviderFetcher = Buffer.from("fixture patched provider fetcher\n");
   const patchedProviderHealthcheck = Buffer.from("fixture patched provider healthcheck\n");
   const patchedProxyProvider = Buffer.from("fixture patched proxy provider\n");
@@ -57,8 +58,10 @@ function fixture() {
   writeFileSync(join(root, "ntp/ntp/service.go"), patchedNtpService);
   mkdirSync(join(root, "component/resource"), { recursive: true });
   mkdirSync(join(root, "adapter/provider"), { recursive: true });
+  mkdirSync(join(root, "adapter/outbound"), { recursive: true });
   writeFileSync(join(root, "adapter/provider/healthcheck.go"), patchedProviderHealthcheck);
   writeFileSync(join(root, "adapter/provider/provider.go"), patchedProxyProvider);
+  writeFileSync(join(root, "adapter/outbound/socks5.go"), patchedSocks5);
   writeFileSync(join(root, "component/resource/fetcher.go"), patchedProviderFetcher);
   mkdirSync(join(root, "log"), { recursive: true });
   writeFileSync(join(root, "log/log.go"), patchedLog);
@@ -77,7 +80,7 @@ function fixture() {
   writeFileSync(join(sourceDir, "bridge.go"), bridge);
   writeFileSync(join(sourceDir, "lifecycle.go"), lifecycle);
   writeFileSync(join(sourceDir, "library.go"), libraryEntry);
-  const adapterSource = `PATCHED_SERVER_SHA256 = "${digest(patchedSource)}"\nPATCHED_DNS_RESOLVER_SHA256 = "${digest(patchedDnsResolver)}"\nPATCHED_DNS_SERVER_SHA256 = "${digest(patchedDnsServer)}"\nPATCHED_DNS_DOH_SHA256 = "${digest(patchedDnsDoH)}"\nPATCHED_DNS_CLIENT_SHA256 = "${digest(patchedDnsClient)}"\nPATCHED_DNS_TLS_SHA256 = "${digest(patchedDnsTLS)}"\nPATCHED_DNS_DHCP_SHA256 = "${digest(patchedDnsDHCP)}"\nPATCHED_DNS_UTIL_SHA256 = "${digest(patchedDnsUtil)}"\nPATCHED_DHCP_DISCOVERY_SHA256 = "${digest(patchedDhcpDiscovery)}"\nPATCHED_NTP_SERVICE_SHA256 = "${digest(patchedNtpService)}"\nPATCHED_PROVIDER_FETCHER_SHA256 = "${digest(patchedProviderFetcher)}"\nPATCHED_PROVIDER_HEALTHCHECK_SHA256 = "${digest(patchedProviderHealthcheck)}"\nPATCHED_PROXY_PROVIDER_SHA256 = "${digest(patchedProxyProvider)}"\nPATCHED_STATISTICS_SHA256 = "${digest(patchedStatistics)}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${digest(patchedStatistics)}"\nPATCHED_TRACKER_SHA256 = "${digest(patchedTracker)}"\nPATCHED_TUNNEL_SHA256 = "${digest(patchedTunnel)}"\nPATCHED_NAT_TABLE_SHA256 = "${digest(patchedNatTable)}"\nPATCHED_CONNECTION_SHA256 = "${digest(patchedConnection)}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${digest(patchedQuicSniffer)}"\nPATCHED_TPROXY_PACKET_SHA256 = "${digest(patchedTproxyPacket)}"\nPATCHED_LOG_SHA256 = "${digest(patchedLog)}"\n`;
+  const adapterSource = `PATCHED_SERVER_SHA256 = "${digest(patchedSource)}"\nPATCHED_DNS_RESOLVER_SHA256 = "${digest(patchedDnsResolver)}"\nPATCHED_DNS_SERVER_SHA256 = "${digest(patchedDnsServer)}"\nPATCHED_DNS_DOH_SHA256 = "${digest(patchedDnsDoH)}"\nPATCHED_DNS_CLIENT_SHA256 = "${digest(patchedDnsClient)}"\nPATCHED_DNS_TLS_SHA256 = "${digest(patchedDnsTLS)}"\nPATCHED_DNS_DHCP_SHA256 = "${digest(patchedDnsDHCP)}"\nPATCHED_DNS_UTIL_SHA256 = "${digest(patchedDnsUtil)}"\nPATCHED_DHCP_DISCOVERY_SHA256 = "${digest(patchedDhcpDiscovery)}"\nPATCHED_NTP_SERVICE_SHA256 = "${digest(patchedNtpService)}"\nPATCHED_SOCKS5_SHA256 = "${digest(patchedSocks5)}"\nPATCHED_PROVIDER_FETCHER_SHA256 = "${digest(patchedProviderFetcher)}"\nPATCHED_PROVIDER_HEALTHCHECK_SHA256 = "${digest(patchedProviderHealthcheck)}"\nPATCHED_PROXY_PROVIDER_SHA256 = "${digest(patchedProxyProvider)}"\nPATCHED_STATISTICS_SHA256 = "${digest(patchedStatistics)}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${digest(patchedStatistics)}"\nPATCHED_TRACKER_SHA256 = "${digest(patchedTracker)}"\nPATCHED_TUNNEL_SHA256 = "${digest(patchedTunnel)}"\nPATCHED_NAT_TABLE_SHA256 = "${digest(patchedNatTable)}"\nPATCHED_CONNECTION_SHA256 = "${digest(patchedConnection)}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${digest(patchedQuicSniffer)}"\nPATCHED_TPROXY_PACKET_SHA256 = "${digest(patchedTproxyPacket)}"\nPATCHED_LOG_SHA256 = "${digest(patchedLog)}"\n`;
   writeFileSync(join(sourceDir, "prepare-upstream.py"), adapterSource);
   const adapterSha = digest(adapterSource);
   const records = {};
@@ -123,6 +126,7 @@ ${ABIS.map((abi) => ` val ${abi.replaceAll("-", "_")} = MihomoNativeLibrarySpec(
       dnsUtil: { path: "dns/util.go", sha256: digest(patchedDnsUtil) },
       dhcpDiscovery: { path: "component/dhcp/dhcp.go", sha256: digest(patchedDhcpDiscovery) },
       ntpService: { path: "ntp/ntp/service.go", sha256: digest(patchedNtpService) },
+      socks5Association: { path: "adapter/outbound/socks5.go", sha256: digest(patchedSocks5) },
       providerFetcher: { path: "component/resource/fetcher.go", sha256: digest(patchedProviderFetcher) },
       providerHealthCheck: { path: "adapter/provider/healthcheck.go", sha256: digest(patchedProviderHealthcheck) },
       proxyProvider: { path: "adapter/provider/provider.go", sha256: digest(patchedProxyProvider) },
@@ -155,6 +159,7 @@ ${ABIS.map((abi) => ` val ${abi.replaceAll("-", "_")} = MihomoNativeLibrarySpec(
           dnsUtil: { path: "dns/util.go", sha256: digest(patchedDnsUtil) },
           dhcpDiscovery: { path: "component/dhcp/dhcp.go", sha256: digest(patchedDhcpDiscovery) },
           ntpService: { path: "ntp/ntp/service.go", sha256: digest(patchedNtpService) },
+      socks5Association: { path: "adapter/outbound/socks5.go", sha256: digest(patchedSocks5) },
         },
       },
       artifact: { name: artifact, sha256: records[abi].sha256 },
@@ -507,6 +512,33 @@ test("rejects checkout statistics patch tampering", () => withFixture((fx) => {
   const result = run(fx);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /statistics patch SHA-256 mismatch/);
+}));
+
+test("rejects missing, path, and hash SOCKS5 association provenance", () => withFixture((fx) => {
+  mutate(fx, "arm64-v8a", (p) => { delete p.socks5Association; });
+  let result = run(fx); assert.equal(result.status, 1); assert.match(result.stderr, /missing required field 'socks5Association'/);
+  const fresh = fixture(); try {
+    mutate(fresh, "x86_64", (p) => { p.socks5Association.path = "adapter/outbound/wrong.go"; });
+    result = run(fresh); assert.equal(result.status, 1); assert.match(result.stderr, /socks5Association path mismatch/);
+  } finally { rmSync(fresh.root, { recursive: true, force: true }); }
+  const hashed = fixture(); try {
+    mutate(hashed, "x86_64", (p) => { p.socks5Association.sha256 = "0".repeat(64); });
+    result = run(hashed); assert.equal(result.status, 1); assert.match(result.stderr, /socks5Association SHA-256 mismatch/);
+  } finally { rmSync(hashed.root, { recursive: true, force: true }); }
+  const nested = fixture(); try {
+    mutate(nested, "x86_64", (p) => { delete p.lateConnectionsPatch.patchedSources.socks5Association; });
+    result = run(nested); assert.equal(result.status, 1); assert.match(result.stderr, /missing required field 'socks5Association'/);
+  } finally { rmSync(nested.root, { recursive: true, force: true }); }
+}));
+
+test("rejects invalid or missing SOCKS5 adapter hash constant", () => withFixture((fx) => {
+  const path = join(fx.root, "native/android/mihomo-bridge/prepare-upstream.py");
+  const original = readFileSync(path, "utf8");
+  for (const [replacement, expected] of [["", /exactly one PATCHED_SOCKS5_SHA256/], ["PATCHED_SOCKS5_SHA256 = compute()", /PATCHED_SOCKS5_SHA256 must be a literal string/]]) {
+    writeFileSync(path, original.replace(/PATCHED_SOCKS5_SHA256 = "[0-9a-f]+"\n?/, replacement + "\n"));
+    const result = run(fx); assert.equal(result.status, 1); assert.match(result.stderr, expected);
+    writeFileSync(path, original);
+  }
 }));
 
 test("rejects old provenance without late-connections evidence", () => withFixture((fx) => {

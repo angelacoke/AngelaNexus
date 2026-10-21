@@ -19,6 +19,7 @@ COMMIT = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36"
 SING_TUN_VERSION = "v0.4.27"
 # Hashes are of the pristine pinned checkout/module files, before this adapter.
 EXPECTED = {
+    "adapter/outbound/socks5.go": "e868055e8ce0d9f011d6b602d28977f8297d0e9d31e57306c68458527694aa9b",
     "ntp/ntp/service.go": "a6c52da96e76dce97155830276270b47d69ebe99bf2a1896f5bee25fd40d017d",
     "dns/client.go": "b11cea570b82d782aa222a1fa994a91534aa845e340ffac0cc55b3fce7fad9c6",
     "dns/dot.go": "0c018bc055d511c0e87dfdc36c64cc4a1dcd88b6f07251a37864820749a62049",
@@ -50,7 +51,7 @@ SING_TUN_TUN_LINUX_SHA256 = "34d3c504a859006bf2981709d86e104c9a2b7c9542ef5895201
 PATCHED_SERVER_SHA256 = "1a77f3a7416b8074bc5e91c4944079c059fe766991bccfaa921780ad0068b8e1"
 PATCHED_STATISTICS_SHA256 = "316e372b7de3735a9a44c8f2357092ee1023fb21c6bbb899ea6a5228cc1dbb09"
 STATISTICS_PATCH_SHA256 = "293330f8b4ba6ed0fb318ea43f5bb759b0946fa98f44c563131135441d4c124b"
-LATE_CONNECTIONS_PATCH_SHA256 = "c6b5bce32a10c998c8e90a38bd713a4290967a787a34e30b3a1426710eeba67b"
+LATE_CONNECTIONS_PATCH_SHA256 = "35ce20ed3b8e0d694d3b3a821be7f913ce290f62fed258ac1e9a3aeaf6c9d4ef"
 PATCHED_LATE_MANAGER_SHA256 = "3b72343588f7d84cd6665798dc454fee02af2caaf9afe27177c337f9b6dc02ca"
 PATCHED_TPROXY_PACKET_SHA256 = "f417e4776d8dcdeb97b194fff2de83b76f3cf8e181ae01ee3fc15218fb376c5f"
 PATCHED_NAT_TABLE_SHA256 = "a024e1281fea19bdfcf67d4b8b72f9924d87bcd45a0d603a4e7555e05dd447d4"
@@ -81,6 +82,8 @@ PATCHED_DHCP_DISCOVERY_SHA256 = "6db2c7543c69d5e36ac68345f6071e9bbc72b63f97e9e37
 
 # Exact reviewed NTP worker cancellation/join output.
 PATCHED_NTP_SERVICE_SHA256 = "5dd6dabf7bd64e2932a928c30f23c7f759ff9ac9314060c1dd562f2995b9677c"
+
+PATCHED_SOCKS5_SHA256 = "71d197060a3a66dab3c9c89ddb2a0be206f858c3f7e5cd5e6a51a608ddd50855"
 
 def sha256(path: Path) -> str:
     h = hashlib.sha256()
@@ -126,6 +129,7 @@ def verify_source(root: Path) -> None:
     tproxy_packet_hash = sha256(tproxy_packet) if tproxy_packet.is_file() else None
     dns_doh_hash = sha256(root / "dns/doh.go") if (root / "dns/doh.go").is_file() else None
     extra_source_hashes = {
+        "adapter/outbound/socks5.go": PATCHED_SOCKS5_SHA256,
         "ntp/ntp/service.go": PATCHED_NTP_SERVICE_SHA256,
         "dns/client.go": PATCHED_DNS_CLIENT_SHA256,
         "dns/dot.go": PATCHED_DNS_TLS_SHA256,
@@ -147,6 +151,7 @@ def verify_source(root: Path) -> None:
     log_hash = sha256(log_source) if log_source.is_file() else None
     # Existing adapter output is allowed only when it is exactly our output.
     allowed = {
+        "adapter/outbound/angelanexus_socks5_lifecycle_integration_test.go",
         "ntp/ntp/angelanexus_ntp_lifecycle_integration_test.go",
         "angelanexus_android/bridge_ntp_integration_test.go",
         "log/angelanexus_log_level_integration_test.go",
@@ -378,7 +383,8 @@ def apply_late(root: Path) -> None:
              "dns/dhcp.go": PATCHED_DNS_DHCP_SHA256,
              "dns/util.go": PATCHED_DNS_UTIL_SHA256,
              "component/dhcp/dhcp.go": PATCHED_DHCP_DISCOVERY_SHA256,
-             "ntp/ntp/service.go": PATCHED_NTP_SERVICE_SHA256}
+             "ntp/ntp/service.go": PATCHED_NTP_SERVICE_SHA256,
+             "adapter/outbound/socks5.go": PATCHED_SOCKS5_SHA256}
     if all(sha256(root / rel) == digest for rel, digest in paths.items()):
         return
     inputs = {"tunnel/statistic/manager.go": PATCHED_STATISTICS_SHA256,
@@ -400,7 +406,8 @@ def apply_late(root: Path) -> None:
              "dns/dhcp.go": EXPECTED["dns/dhcp.go"],
              "dns/util.go": EXPECTED["dns/util.go"],
              "component/dhcp/dhcp.go": EXPECTED["component/dhcp/dhcp.go"],
-             "ntp/ntp/service.go": EXPECTED["ntp/ntp/service.go"]}
+             "ntp/ntp/service.go": EXPECTED["ntp/ntp/service.go"],
+             "adapter/outbound/socks5.go": EXPECTED["adapter/outbound/socks5.go"]}
     for rel, digest in inputs.items():
         if sha256(root / rel) != digest:
             fail(f"late patch input {rel} does not match reviewed source")
