@@ -65,7 +65,7 @@ test("the source adapter alone applies the reviewed late patch before bridge sta
   const prepare = read("native/android/mihomo-bridge/prepare-upstream.py");
   assert.ok(prepare.indexOf("apply_statistics(root)\n    apply_late(root)") > 0);
   const provenance = steps.find(step => step.name === "Generate native build provenance evidence");
-  for (const path of ["late-connections.patch", "tunnel/statistic/manager.go", "tunnel/statistic/tracker.go", "tunnel/tunnel.go", "component/nat/table.go", "tunnel/connection.go", "component/sniffer/quic_sniffer.go", "listener/tproxy/packet.go", "dns/resolver.go", "dns/client.go", "dns/dot.go", "dns/dhcp.go", "dns/util.go", "component/resource/fetcher.go", "adapter/provider/healthcheck.go", "adapter/provider/provider.go", "log/log.go"]) {
+  for (const path of ["late-connections.patch", "tunnel/statistic/manager.go", "tunnel/statistic/tracker.go", "tunnel/tunnel.go", "component/nat/table.go", "tunnel/connection.go", "component/sniffer/quic_sniffer.go", "listener/tproxy/packet.go", "dns/resolver.go", "dns/client.go", "dns/dot.go", "dns/dhcp.go", "dns/util.go", "component/resource/fetcher.go", "adapter/provider/healthcheck.go", "adapter/provider/provider.go", "log/log.go", "ntp/ntp/service.go"]) {
     assert.ok(provenance.run.includes(path), `missing build evidence: ${path}`);
   }
   assert.match(provenance.run, /"lateConnectionsPatch"/);
@@ -73,7 +73,9 @@ test("the source adapter alone applies the reviewed late patch before bridge sta
   assert.match(provenance.run, /"dhcpDiscovery": \{"path": "component\/dhcp\/dhcp\.go"/);
   assert.ok(provenance.run.includes("PATCHED_LOG_SHA256"));
   assert.ok(provenance.run.includes("PATCHED_DHCP_DISCOVERY_SHA256"));
+  assert.ok(provenance.run.includes("PATCHED_NTP_SERVICE_SHA256"));
   assert.match(provenance.run, /"dhcpDiscovery": \{"path": "component\/dhcp\/dhcp\.go", "sha256": "\$PATCHED_DHCP_DISCOVERY_SHA256"\}/);
+  assert.match(provenance.run, /"ntpService": \{"path": "ntp\/ntp\/service\.go", "sha256": "\$PATCHED_NTP_SERVICE_SHA256"\}/);
   assert.match(provenance.run, /"logSource": \{"path": "log\/log\.go", "sha256": "\$PATCHED_LOG_SHA256"\}/);
   assert.match(provenance.run, /"providerHealthCheck": \{"path": "adapter\/provider\/healthcheck\.go", "sha256": "\$PATCHED_PROVIDER_HEALTHCHECK_SHA256"\}/);
   assert.match(provenance.run, /"proxyProvider": \{"path": "adapter\/provider\/provider\.go", "sha256": "\$PATCHED_PROXY_PROVIDER_SHA256"\}/);
@@ -133,6 +135,7 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
         providerHealthCheck: "adapter/provider/healthcheck.go",
         proxyProvider: "adapter/provider/provider.go",
         log: "log/log.go",
+        ntpService: "ntp/ntp/service.go",
       };
       for (const [name, path] of Object.entries(sources)) put(join(root, "mihomo", path), `reviewed final ${name} output\n`);
       const run = step.run.replace(/\$\{\{ matrix\.(\w+) \}\}/g, (_, key) => matrix[key]);
@@ -159,7 +162,7 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
       assert.equal(evidence.artifact.sha256, hash(artifact));
       assert.equal(evidence.ownershipAdapter.patchedSource.sha256, hash(join(root, "mihomo", sources.server)));
       assert.equal(evidence.statisticsPatch.patchedSource.sha256, hash(join(root, "mihomo", sources.manager)));
-      for (const name of ["manager", "tracker", "tunnel", "natTable", "connection", "quicSniffer", "tproxyPacket", "dnsDoH", "dnsClient", "dnsTLS", "dnsDHCP", "dnsUtil", "dhcpDiscovery"]) {
+      for (const name of ["manager", "tracker", "tunnel", "natTable", "connection", "quicSniffer", "tproxyPacket", "dnsDoH", "dnsClient", "dnsTLS", "dnsDHCP", "dnsUtil", "dhcpDiscovery", "ntpService"]) {
         assert.deepEqual(evidence.lateConnectionsPatch.patchedSources[name], { path: sources[name], sha256: hash(join(root, "mihomo", sources[name])) });
       }
       assert.equal(evidence.lateConnectionsPatch.sha256, hash(join(process.cwd(), "native/android/mihomo-bridge/late-connections.patch")));
@@ -231,7 +234,7 @@ test("bridge closes tracked handshakes before bounded setup drain and preserves 
   assert.match(cleanup, /context\.WithTimeout\(context\.Background\(\), timeout\)/);
   assert.match(cleanup, /DefaultManager\.WaitSetups\(ctx\)/);
   const stop = bridge.split("func stopTunError()")[1].split("//export angelaStopTun")[0];
-  assert.match(stop, /errors\.Join\(providerErr, dnsErr, resourceErr\)/);
+  assert.match(stop, /errors\.Join\(providerErr, dnsErr, ntpErr, resourceErr\)/);
 });
 
 test("ordinary setup drain has explicit acquisition and release without joining relays", () => {

@@ -46,6 +46,8 @@ type androidTunLifecycle struct {
 	// Serialized by androidTunMu. A failed bounded DNS stop retains upstream
 	// listener/resolver ownership; only a successful explicit stop retry clears debt.
 	dnsCleanupPending bool
+	// An explicit NTP stop timeout blocks replacement until a successful stop retry.
+	ntpCleanupPending bool
 	// Retain every applied generation, including configurations replaced or disabled
 	// before explicit stop. Stopped resolvers cannot be reopened by TUN attachment.
 	resolvers        map[androidResolverGeneration]struct{}

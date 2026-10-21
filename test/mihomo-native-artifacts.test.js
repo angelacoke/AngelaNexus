@@ -28,6 +28,7 @@ function fixture() {
   const patchedDnsDHCP = Buffer.from("fixture patched DNS DHCP\n");
   const patchedDnsUtil = Buffer.from("fixture patched DNS util\n");
   const patchedDhcpDiscovery = Buffer.from("fixture patched DHCP discovery\n");
+  const patchedNtpService = Buffer.from("fixture patched NTP service\n");
   const patchedProviderFetcher = Buffer.from("fixture patched provider fetcher\n");
   const patchedProviderHealthcheck = Buffer.from("fixture patched provider healthcheck\n");
   const patchedProxyProvider = Buffer.from("fixture patched proxy provider\n");
@@ -52,6 +53,8 @@ function fixture() {
   writeFileSync(join(root, "dns/util.go"), patchedDnsUtil);
   mkdirSync(join(root, "component/dhcp"), { recursive: true });
   writeFileSync(join(root, "component/dhcp/dhcp.go"), patchedDhcpDiscovery);
+  mkdirSync(join(root, "ntp/ntp"), { recursive: true });
+  writeFileSync(join(root, "ntp/ntp/service.go"), patchedNtpService);
   mkdirSync(join(root, "component/resource"), { recursive: true });
   mkdirSync(join(root, "adapter/provider"), { recursive: true });
   writeFileSync(join(root, "adapter/provider/healthcheck.go"), patchedProviderHealthcheck);
@@ -74,7 +77,7 @@ function fixture() {
   writeFileSync(join(sourceDir, "bridge.go"), bridge);
   writeFileSync(join(sourceDir, "lifecycle.go"), lifecycle);
   writeFileSync(join(sourceDir, "library.go"), libraryEntry);
-  const adapterSource = `PATCHED_SERVER_SHA256 = "${digest(patchedSource)}"\nPATCHED_DNS_RESOLVER_SHA256 = "${digest(patchedDnsResolver)}"\nPATCHED_DNS_SERVER_SHA256 = "${digest(patchedDnsServer)}"\nPATCHED_DNS_DOH_SHA256 = "${digest(patchedDnsDoH)}"\nPATCHED_DNS_CLIENT_SHA256 = "${digest(patchedDnsClient)}"\nPATCHED_DNS_TLS_SHA256 = "${digest(patchedDnsTLS)}"\nPATCHED_DNS_DHCP_SHA256 = "${digest(patchedDnsDHCP)}"\nPATCHED_DNS_UTIL_SHA256 = "${digest(patchedDnsUtil)}"\nPATCHED_DHCP_DISCOVERY_SHA256 = "${digest(patchedDhcpDiscovery)}"\nPATCHED_PROVIDER_FETCHER_SHA256 = "${digest(patchedProviderFetcher)}"\nPATCHED_PROVIDER_HEALTHCHECK_SHA256 = "${digest(patchedProviderHealthcheck)}"\nPATCHED_PROXY_PROVIDER_SHA256 = "${digest(patchedProxyProvider)}"\nPATCHED_STATISTICS_SHA256 = "${digest(patchedStatistics)}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${digest(patchedStatistics)}"\nPATCHED_TRACKER_SHA256 = "${digest(patchedTracker)}"\nPATCHED_TUNNEL_SHA256 = "${digest(patchedTunnel)}"\nPATCHED_NAT_TABLE_SHA256 = "${digest(patchedNatTable)}"\nPATCHED_CONNECTION_SHA256 = "${digest(patchedConnection)}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${digest(patchedQuicSniffer)}"\nPATCHED_TPROXY_PACKET_SHA256 = "${digest(patchedTproxyPacket)}"\nPATCHED_LOG_SHA256 = "${digest(patchedLog)}"\n`;
+  const adapterSource = `PATCHED_SERVER_SHA256 = "${digest(patchedSource)}"\nPATCHED_DNS_RESOLVER_SHA256 = "${digest(patchedDnsResolver)}"\nPATCHED_DNS_SERVER_SHA256 = "${digest(patchedDnsServer)}"\nPATCHED_DNS_DOH_SHA256 = "${digest(patchedDnsDoH)}"\nPATCHED_DNS_CLIENT_SHA256 = "${digest(patchedDnsClient)}"\nPATCHED_DNS_TLS_SHA256 = "${digest(patchedDnsTLS)}"\nPATCHED_DNS_DHCP_SHA256 = "${digest(patchedDnsDHCP)}"\nPATCHED_DNS_UTIL_SHA256 = "${digest(patchedDnsUtil)}"\nPATCHED_DHCP_DISCOVERY_SHA256 = "${digest(patchedDhcpDiscovery)}"\nPATCHED_NTP_SERVICE_SHA256 = "${digest(patchedNtpService)}"\nPATCHED_PROVIDER_FETCHER_SHA256 = "${digest(patchedProviderFetcher)}"\nPATCHED_PROVIDER_HEALTHCHECK_SHA256 = "${digest(patchedProviderHealthcheck)}"\nPATCHED_PROXY_PROVIDER_SHA256 = "${digest(patchedProxyProvider)}"\nPATCHED_STATISTICS_SHA256 = "${digest(patchedStatistics)}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${digest(patchedStatistics)}"\nPATCHED_TRACKER_SHA256 = "${digest(patchedTracker)}"\nPATCHED_TUNNEL_SHA256 = "${digest(patchedTunnel)}"\nPATCHED_NAT_TABLE_SHA256 = "${digest(patchedNatTable)}"\nPATCHED_CONNECTION_SHA256 = "${digest(patchedConnection)}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${digest(patchedQuicSniffer)}"\nPATCHED_TPROXY_PACKET_SHA256 = "${digest(patchedTproxyPacket)}"\nPATCHED_LOG_SHA256 = "${digest(patchedLog)}"\n`;
   writeFileSync(join(sourceDir, "prepare-upstream.py"), adapterSource);
   const adapterSha = digest(adapterSource);
   const records = {};
@@ -119,6 +122,7 @@ ${ABIS.map((abi) => ` val ${abi.replaceAll("-", "_")} = MihomoNativeLibrarySpec(
       dnsDHCP: { path: "dns/dhcp.go", sha256: digest(patchedDnsDHCP) },
       dnsUtil: { path: "dns/util.go", sha256: digest(patchedDnsUtil) },
       dhcpDiscovery: { path: "component/dhcp/dhcp.go", sha256: digest(patchedDhcpDiscovery) },
+      ntpService: { path: "ntp/ntp/service.go", sha256: digest(patchedNtpService) },
       providerFetcher: { path: "component/resource/fetcher.go", sha256: digest(patchedProviderFetcher) },
       providerHealthCheck: { path: "adapter/provider/healthcheck.go", sha256: digest(patchedProviderHealthcheck) },
       proxyProvider: { path: "adapter/provider/provider.go", sha256: digest(patchedProxyProvider) },
@@ -150,6 +154,7 @@ ${ABIS.map((abi) => ` val ${abi.replaceAll("-", "_")} = MihomoNativeLibrarySpec(
           dnsDHCP: { path: "dns/dhcp.go", sha256: digest(patchedDnsDHCP) },
           dnsUtil: { path: "dns/util.go", sha256: digest(patchedDnsUtil) },
           dhcpDiscovery: { path: "component/dhcp/dhcp.go", sha256: digest(patchedDhcpDiscovery) },
+          ntpService: { path: "ntp/ntp/service.go", sha256: digest(patchedNtpService) },
         },
       },
       artifact: { name: artifact, sha256: records[abi].sha256 },

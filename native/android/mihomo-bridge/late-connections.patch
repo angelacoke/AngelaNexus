@@ -2722,3 +2722,136 @@
 +	defer func() { _ = conn.Close(); <-done }()
 +
 +	_, err := conn.WriteTo(discovery.ToBytes(), &net.UDPAddr{IP: net.IPv4bcast, Port: 67})
+--- ntp/ntp/service.go
++++ ntp/ntp/service.go
+@@ -4,0 +5 @@
++	"errors"
+@@ -19,0 +21,3 @@
++
++// Reload and disable cancel old services but do not lose their join ownership.
++var retiredServices = make(map[*Service]struct{})
+@@ -27,0 +32,4 @@
++	lifecycleMu    sync.Mutex
++	started        bool
++	stopped        bool
++	done           chan struct{}
+@@ -33,0 +42 @@
++		retiredServices[globalSrv] = struct{}{}
+@@ -34,0 +44 @@
++		globalSrv = nil
+@@ -36,0 +47 @@
++		mihomoNtp.SetOffset(0)
+@@ -45,6 +56,4 @@
+-		server:         M.ParseSocksaddr(server),
+-		dialer:         proxydialer.NewSingDialer(cDialer),
+-		ticker:         time.NewTicker(interval * time.Minute),
+-		ctx:            ctx,
+-		cancel:         cancel,
+-		syncSystemTime: syncSystemTime,
++		server: M.ParseSocksaddr(server),
++		dialer: proxydialer.NewSingDialer(cDialer),
++		ticker: time.NewTicker(interval * time.Minute),
++		ctx:    ctx, cancel: cancel, syncSystemTime: syncSystemTime,
+@@ -54,0 +64,34 @@
++// Cancel every service before joining any. An exchange or dependency which
++// ignores cancellation remains owned after timeout, including across reloads.
++// Callers serialize configuration replacement with this operation; Android
++// holds androidTunMu across cancellation, joining and debt publication. This
++// snapshot does not cancel a later generation installed by an independent caller.
++// Successful drain includes Exchange's deferred connection Close and ticker
++// cleanup. This does not promise eager interruption of an established UDP read.
++func StopNTPService(ctx context.Context) error {
++	globalMu.Lock()
++	if globalSrv != nil {
++		retiredServices[globalSrv] = struct{}{}
++	}
++	services := make([]*Service, 0, len(retiredServices))
++	for srv := range retiredServices {
++		srv.Stop()
++		services = append(services, srv)
++	}
++	globalMu.Unlock()
++	var failures []error
++	for _, srv := range services {
++		if err := srv.WaitClosed(ctx); err != nil {
++			failures = append(failures, err)
++			continue
++		}
++		globalMu.Lock()
++		delete(retiredServices, srv)
++		if globalSrv == srv {
++			globalSrv = nil
++		}
++		globalMu.Unlock()
++	}
++	return errors.Join(failures...)
++}
++
+@@ -55,0 +99,7 @@
++	srv.lifecycleMu.Lock()
++	defer srv.lifecycleMu.Unlock()
++	if srv.started || srv.stopped {
++		return
++	}
++	srv.started = true
++	srv.done = make(chan struct{})
+@@ -57 +107 @@
+-	go srv.loopUpdate()
++	go func() { defer close(srv.done); srv.loopUpdate() }()
+@@ -61,2 +111,31 @@
+-	log.Infoln("NTP service stop")
+-	srv.cancel()
++	srv.lifecycleMu.Lock()
++	defer srv.lifecycleMu.Unlock()
++	if !srv.stopped {
++		srv.stopped = true
++		srv.cancel()
++		// Serialize cancellation with publication, so a late response cannot
++		// write the process clock/offset after Stop has returned.
++		if !srv.started {
++			srv.ticker.Stop()
++		}
++	}
++}
++
++func (srv *Service) WaitClosed(ctx context.Context) error {
++	srv.lifecycleMu.Lock()
++	done := srv.done
++	srv.lifecycleMu.Unlock()
++	if done == nil {
++		return nil
++	}
++	select {
++	case <-done:
++		return nil
++	default:
++	}
++	select {
++	case <-done:
++		return nil
++	case <-ctx.Done():
++		return ctx.Err()
++	}
+@@ -68,0 +148,3 @@
++		if srv.ctx.Err() != nil {
++			return nil
++		}
+@@ -74,0 +157,5 @@
++		}
++		srv.lifecycleMu.Lock()
++		if srv.stopped || srv.ctx.Err() != nil {
++			srv.lifecycleMu.Unlock()
++			return nil
+@@ -92,0 +180 @@
++		srv.lifecycleMu.Unlock()
+@@ -99 +187,9 @@
+-	defer mihomoNtp.SetOffset(0)
++	// Only the current generation may reset the process offset. A retired
++	// worker finishing after reload must not erase its replacement's offset.
++	defer func() {
++		globalMu.Lock()
++		if globalSrv == srv {
++			mihomoNtp.SetOffset(0)
++		}
++		globalMu.Unlock()
++	}()

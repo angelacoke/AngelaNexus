@@ -53,16 +53,20 @@ function verifierFixture() {
   const patchedConnectionHash = digest("fixture UDP connection");
   const patchedQuicSnifferHash = digest("fixture QUIC sniffer");
   const patchedTproxyPacketHash = digest("fixture TProxy packet");
+  const patchedNtpService = "fixture patched NTP service";
+  const patchedNtpServiceHash = digest(patchedNtpService);
   const statisticsPatch = "fixture statistics patch\n";
   const lateConnectionsPatch = "fixture late connections patch\n";
   mkdirSync(join(repo, "tunnel/statistic"), { recursive: true });
   mkdirSync(join(repo, "dns"), { recursive: true });
+  mkdirSync(join(repo, "ntp/ntp"), { recursive: true });
   writeFileSync(join(repo, "dns/resolver.go"), "fixture patched DNS resolver");
   writeFileSync(join(repo, "dns/doh.go"), "fixture patched DoH source");
   writeFileSync(join(repo, "dns/client.go"), "fixture patched DNS client");
   writeFileSync(join(repo, "dns/dot.go"), "fixture patched DNS TLS");
   writeFileSync(join(repo, "dns/dhcp.go"), "fixture patched DNS DHCP");
   writeFileSync(join(repo, "dns/util.go"), "fixture patched DNS util");
+  writeFileSync(join(repo, "ntp/ntp/service.go"), patchedNtpService);
   mkdirSync(join(repo, "component/dhcp"), { recursive: true });
   writeFileSync(join(repo, "component/dhcp/dhcp.go"), "fixture patched DHCP discovery");
   mkdirSync(join(repo, "component/resource"), { recursive: true });
@@ -74,7 +78,7 @@ function verifierFixture() {
   writeFileSync(join(repo, "tunnel/tunnel.go"), patchedTunnel);
   writeFileSync(join(sourceDir, "statistics.patch"), statisticsPatch);
   writeFileSync(join(sourceDir, "late-connections.patch"), lateConnectionsPatch);
-  writeFileSync(join(sourceDir, "prepare-upstream.py"), `PATCHED_SERVER_SHA256 = "${patchedSourceHash}"\nPATCHED_DNS_RESOLVER_SHA256 = "${patchedDnsResolverHash}"\nPATCHED_DNS_SERVER_SHA256 = "${patchedDnsServerHash}"\nPATCHED_DNS_DOH_SHA256 = "${patchedDnsDoHHash}"\nPATCHED_DNS_CLIENT_SHA256 = "${patchedDnsClientHash}"\nPATCHED_DNS_TLS_SHA256 = "${patchedDnsTLSHash}"\nPATCHED_DNS_DHCP_SHA256 = "${patchedDnsDHCPHash}"\nPATCHED_DNS_UTIL_SHA256 = "${patchedDnsUtilHash}"\nPATCHED_DHCP_DISCOVERY_SHA256 = "${patchedDhcpDiscoveryHash}"\nPATCHED_PROVIDER_FETCHER_SHA256 = "${patchedProviderFetcherHash}"\nPATCHED_PROVIDER_HEALTHCHECK_SHA256 = "${patchedProviderHealthcheckHash}"\nPATCHED_PROXY_PROVIDER_SHA256 = "${patchedProxyProviderHash}"\nPATCHED_STATISTICS_SHA256 = "${patchedStatisticsHash}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${patchedStatisticsHash}"\nPATCHED_TRACKER_SHA256 = "${patchedTrackerHash}"\nPATCHED_TUNNEL_SHA256 = "${patchedTunnelHash}"\nPATCHED_NAT_TABLE_SHA256 = "${patchedNatTableHash}"\nPATCHED_CONNECTION_SHA256 = "${patchedConnectionHash}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${patchedQuicSnifferHash}"\nPATCHED_TPROXY_PACKET_SHA256 = "${patchedTproxyPacketHash}"\nPATCHED_LOG_SHA256 = "${patchedLogHash}"\n`);
+  writeFileSync(join(sourceDir, "prepare-upstream.py"), `PATCHED_SERVER_SHA256 = "${patchedSourceHash}"\nPATCHED_DNS_RESOLVER_SHA256 = "${patchedDnsResolverHash}"\nPATCHED_DNS_SERVER_SHA256 = "${patchedDnsServerHash}"\nPATCHED_DNS_DOH_SHA256 = "${patchedDnsDoHHash}"\nPATCHED_DNS_CLIENT_SHA256 = "${patchedDnsClientHash}"\nPATCHED_DNS_TLS_SHA256 = "${patchedDnsTLSHash}"\nPATCHED_DNS_DHCP_SHA256 = "${patchedDnsDHCPHash}"\nPATCHED_DNS_UTIL_SHA256 = "${patchedDnsUtilHash}"\nPATCHED_DHCP_DISCOVERY_SHA256 = "${patchedDhcpDiscoveryHash}"\nPATCHED_PROVIDER_FETCHER_SHA256 = "${patchedProviderFetcherHash}"\nPATCHED_PROVIDER_HEALTHCHECK_SHA256 = "${patchedProviderHealthcheckHash}"\nPATCHED_PROXY_PROVIDER_SHA256 = "${patchedProxyProviderHash}"\nPATCHED_STATISTICS_SHA256 = "${patchedStatisticsHash}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${patchedStatisticsHash}"\nPATCHED_TRACKER_SHA256 = "${patchedTrackerHash}"\nPATCHED_TUNNEL_SHA256 = "${patchedTunnelHash}"\nPATCHED_NAT_TABLE_SHA256 = "${patchedNatTableHash}"\nPATCHED_CONNECTION_SHA256 = "${patchedConnectionHash}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${patchedQuicSnifferHash}"\nPATCHED_TPROXY_PACKET_SHA256 = "${patchedTproxyPacketHash}"\nPATCHED_LOG_SHA256 = "${patchedLogHash}"\nPATCHED_NTP_SERVICE_SHA256 = "${patchedNtpServiceHash}"\n`);
   const abis = ["arm64-v8a", "armeabi-v7a", "x86_64"];
   const commit = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36";
   const specs = abis.map(abi => `MihomoNativeLibrarySpec(abi = "${abi}", sha256 = "${"a".repeat(64)}")`).join(",\n");
@@ -106,6 +110,7 @@ function verifierFixture() {
       providerHealthCheck: { path: "adapter/provider/healthcheck.go", sha256: patchedProviderHealthcheckHash },
       proxyProvider: { path: "adapter/provider/provider.go", sha256: patchedProxyProviderHash },
       logSource: { path: "log/log.go", sha256: patchedLogHash },
+      ntpService: { path: "ntp/ntp/service.go", sha256: patchedNtpServiceHash },
       ownershipAdapter: { ...evidence("prepare-upstream.py"), patchedSource: { path: "listener/sing_tun/server.go", sha256: patchedSourceHash } },
       statisticsPatch: { ...evidence("statistics.patch"), patchedSource: { path: "tunnel/statistic/manager.go", sha256: patchedStatisticsHash } },
       lateConnectionsPatch: {
@@ -119,7 +124,8 @@ function verifierFixture() {
           quicSniffer: { path: "component/sniffer/quic_sniffer.go", sha256: patchedQuicSnifferHash },
           tproxyPacket: { path: "listener/tproxy/packet.go", sha256: patchedTproxyPacketHash },
           dhcpDiscovery: { path: "component/dhcp/dhcp.go", sha256: patchedDhcpDiscoveryHash },
-          dnsDoH: { path: "dns/doh.go", sha256: patchedDnsDoHHash }, dnsClient: { path: "dns/client.go", sha256: patchedDnsClientHash }, dnsTLS: { path: "dns/dot.go", sha256: patchedDnsTLSHash }, dnsDHCP: { path: "dns/dhcp.go", sha256: patchedDnsDHCPHash }, dnsUtil: { path: "dns/util.go", sha256: patchedDnsUtilHash },
+          dnsDoH: { path: "dns/doh.go", sha256: patchedDnsDoHHash },
+          ntpService: { path: "ntp/ntp/service.go", sha256: patchedNtpServiceHash }, dnsClient: { path: "dns/client.go", sha256: patchedDnsClientHash }, dnsTLS: { path: "dns/dot.go", sha256: patchedDnsTLSHash }, dnsDHCP: { path: "dns/dhcp.go", sha256: patchedDnsDHCPHash }, dnsUtil: { path: "dns/util.go", sha256: patchedDnsUtilHash },
         },
       },
     };

@@ -18,7 +18,7 @@ const workflow = yaml.load(read(".github/workflows/mihomo-android-native-build.y
 });
 
 // Exercise the real verification function with a complete pinned source fixture.
-for (const mode of ["clean", "exact-fetcher", "modified-fetcher", "exact-dns", "exact-doh", "exact-dns-server", "exact-dns-client", "exact-dns-tls", "exact-dns-dhcp", "exact-dns-util", "exact-server", "exact-statistics", "exact-late", "exact-quic", "marker-server", "modified-tracker", "modified-nat", "modified-connection", "modified-quic", "exact-tproxy", "modified-tproxy", "modified-dns", "modified-doh", "modified-dns-server", "unknown-dirty", "wrong-commit"]) {
+for (const mode of ["clean", "exact-fetcher", "modified-fetcher", "exact-dns", "exact-doh", "exact-dns-server", "exact-dns-client", "exact-dns-tls", "exact-dns-dhcp", "exact-dns-util", "exact-server", "exact-statistics", "exact-late", "exact-quic", "marker-server", "modified-tracker", "modified-nat", "modified-connection", "modified-quic", "exact-tproxy", "exact-ntp", "modified-tproxy", "modified-ntp", "modified-dns", "modified-doh", "modified-dns-server", "unknown-dirty", "wrong-commit"]) {
   test(`owned-fd source verification is fail-closed: ${mode}`, () => {
     const result = spawnSync("python3", ["-B", "-c", `
 import hashlib, importlib.util, json, pathlib, sys, tempfile
@@ -30,10 +30,10 @@ with tempfile.TemporaryDirectory() as tmp:
     pristine = {
       "go.mod": "github.com/metacubex/sing-tun v0.4.27\\n", "go.sum": "github.com/metacubex/sing-tun v0.4.27 h1:fixture\\n",
       "listener/sing_tun/server.go": "pristine server\\n", "listener/sing_tun/server_notwindows.go": "pristine notwindows\\n",
-      "tunnel/statistic/manager.go": "pristine manager\\n", "tunnel/statistic/tracker.go": "pristine tracker\\n", "tunnel/tunnel.go": "pristine tunnel\\n", "component/nat/table.go": "pristine nat\\n", "tunnel/connection.go": "pristine connection\\n", "component/sniffer/quic_sniffer.go": "pristine QUIC\\n", "listener/tproxy/packet.go": "pristine TProxy packet\\n", "dns/resolver.go": "pristine DNS resolver\\n", "dns/server.go": "pristine DNS server\\n", "dns/doh.go": "pristine DNS DoH\\n", "component/resource/fetcher.go": "pristine fetcher\\n", "log/log.go": "pristine log\\n", "adapter/provider/healthcheck.go": "pristine healthcheck\\n", "adapter/provider/provider.go": "pristine provider\\n"}
+      "tunnel/statistic/manager.go": "pristine manager\\n", "tunnel/statistic/tracker.go": "pristine tracker\\n", "tunnel/tunnel.go": "pristine tunnel\\n", "component/nat/table.go": "pristine nat\\n", "tunnel/connection.go": "pristine connection\\n", "component/sniffer/quic_sniffer.go": "pristine QUIC\\n", "listener/tproxy/packet.go": "pristine TProxy packet\\n", "dns/resolver.go": "pristine DNS resolver\\n", "dns/server.go": "pristine DNS server\\n", "dns/doh.go": "pristine DNS DoH\\n", "component/resource/fetcher.go": "pristine fetcher\\n", "log/log.go": "pristine log\\n", "adapter/provider/healthcheck.go": "pristine healthcheck\\n", "adapter/provider/provider.go": "pristine provider\\n", "ntp/ntp/service.go": "pristine ntp service\\n"}
     for rel, text in pristine.items():
         p = root / rel; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(text)
-    final = {"listener/sing_tun/server.go": "reviewed server\\n", "tunnel/statistic/manager.go": "reviewed manager\\n", "tunnel/statistic/tracker.go": "reviewed tracker\\n", "tunnel/tunnel.go": "reviewed tunnel\\n", "component/nat/table.go": "reviewed nat\\n", "tunnel/connection.go": "reviewed connection\\n", "component/sniffer/quic_sniffer.go": "reviewed QUIC\\n", "listener/tproxy/packet.go": "reviewed TProxy packet\\n", "dns/resolver.go": "reviewed DNS resolver\\n", "dns/server.go": "reviewed DNS server\\n", "dns/doh.go": "reviewed DNS DoH\\n", "component/resource/fetcher.go": "reviewed fetcher\\n", "log/log.go": "reviewed log\\n", "adapter/provider/healthcheck.go": "reviewed healthcheck\\n", "adapter/provider/provider.go": "reviewed provider\\n"}
+    final = {"listener/sing_tun/server.go": "reviewed server\\n", "tunnel/statistic/manager.go": "reviewed manager\\n", "tunnel/statistic/tracker.go": "reviewed tracker\\n", "tunnel/tunnel.go": "reviewed tunnel\\n", "component/nat/table.go": "reviewed nat\\n", "tunnel/connection.go": "reviewed connection\\n", "component/sniffer/quic_sniffer.go": "reviewed QUIC\\n", "listener/tproxy/packet.go": "reviewed TProxy packet\\n", "dns/resolver.go": "reviewed DNS resolver\\n", "dns/server.go": "reviewed DNS server\\n", "dns/doh.go": "reviewed DNS DoH\\n", "component/resource/fetcher.go": "reviewed fetcher\\n", "log/log.go": "reviewed log\\n", "adapter/provider/healthcheck.go": "reviewed healthcheck\\n", "adapter/provider/provider.go": "reviewed provider\\n", "ntp/ntp/service.go": "reviewed ntp service\\n"}
     m.EXPECTED = {rel: m.sha256(root / rel) for rel in pristine}
     for rel, text in final.items():
         p = root / rel; p.write_text(text)
@@ -45,6 +45,7 @@ with tempfile.TemporaryDirectory() as tmp:
     m.PATCHED_DNS_RESOLVER_SHA256 = m.sha256(root / "dns/resolver.go")
     m.PATCHED_DNS_SERVER_SHA256 = m.sha256(root / "dns/server.go")
     m.PATCHED_DNS_DOH_SHA256 = m.sha256(root / "dns/doh.go")
+    m.PATCHED_NTP_SERVICE_SHA256 = m.sha256(root / "ntp/ntp/service.go")
     m.PATCHED_STATISTICS_SHA256 = m.sha256(root / "tunnel/statistic/manager.go")
     m.PATCHED_LATE_MANAGER_SHA256 = m.PATCHED_STATISTICS_SHA256
     m.PATCHED_TRACKER_SHA256 = m.sha256(root / "tunnel/statistic/tracker.go")
@@ -59,6 +60,10 @@ with tempfile.TemporaryDirectory() as tmp:
         (root / "component/resource/fetcher.go").write_text(final["component/resource/fetcher.go"]); status = " M component/resource/fetcher.go\\n"
     elif mode == "modified-fetcher":
         (root / "component/resource/fetcher.go").write_text("modified fetcher\\n"); status = " M component/resource/fetcher.go\\n"
+    elif mode == "exact-ntp":
+        (root / "ntp/ntp/service.go").write_text(final["ntp/ntp/service.go"]); status = " M ntp/ntp/service.go\\n"
+    elif mode == "modified-ntp":
+        (root / "ntp/ntp/service.go").write_text("modified ntp service\\n"); status = " M ntp/ntp/service.go\\n"
     elif mode == "exact-doh":
         (root / "dns/doh.go").write_text(final["dns/doh.go"]); status = " M dns/doh.go\\n"
     elif mode == "exact-dns-server":
@@ -109,8 +114,8 @@ with tempfile.TemporaryDirectory() as tmp:
     m.subprocess.check_output = output
     try: m.verify_source(root)
     except SystemExit:
-        assert mode not in ("clean", "exact-fetcher", "exact-dns", "exact-doh", "exact-dns-server", "exact-dns-client", "exact-dns-tls", "exact-dns-dhcp", "exact-dns-util", "exact-server", "exact-statistics", "exact-late", "exact-quic", "exact-tproxy"), mode
-    else: assert mode in ("clean", "exact-fetcher", "exact-dns", "exact-doh", "exact-dns-server", "exact-dns-client", "exact-dns-tls", "exact-dns-dhcp", "exact-dns-util", "exact-server", "exact-statistics", "exact-late", "exact-quic", "exact-tproxy"), "accepted incompatible source: " + mode
+        assert mode not in ("clean", "exact-fetcher", "exact-dns", "exact-doh", "exact-dns-server", "exact-dns-client", "exact-dns-tls", "exact-dns-dhcp", "exact-dns-util", "exact-server", "exact-statistics", "exact-late", "exact-quic", "exact-tproxy", "exact-ntp"), mode
+    else: assert mode in ("clean", "exact-fetcher", "exact-dns", "exact-doh", "exact-dns-server", "exact-dns-client", "exact-dns-tls", "exact-dns-dhcp", "exact-dns-util", "exact-server", "exact-statistics", "exact-late", "exact-quic", "exact-tproxy", "exact-ntp"), "accepted incompatible source: " + mode
 `, adapter.pathname, mode], { encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr || result.stdout);
   });
@@ -118,7 +123,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
 // Exercise all reviewed source sections in their exact application order.
 // Every rejected input/output/path must leave every source byte untouched.
-const lateSourceNames = ["manager", "tracker", "tunnel", "nat", "connection", "quic", "tproxy", "dns", "dns-server", "doh", "fetcher", "log", "healthcheck", "proxy-provider", "client", "tls", "dhcp", "util", "dhcp-discovery"];
+const lateSourceNames = ["manager", "tracker", "tunnel", "nat", "connection", "quic", "tproxy", "dns", "dns-server", "doh", "fetcher", "log", "healthcheck", "proxy-provider", "client", "tls", "dhcp", "util", "dhcp-discovery", "ntp"];
 const lateAtomicModes = ["clean", "all-final", "late-patch-tampered", "last-output-hash-error", "last-section-invalid", "path-traversal-section", "partial-final-mixed", "unknown-source-section", ...lateSourceNames.flatMap(name => ["input-tampered", "output-hash-error", "partial-final-mixed", "path-traversal", "section-invalid"].map(fault => `${name}-${fault}`))];
 for (const mode of lateAtomicModes) {
   test(`late patch application is exact and atomic: ${mode}`, () => {
@@ -148,6 +153,7 @@ with tempfile.TemporaryDirectory() as tmp:
         ("dhcp", "dns/dhcp.go", "PATCHED_DNS_DHCP_SHA256"),
         ("util", "dns/util.go", "PATCHED_DNS_UTIL_SHA256"),
         ("dhcp-discovery", "component/dhcp/dhcp.go", "PATCHED_DHCP_DISCOVERY_SHA256"),
+        ("ntp", "ntp/ntp/service.go", "PATCHED_NTP_SERVICE_SHA256"),
     ]
     rels = [r for _, r, _ in entries]
     indices = {name:i for i,(name,_,_) in enumerate(entries)}
