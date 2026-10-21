@@ -36,6 +36,7 @@ import (
 	"github.com/metacubex/mihomo/component/dialer"
 	"github.com/metacubex/mihomo/config"
 	"github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/dns"
 	"github.com/metacubex/mihomo/hub/executor"
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/listener/sing_tun"
@@ -180,6 +181,9 @@ func applyAndroidConfigJSONAtGeneration(data []byte, generation uint64) error {
 	if androidRuntime.providersStopped && len(androidRuntime.providers) != 0 {
 		return errAndroidProviderCleanupPending
 	}
+	if androidRuntime.dnsCleanupPending {
+		return errAndroidDNSCleanupPending
+	}
 	if len(data) == 0 {
 		return errors.New("config is empty")
 	}
@@ -222,6 +226,9 @@ func updateAndroidDNSAtGeneration(dns string, generation uint64) error {
 
 	if androidRuntime.providersStopped && len(androidRuntime.providers) != 0 {
 		return errAndroidProviderCleanupPending
+	}
+	if androidRuntime.dnsCleanupPending {
+		return errAndroidDNSCleanupPending
 	}
 	if len(lastConfigJSON) == 0 {
 		return errors.New("no configuration has been applied")
@@ -288,7 +295,7 @@ func startAndroidTUNWithConstructor(fd int, stack, address, dns string, generati
 
 	// Fetcher.Close is irreversible. A fresh apply/DNS reparse must construct
 	// new providers before attaching again; never reopen a stopped generation.
-	if androidRuntime.providersStopped {
+	if androidRuntime.providersStopped || androidRuntime.dnsCleanupPending {
 		return false
 	}
 	tunnel.OnSuspend()
@@ -424,8 +431,20 @@ const androidSetupDrainTimeout = 2 * time.Second
 
 var errAndroidLateSetupConnections = errors.New("late setup connections await cleanup retry")
 var errAndroidProviderCleanupPending = errors.New("provider cleanup pending; retry stop before applying configuration")
+var errAndroidDNSCleanupPending = errors.New("DNS listener cleanup pending; retry stop before applying configuration")
 
 const androidProviderDrainTimeout = 2 * time.Second
+const androidDNSDrainTimeout = 2 * time.Second
+
+// Caller holds androidTunMu. This joins local DNS listener generations only,
+// not resolver transports, caches, all upstream tasks or complete kernel shutdown.
+func stopAndroidDNS(timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	err := dns.StopServer(ctx)
+	androidRuntime.dnsCleanupPending = err != nil
+	return err
+}
 
 func waitAndroidSetups(timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -446,8 +465,11 @@ func stopTunError() error {
 	ctx, cancel := context.WithTimeout(context.Background(), androidProviderDrainTimeout)
 	defer cancel()
 	providerErr := androidRuntime.closeProviders(ctx)
+	// Keep this exclusive to explicit stop: attachment replacement follows apply
+	// and must not destroy the DNS listeners just created by that configuration.
+	dnsErr := stopAndroidDNS(androidDNSDrainTimeout)
 	resourceErr := closeAndroidResources()
-	return errors.Join(providerErr, resourceErr)
+	return errors.Join(providerErr, dnsErr, resourceErr)
 }
 
 //export angelaStopTun

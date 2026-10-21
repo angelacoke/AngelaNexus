@@ -1234,6 +1234,424 @@
  		}
  	}
  
+--- dns/server.go
++++ dns/server.go
+@@ -4,0 +5,2 @@
++	"errors"
++	"io"
+@@ -5,0 +8 @@
++	"sync"
+@@ -11 +13,0 @@
+-
+@@ -16,4 +18,8 @@
+-	address string
+-	server  = &Server{}
+-
+-	dnsDefaultTTL uint32 = 600
++	address          string
++	server                  = &Server{}
++	dnsDefaultTTL    uint32 = 600
++	serverMu         sync.Mutex
++	activeGeneration *serverGeneration
++	// A generation is removed only after startup, serve, shutdown and every raw
++	// resource close have completed. Concurrent stops share this ownership set.
++	serverGenerations = make(map[*serverGeneration]struct{})
+@@ -22,0 +29 @@
++	mu        sync.RWMutex
+@@ -31,3 +38,3 @@
+-}
+-
+-// ServeDNS implement D.Handler ServeDNS
++	ctx   context.Context
++}
++
+@@ -35 +42,243 @@
+-	msg, err := s.service.ServeMsg(context.Background(), r)
++	s.mu.RLock()
++	service := s.service
++	s.mu.RUnlock()
++	var msg *D.Msg
++	var err error
++	if service != nil {
++		msg, err = service.ServeMsg(s.ctx, r)
++	}
++	if service == nil || err != nil || msg == nil {
++		msg = new(D.Msg)
++		msg.SetRcode(r, D.RcodeServerFailure)
++	}
++	if s.isUDP {
++		msg.Truncate(resolver.RequestUDPSize(r))
++	}
++	msg.Compress = true
++	_ = w.WriteMsg(msg)
++}
++func (s *Server) UDPHandler() D.Handler {
++	return serverHandler{Server: s, isUDP: true, ctx: context.Background()}
++}
++func (s *Server) TCPHandler() D.Handler { return serverHandler{Server: s, ctx: context.Background()} }
++func (s *Server) SetService(service resolver.Service) {
++	s.mu.Lock()
++	s.service = service
++	s.mu.Unlock()
++}
++
++// Close is external code and can fail or block. Keep exactly one in-flight
++// attempt per raw resource; a deadline never discards that attempt or its owner.
++type serverResource struct {
++	mu       sync.Mutex
++	raw      io.Closer
++	inflight chan struct{}
++	released bool
++	err      error
++}
++
++func (r *serverResource) install(raw io.Closer) { r.mu.Lock(); r.raw = raw; r.mu.Unlock() }
++func serverClosedOnly(err error) bool {
++	if err == net.ErrClosed {
++		return true
++	}
++	if joined, ok := err.(interface{ Unwrap() []error }); ok {
++		causes := joined.Unwrap()
++		if len(causes) == 0 {
++			return false
++		}
++		for _, cause := range causes {
++			if !serverClosedOnly(cause) {
++				return false
++			}
++		}
++		return true
++	}
++	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
++		return serverClosedOnly(wrapped.Unwrap())
++	}
++	return false
++}
++func (r *serverResource) close(ctx context.Context) error {
++	r.mu.Lock()
++	if r.raw == nil || r.released {
++		r.mu.Unlock()
++		return nil
++	}
++	done := r.inflight
++	if done == nil {
++		done = make(chan struct{})
++		r.inflight = done
++		raw := r.raw
++		go func() {
++			err := raw.Close()
++			if serverClosedOnly(err) {
++				err = nil
++			}
++			r.mu.Lock()
++			r.err = err
++			r.released = err == nil
++			r.inflight = nil
++			close(done)
++			r.mu.Unlock()
++		}()
++	}
++	r.mu.Unlock()
++	select {
++	case <-done:
++		r.mu.Lock()
++		err := r.err
++		r.mu.Unlock()
++		return err
++	case <-ctx.Done():
++		return ctx.Err()
++	}
++}
++func (r *serverResource) status() (bool, error) {
++	r.mu.Lock()
++	defer r.mu.Unlock()
++	return r.raw == nil || r.released, r.err
++}
++
++type serverTransport struct {
++	resource  serverResource
++	ready     chan struct{}
++	serveDone chan struct{}
++	srv       *D.Server // assigned before ready/serveDone; observers wait for either.
++}
++
++func newServerTransport() *serverTransport {
++	return &serverTransport{ready: make(chan struct{}), serveDone: make(chan struct{})}
++}
++
++type serverGeneration struct {
++	ctx      context.Context
++	cancel   context.CancelFunc
++	owner    *Server
++	tcp, udp *serverTransport
++	workers  sync.WaitGroup
++	done     chan struct{}
++	errMu    sync.Mutex
++	serveErr error
++}
++
++func serverShutdownOnly(err error) bool {
++	if err == net.ErrClosed || err == context.Canceled {
++		return true
++	}
++	if joined, ok := err.(interface{ Unwrap() []error }); ok {
++		causes := joined.Unwrap()
++		if len(causes) == 0 {
++			return false
++		}
++		for _, cause := range causes {
++			if !serverShutdownOnly(cause) {
++				return false
++			}
++		}
++		return true
++	}
++	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
++		return serverShutdownOnly(wrapped.Unwrap())
++	}
++	return false
++}
++func (g *serverGeneration) record(err error) {
++	if err == nil || (g.ctx.Err() != nil && serverShutdownOnly(err)) {
++		return
++	}
++	g.errMu.Lock()
++	g.serveErr = errors.Join(g.serveErr, err)
++	g.errMu.Unlock()
++}
++func (g *serverGeneration) err() error { g.errMu.Lock(); defer g.errMu.Unlock(); return g.serveErr }
++func (g *serverGeneration) complete() bool {
++	select {
++	case <-g.done:
++	default:
++		return false
++	}
++	tcp, _ := g.tcp.resource.status()
++	udp, _ := g.udp.resource.status()
++	return tcp && udp
++}
++func (g *serverGeneration) stop(ctx context.Context) error {
++	// Cancellation is announced for every generation before StopServer waits.
++	// Raw closes wake accept/read even when Shutdown's own Close attempt failed.
++	tcpErr := g.tcp.resource.close(ctx)
++	udpErr := g.udp.resource.close(ctx)
++	select {
++	case <-g.done:
++		_, tcpDebt := g.tcp.resource.status()
++		_, udpDebt := g.udp.resource.status()
++		return errors.Join(tcpErr, udpErr, tcpDebt, udpDebt, g.err())
++	case <-ctx.Done():
++		return errors.Join(tcpErr, udpErr, ctx.Err())
++	}
++}
++
++// StopServer joins only locally owned DNS listener generations, including their
++// admitted handlers. It does not close resolver transports/caches or the kernel.
++func StopServer(ctx context.Context) error {
++	serverMu.Lock()
++	gens := make([]*serverGeneration, 0, len(serverGenerations))
++	for g := range serverGenerations {
++		gens = append(gens, g)
++		g.cancel()
++	}
++	activeGeneration = nil
++	address = ""
++	server = &Server{}
++	serverMu.Unlock()
++	var result error
++	for _, g := range gens {
++		result = errors.Join(result, g.stop(ctx))
++	}
++	serverMu.Lock()
++	for _, g := range gens {
++		if g.complete() {
++			delete(serverGenerations, g)
++		}
++	}
++	serverMu.Unlock()
++	return result
++}
++
++func ReCreateServer(addr string, lc C.InboundListenConfig, service resolver.Service) {
++	serverMu.Lock()
++	defer serverMu.Unlock()
++	if activeGeneration != nil && addr == address && service != nil && lc != nil {
++		activeGeneration.owner.SetService(service)
++		return
++	}
++	if activeGeneration != nil {
++		activeGeneration.cancel()
++	}
++	activeGeneration = nil
++	address = ""
++	server = &Server{}
++	if addr == "" || lc == nil || service == nil {
++		return
++	}
++	_, port, err := net.SplitHostPort(addr)
++	if err != nil || port == "0" || port == "" {
++		return
++	}
++	ctx, cancel := context.WithCancel(context.Background())
++	g := &serverGeneration{ctx: ctx, cancel: cancel, owner: &Server{service: service}, tcp: newServerTransport(), udp: newServerTransport(), done: make(chan struct{})}
++	// Account for both startup/serve and both shutdown watchers before publishing.
++	g.workers.Add(4)
++	activeGeneration = g
++	serverGenerations[g] = struct{}{}
++	address, server = addr, g.owner
++	go g.listenTCP(lc, addr)
++	go g.listenUDP(lc, addr)
++	go g.watchTransport(g.tcp)
++	go g.watchTransport(g.udp)
++	go func() { g.workers.Wait(); close(g.done) }()
++}
++
++func (g *serverGeneration) listenTCP(lc C.InboundListenConfig, addr string) {
++	defer g.workers.Done()
++	defer close(g.tcp.serveDone)
++	l, err := lc.Listen(g.ctx, "tcp", addr)
+@@ -37,94 +286,47 @@
+-		m := new(D.Msg)
+-		m.SetRcode(r, D.RcodeServerFailure)
+-		// does not matter if this write fails
+-		w.WriteMsg(m)
+-		return
+-	}
+-	if s.isUDP {
+-		// RFC 6891: fit the reply into the client's advertised buffer size,
+-		// setting the TC bit if records must be dropped; 512 when no OPT present
+-		msg.Truncate(resolver.RequestUDPSize(r))
+-	}
+-	msg.Compress = true
+-	w.WriteMsg(msg)
+-}
+-
+-func (s *Server) UDPHandler() D.Handler {
+-	return serverHandler{Server: s, isUDP: true}
+-}
+-
+-func (s *Server) TCPHandler() D.Handler {
+-	return serverHandler{Server: s, isUDP: false}
+-}
+-
+-func (s *Server) SetService(service resolver.Service) {
+-	s.service = service
+-}
+-
+-func ReCreateServer(addr string, lc C.InboundListenConfig, service resolver.Service) {
+-	if addr == address && service != nil {
+-		server.SetService(service)
+-		return
+-	}
+-
+-	if server.tcpServer != nil {
+-		_ = server.tcpServer.Shutdown()
+-		server.tcpServer = nil
+-	}
+-
+-	if server.udpServer != nil {
+-		_ = server.udpServer.Shutdown()
+-		server.udpServer = nil
+-	}
+-
+-	server.service = nil
+-	address = ""
+-
+-	if addr == "" || lc == nil || service == nil {
+-		return
+-	}
+-
+-	var err error
+-	defer func() {
+-		if err != nil {
+-			log.Errorln("Start DNS server error: %s", err.Error())
+-		}
+-	}()
+-
+-	_, port, err := net.SplitHostPort(addr)
+-	if port == "0" || port == "" || err != nil {
+-		return
+-	}
+-
+-	address = addr
+-	server = &Server{service: service}
+-
+-	go func() {
+-		p, err := lc.ListenPacket(context.Background(), "udp", addr)
+-		if err != nil {
+-			log.Errorln("Start DNS server(UDP) error: %s", err.Error())
+-			return
+-		}
+-
+-		if err := sockopt.UDPReuseaddr(p); err != nil {
+-			log.Warnln("Failed to Reuse UDP Address: %s", err)
+-		}
+-
+-		log.Infoln("DNS server(UDP) listening at: %s", p.LocalAddr().String())
+-		server.udpServer = &D.Server{Addr: addr, PacketConn: p, Handler: server.UDPHandler()}
+-		_ = server.udpServer.ActivateAndServe()
+-	}()
+-
+-	go func() {
+-		l, err := lc.Listen(context.Background(), "tcp", addr)
+-		if err != nil {
+-			log.Errorln("Start DNS server(TCP) error: %s", err.Error())
+-			return
+-		}
+-
+-		log.Infoln("DNS server(TCP) listening at: %s", l.Addr().String())
+-		server.tcpServer = &D.Server{Addr: addr, Listener: l, Handler: server.TCPHandler()}
+-		_ = server.tcpServer.ActivateAndServe()
+-	}()
+-
+-}
++		g.record(err)
++		return
++	}
++	g.tcp.resource.install(l)
++	if g.ctx.Err() != nil {
++		return
++	}
++	g.tcp.srv = &D.Server{Addr: addr, Listener: l, Handler: serverHandler{Server: g.owner, ctx: g.ctx}, NotifyStartedFunc: func() { close(g.tcp.ready) }}
++	log.Infoln("DNS server(TCP) listening at: %s", l.Addr().String())
++	g.record(g.tcp.srv.ActivateAndServe())
++}
++func (g *serverGeneration) listenUDP(lc C.InboundListenConfig, addr string) {
++	defer g.workers.Done()
++	defer close(g.udp.serveDone)
++	p, err := lc.ListenPacket(g.ctx, "udp", addr)
++	if err != nil {
++		g.record(err)
++		return
++	}
++	g.udp.resource.install(p)
++	if g.ctx.Err() != nil {
++		return
++	}
++	if err := sockopt.UDPReuseaddr(p); err != nil {
++		log.Warnln("Failed to Reuse UDP Address: %s", err)
++	}
++	g.udp.srv = &D.Server{Addr: addr, PacketConn: p, Handler: serverHandler{Server: g.owner, isUDP: true, ctx: g.ctx}, NotifyStartedFunc: func() { close(g.udp.ready) }}
++	log.Infoln("DNS server(UDP) listening at: %s", p.LocalAddr().String())
++	g.record(g.udp.srv.ActivateAndServe())
++}
++func (g *serverGeneration) watchTransport(t *serverTransport) {
++	defer g.workers.Done()
++	select {
++	case <-g.ctx.Done():
++		// Shutdown before ActivateAndServe starts returns "not started" and can
++		// miss a late activation. Wait for that endpoint's actual startup or exit.
++		select {
++		case <-t.ready:
++			_ = t.srv.ShutdownContext(context.Background())
++		case <-t.serveDone:
++		}
++	case <-t.serveDone:
++	}
++	// A canceled late Listen is registered before serveDone. Failed close stays
++	// retryable even after this watcher exits; blocked close stays in-flight.
++	_ = t.resource.close(context.Background())
++}
 --- component/resource/fetcher.go
 +++ component/resource/fetcher.go
 @@ -4,0 +5 @@

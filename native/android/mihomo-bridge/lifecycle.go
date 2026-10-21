@@ -43,6 +43,9 @@ type androidTunLifecycle struct {
 	// Pinned provider implementations are comparable pointer-valued io.Closers.
 	providers        map[io.Closer]string
 	providersStopped bool
+	// Serialized by androidTunMu. A failed bounded DNS stop retains upstream
+	// listener ownership; only a successful explicit stop retry clears this debt.
+	dnsCleanupPending bool
 }
 
 func (l *androidTunLifecycle) socketHook(conn syscall.RawConn, protect func(int) bool) error {

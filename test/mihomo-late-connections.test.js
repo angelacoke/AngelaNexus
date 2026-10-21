@@ -15,6 +15,12 @@ test("CI stages and runs manager and actual tunnel regressions, rejecting empty 
   const host = steps.find(step => step.name === "Test bridge state against pinned Mihomo on host (not Android TUN)");
   assert.equal(host.if, "matrix.abi == 'x86_64'");
   assert.match(host.run, /dns_reset_integration_test\.go.*dns\/angelanexus_dns_reset_integration_test\.go/);
+  assert.match(host.run, /dns_server_lifecycle_integration_test\.go.*dns\/angelanexus_dns_server_lifecycle_integration_test\.go/);
+  assert.ok(host.run.includes("grep '^TestAngelaNexusDNSServer'"));
+  assert.match(host.run, /-race -run '\^TestAngelaNexusDNSServer' -count=20 -timeout=120s \.\/dns/);
+  assert.match(host.run, /bridge_dns_integration_test\.go.*angelanexus_android\/bridge_dns_integration_test\.go/);
+  assert.ok(host.run.includes("grep '^TestAndroidBridgeDNS'"));
+  assert.match(host.run, /-race -tags=with_gvisor,cmfa -run '\^TestAndroidBridgeDNS' -count=20 -timeout=120s \.\/angelanexus_android/);
   assert.match(host.run, /-list '\^TestAngelaNexusDNSReset'[^\n]*dns/);
   assert.ok(host.run.includes("grep '^TestAngelaNexusDNSReset'"));
   assert.match(host.run, /-race -run '\^TestAngelaNexusDNSReset' -count=20 -timeout=120s \.\/dns/);
@@ -62,6 +68,7 @@ test("the source adapter alone applies the reviewed late patch before bridge sta
   assert.match(provenance.run, /"logSource": \{"path": "log\/log\.go", "sha256": "\$PATCHED_LOG_SHA256"\}/);
   assert.match(provenance.run, /"providerHealthCheck": \{"path": "adapter\/provider\/healthcheck\.go", "sha256": "\$PATCHED_PROVIDER_HEALTHCHECK_SHA256"\}/);
   assert.match(provenance.run, /"proxyProvider": \{"path": "adapter\/provider\/provider\.go", "sha256": "\$PATCHED_PROXY_PROVIDER_SHA256"\}/);
+  assert.match(provenance.run, /"dnsServer": \{"path": "dns\/server\.go", "sha256": "\$PATCHED_DNS_SERVER_SHA256"\}/);
   assert.match(provenance.run, /"tracker": \{"path": "tunnel\/statistic\/tracker\.go"/);
   assert.match(provenance.run, /"tunnel": \{"path": "tunnel\/tunnel\.go"/);
 });
@@ -105,6 +112,7 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
         quicSniffer: "component/sniffer/quic_sniffer.go",
         tproxyPacket: "listener/tproxy/packet.go",
         dnsResolver: "dns/resolver.go",
+        dnsServer: "dns/server.go",
         providerFetcher: "component/resource/fetcher.go",
         providerHealthCheck: "adapter/provider/healthcheck.go",
         proxyProvider: "adapter/provider/provider.go",
@@ -121,6 +129,7 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
       const evidence = JSON.parse(readFileSync(join(root, `mihomo-provenance-${matrix.abi}.json`), "utf8"));
       assert.equal(evidence.dnsResolver.path, "dns/resolver.go");
       assert.equal(evidence.dnsResolver.sha256, hash(join(root, "mihomo/dns/resolver.go")));
+      assert.deepEqual(evidence.dnsServer, { path: sources.dnsServer, sha256: hash(join(root, "mihomo", sources.dnsServer)) });
       assert.equal(evidence.providerFetcher.path, "component/resource/fetcher.go");
       assert.equal(evidence.providerFetcher.sha256, hash(join(root, "mihomo/component/resource/fetcher.go")));
       for (const name of ["providerHealthCheck", "proxyProvider"]) {
@@ -203,6 +212,8 @@ test("bridge closes tracked handshakes before bounded setup drain and preserves 
   assert.match(cleanup, /androidSetupDrainTimeout = 2 \* time\.Second/);
   assert.match(cleanup, /context\.WithTimeout\(context\.Background\(\), timeout\)/);
   assert.match(cleanup, /DefaultManager\.WaitSetups\(ctx\)/);
+  const stop = bridge.split("func stopTunError()")[1].split("//export angelaStopTun")[0];
+  assert.match(stop, /errors\.Join\(providerErr, dnsErr, resourceErr\)/);
 });
 
 test("ordinary setup drain has explicit acquisition and release without joining relays", () => {
@@ -268,7 +279,7 @@ test("UDP replies retain the registration context rather than the short-lived di
 
 test("UDP replies recheck cancellation after reads and mapping with buffer returns", () => {
   const patch = read("native/android/mihomo-bridge/late-connections.patch");
-  const reply = patch.slice(patch.indexOf("func handleUDPToLocal(ctx"));
+  const reply = patch.slice(patch.indexOf("func handleUDPToLocal(ctx")).split("\n--- ")[0];
   assert.match(reply, /if err != nil \|\| ctx\.Err\(\) != nil/);
   assert.match(reply, /if put != nil \{\n\+\s+put\(\)/);
   assert.ok(reply.indexOf("ctx.Err()") < reply.indexOf("pc.SetReadDeadline"));

@@ -19,6 +19,7 @@ COMMIT = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36"
 SING_TUN_VERSION = "v0.4.27"
 # Hashes are of the pristine pinned checkout/module files, before this adapter.
 EXPECTED = {
+    "dns/server.go": "a825b81da408052892bbc5333525e39a79eff5113895ae63cc0bcc60442d763b",
     "log/log.go": "5ed821bf17536b7a012506baa1fe00550451c81b7f36e291799234ccdd7940df",
     "component/resource/fetcher.go": "647fdd5906c41202974577ff96a00ebc6bda441ae3e9d7717037cedff4eee903",
     "dns/resolver.go": "400765c7dde15950c324ab8fce1a7dc1d7730b3c7f3bff6a85fd64e4238e2b48",
@@ -42,7 +43,7 @@ SING_TUN_TUN_LINUX_SHA256 = "34d3c504a859006bf2981709d86e104c9a2b7c9542ef5895201
 PATCHED_SERVER_SHA256 = "1a77f3a7416b8074bc5e91c4944079c059fe766991bccfaa921780ad0068b8e1"
 PATCHED_STATISTICS_SHA256 = "316e372b7de3735a9a44c8f2357092ee1023fb21c6bbb899ea6a5228cc1dbb09"
 STATISTICS_PATCH_SHA256 = "293330f8b4ba6ed0fb318ea43f5bb759b0946fa98f44c563131135441d4c124b"
-LATE_CONNECTIONS_PATCH_SHA256 = "2bb5e2fca3e8412461e5adb37ee415139df23c7d36d7b316980c5097a22a86be"
+LATE_CONNECTIONS_PATCH_SHA256 = "b2aabd7c6c55e793e74d621a3bf7663eb34264cea84fd467aedc6e596b4dab40"
 PATCHED_LATE_MANAGER_SHA256 = "3b72343588f7d84cd6665798dc454fee02af2caaf9afe27177c337f9b6dc02ca"
 PATCHED_TPROXY_PACKET_SHA256 = "f417e4776d8dcdeb97b194fff2de83b76f3cf8e181ae01ee3fc15218fb376c5f"
 PATCHED_NAT_TABLE_SHA256 = "a024e1281fea19bdfcf67d4b8b72f9924d87bcd45a0d603a4e7555e05dd447d4"
@@ -60,6 +61,8 @@ PATCHED_PROVIDER_FETCHER_SHA256 = "9712e8b28c32345bd186696e2cd6b6048a91a3f7904eb
 # Exact reviewed outputs for the joinable provider health-check adapter.
 PATCHED_PROVIDER_HEALTHCHECK_SHA256 = "ec8bbc125c942b0aab0e2953e9eef070f5d2a9f3c54092388f3c80efe9ce6e1a"
 PATCHED_PROXY_PROVIDER_SHA256 = "3bb335935a0599ef6c4f05d72e52a13ee7fa35f9dee79f093a7e340685800a06"
+
+PATCHED_DNS_SERVER_SHA256 = "fdf923b1091f6440a843443609a61f2da6adb5ebd02e114c3731a3b0134b9a46"
 
 def sha256(path: Path) -> str:
     h = hashlib.sha256()
@@ -103,6 +106,8 @@ def verify_source(root: Path) -> None:
     tunnel_hash = sha256(tunnel) if tunnel.is_file() else None
     tproxy_packet = root / "listener/tproxy/packet.go"
     tproxy_packet_hash = sha256(tproxy_packet) if tproxy_packet.is_file() else None
+    dns_server = root / "dns/server.go"
+    dns_server_hash = sha256(dns_server) if dns_server.is_file() else None
     dns_resolver = root / "dns/resolver.go"
     dns_resolver_hash = sha256(dns_resolver) if dns_resolver.is_file() else None
     provider_fetcher = root / "component/resource/fetcher.go"
@@ -119,6 +124,8 @@ def verify_source(root: Path) -> None:
         "component/resource/angelanexus_provider_lifecycle_integration_test.go",
         "adapter/provider/angelanexus_healthcheck_lifecycle_integration_test.go",
         "dns/angelanexus_dns_reset_integration_test.go",
+        "dns/angelanexus_dns_server_lifecycle_integration_test.go",
+        "angelanexus_android/bridge_dns_integration_test.go",
         "angelanexus_android/bridge.go",
         "angelanexus_android/lifecycle.go",
         "angelanexus_android/library.go",
@@ -155,6 +162,8 @@ def verify_source(root: Path) -> None:
             continue
         if path == "adapter/provider/provider.go" and proxy_provider_hash == PATCHED_PROXY_PROVIDER_SHA256:
             continue
+        if path == "dns/server.go" and dns_server_hash == PATCHED_DNS_SERVER_SHA256:
+            continue
         if path == "dns/resolver.go" and dns_resolver_hash == PATCHED_DNS_RESOLVER_SHA256:
             continue
         if path == "listener/tproxy/packet.go" and tproxy_packet_hash == PATCHED_TPROXY_PACKET_SHA256:
@@ -190,6 +199,8 @@ def verify_source(root: Path) -> None:
             if rel == "adapter/provider/healthcheck.go" and provider_healthcheck_hash == PATCHED_PROVIDER_HEALTHCHECK_SHA256:
                 continue
             if rel == "adapter/provider/provider.go" and proxy_provider_hash == PATCHED_PROXY_PROVIDER_SHA256:
+                continue
+            if rel == "dns/server.go" and dns_server_hash == PATCHED_DNS_SERVER_SHA256:
                 continue
             if rel == "dns/resolver.go" and dns_resolver_hash == PATCHED_DNS_RESOLVER_SHA256:
                 continue
@@ -315,6 +326,7 @@ def apply_late(root: Path) -> None:
              "component/sniffer/quic_sniffer.go": PATCHED_QUIC_SNIFFER_SHA256,
              "listener/tproxy/packet.go": PATCHED_TPROXY_PACKET_SHA256,
              "dns/resolver.go": PATCHED_DNS_RESOLVER_SHA256,
+             "dns/server.go": PATCHED_DNS_SERVER_SHA256,
              "component/resource/fetcher.go": PATCHED_PROVIDER_FETCHER_SHA256,
              "log/log.go": PATCHED_LOG_SHA256,
              "adapter/provider/healthcheck.go": PATCHED_PROVIDER_HEALTHCHECK_SHA256,
@@ -329,6 +341,7 @@ def apply_late(root: Path) -> None:
               "component/sniffer/quic_sniffer.go": EXPECTED["component/sniffer/quic_sniffer.go"],
               "listener/tproxy/packet.go": EXPECTED["listener/tproxy/packet.go"],
               "dns/resolver.go": EXPECTED["dns/resolver.go"],
+              "dns/server.go": EXPECTED["dns/server.go"],
               "component/resource/fetcher.go": EXPECTED["component/resource/fetcher.go"],
               "log/log.go": EXPECTED["log/log.go"],
              "adapter/provider/healthcheck.go": EXPECTED["adapter/provider/healthcheck.go"],
@@ -336,13 +349,13 @@ def apply_late(root: Path) -> None:
     for rel, digest in inputs.items():
         if sha256(root / rel) != digest:
             fail(f"late patch input {rel} does not match reviewed source")
-    # Parse only the exact ten reviewed sections and patch into temporary
+    # Parse only the exact reviewed sections and patch into temporary
     # outputs. Never let patch mutate the checkout before every digest matches.
     import re
     sections = re.split(r"(?m)(?=^--- )", patch.read_text())
     sections = [section for section in sections if section]
     if len(sections) != len(paths):
-        fail("late patch must contain exactly the reviewed ten source sections")
+        fail("late patch must contain exactly the reviewed source sections")
     outputs = {}
     with tempfile.TemporaryDirectory(prefix="angelanexus-late-") as tmp:
         for index, (rel, digest) in enumerate(paths.items()):
