@@ -110,6 +110,9 @@ jobs:
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/dhcp_discovery_lifecycle_integration_test.go" ./component/dhcp/angelanexus_dhcp_discovery_lifecycle_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/ntp_lifecycle_integration_test.go" ./ntp/ntp/angelanexus_ntp_lifecycle_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge_ntp_integration_test.go" ./angelanexus_android/bridge_ntp_integration_test.go
+          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge_mixed_integration_test.go" ./angelanexus_android/bridge_mixed_integration_test.go
+          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/mixed_lifecycle_integration_test.go" ./listener/mixed/angelanexus_mixed_lifecycle_integration_test.go
+          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/mixed_recreate_integration_test.go" ./listener/angelanexus_mixed_recreate_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/provider_lifecycle_integration_test.go" ./component/resource/angelanexus_provider_lifecycle_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/healthcheck_lifecycle_integration_test.go" ./adapter/provider/angelanexus_healthcheck_lifecycle_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/log_level_integration_test.go" ./log/angelanexus_log_level_integration_test.go
@@ -150,6 +153,13 @@ jobs:
           go test -list '^TestAngelaNexusLateConnections' ./tunnel/statistic | grep '^TestAngelaNexusLateConnections'
           go test -tags=with_gvisor,cmfa -list '^TestAngelaNexusLateTunnel' ./tunnel | grep '^TestAngelaNexusLateTunnel'
           go test -list '^TestAngelaNexusQUICSender' ./component/sniffer | grep '^TestAngelaNexusQUICSender'
+          go test -tags=with_gvisor,cmfa -list '^TestAngelaNexusMixedRecreate' ./listener | grep '^TestAngelaNexusMixedRecreate'
+          go test -race -tags=with_gvisor,cmfa -run '^TestAngelaNexusMixedRecreate' -count=20 -timeout=120s ./listener
+          go test -list '^TestAngelaNexusMixed' ./listener/mixed | grep '^TestAngelaNexusMixed'
+          go test -race -run '^TestAngelaNexusMixed' -count=20 -timeout=120s ./listener/mixed
+          go test -tags=with_gvisor,cmfa -list '^TestAndroidBridgeMixed' ./angelanexus_android | grep '^TestAndroidBridgeMixed'
+          go test -race -tags=with_gvisor,cmfa -run '^TestAndroidBridgeMixed' -count=20 -timeout=120s ./angelanexus_android
+          python3 "$GITHUB_WORKSPACE/native/android/mihomo-bridge/test-mixed-stop.py" "$PWD" --logs "$RUNNER_TEMP/mixed-stop-negative"
           # Test the entire dedicated package that the NDK build consumes.
           go test -race -tags=with_gvisor,cmfa -run '^TestAndroidBridge' -count=1 -timeout=90s -v ./angelanexus_android
           go test -tags=with_gvisor,cmfa -list '^TestAndroidBridgeResourceStopDebt' ./angelanexus_android | grep '^TestAndroidBridgeResourceStopDebt'
@@ -215,6 +225,10 @@ jobs:
           LIFECYCLE_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/lifecycle.go" | awk '{print $1}')"
           LIBRARY_ENTRY_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/library.go" | awk '{print $1}')"
           ADAPTER_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/prepare-upstream.py" | awk '{print $1}')"
+          MIXED_LIFECYCLE_PATCH_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/mixed-lifecycle.patch" | awk '{print $1}')"
+          PATCHED_MIXED_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/listener/mixed/mixed.go" | awk '{print $1}')"
+          PATCHED_MIXED_REGISTRY_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/listener/mixed/lifecycle.go" | awk '{print $1}')"
+          PATCHED_LISTENER_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/listener/listener.go" | awk '{print $1}')"
           PATCHED_SERVER_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/listener/sing_tun/server.go" | awk '{print $1}')"
           STATISTICS_PATCH_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/statistics.patch" | awk '{print $1}')"
           PATCHED_LATE_MANAGER_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/tunnel/statistic/manager.go" | awk '{print $1}')"
@@ -283,6 +297,10 @@ jobs:
               "lateConnectionsPatch": {"path": "native/android/mihomo-bridge/late-connections.patch", "sha256": "$LATE_CONNECTIONS_PATCH_SHA256", "patchedSources": {"manager": {"path": "tunnel/statistic/manager.go", "sha256": "$PATCHED_LATE_MANAGER_SHA256"}, "tracker": {"path": "tunnel/statistic/tracker.go", "sha256": "$PATCHED_TRACKER_SHA256"}, "tunnel": {"path": "tunnel/tunnel.go", "sha256": "$PATCHED_TUNNEL_SHA256"}, "natTable": {"path": "component/nat/table.go", "sha256": "$PATCHED_NAT_TABLE_SHA256"}, "connection": {"path": "tunnel/connection.go", "sha256": "$PATCHED_CONNECTION_SHA256"}, "quicSniffer": {"path": "component/sniffer/quic_sniffer.go", "sha256": "$PATCHED_QUIC_SNIFFER_SHA256"}, "tproxyPacket": {"path": "listener/tproxy/packet.go", "sha256": "$PATCHED_TPROXY_PACKET_SHA256"}, "dnsDoH": {"path": "dns/doh.go", "sha256": "$PATCHED_DNS_DOH_SHA256"}, "dnsClient": {"path": "dns/client.go", "sha256": "$PATCHED_DNS_CLIENT_SHA256"}, "dnsTLS": {"path": "dns/dot.go", "sha256": "$PATCHED_DNS_TLS_SHA256"}, "dnsDHCP": {"path": "dns/dhcp.go", "sha256": "$PATCHED_DNS_DHCP_SHA256"}, "dnsUtil": {"path": "dns/util.go", "sha256": "$PATCHED_DNS_UTIL_SHA256"}, "dhcpDiscovery": {"path": "component/dhcp/dhcp.go", "sha256": "$PATCHED_DHCP_DISCOVERY_SHA256"}, "ntpService": {"path": "ntp/ntp/service.go", "sha256": "$PATCHED_NTP_SERVICE_SHA256"},
               "dnsOutbound": {"path": "adapter/outbound/dns.go", "sha256": "$PATCHED_DNS_OUTBOUND_SHA256"},
               "socks5Association": {"path": "adapter/outbound/socks5.go", "sha256": "$PATCHED_SOCKS5_SHA256"}}},
+              "mixedListenerAdapter": {"path": "native/android/mihomo-bridge/mixed-lifecycle.patch", "sha256": "$MIXED_LIFECYCLE_PATCH_SHA256"},
+              "mixedListener": {"path": "listener/mixed/mixed.go", "sha256": "$PATCHED_MIXED_SHA256"},
+              "mixedListenerRegistry": {"path": "listener/mixed/lifecycle.go", "sha256": "$PATCHED_MIXED_REGISTRY_SHA256"},
+              "inboundListener": {"path": "listener/listener.go", "sha256": "$PATCHED_LISTENER_SHA256"},
               "artifact": {"name": "libclash-${{ matrix.abi }}.so", "sha256": "$ARTIFACT_SHA256"},
           }
           out.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")

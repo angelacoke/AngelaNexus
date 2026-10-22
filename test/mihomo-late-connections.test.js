@@ -146,6 +146,9 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
         ntpService: "ntp/ntp/service.go",
         socks5Association: "adapter/outbound/socks5.go",
         dnsOutbound: "adapter/outbound/dns.go",
+        mixedListener: "listener/mixed/mixed.go",
+        mixedListenerRegistry: "listener/mixed/lifecycle.go",
+        inboundListener: "listener/listener.go",
       };
       for (const [name, path] of Object.entries(sources)) put(join(root, "mihomo", path), `reviewed final ${name} output\n`);
       const run = step.run.replace(/\$\{\{ matrix\.(\w+) \}\}/g, (_, key) => matrix[key]);
@@ -156,6 +159,10 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
       });
       assert.equal(result.status, 0, result.stderr || result.error?.message);
       const evidence = JSON.parse(readFileSync(join(root, `mihomo-provenance-${matrix.abi}.json`), "utf8"));
+      for (const name of ["mixedListener", "mixedListenerRegistry", "inboundListener"]) {
+        assert.deepEqual(evidence[name], { path: sources[name], sha256: hash(join(root, "mihomo", sources[name])) });
+      }
+      assert.deepEqual(evidence.mixedListenerAdapter, { path: "native/android/mihomo-bridge/mixed-lifecycle.patch", sha256: hash("native/android/mihomo-bridge/mixed-lifecycle.patch") });
       assert.equal(evidence.dnsResolver.path, "dns/resolver.go");
       assert.equal(evidence.dnsResolver.sha256, hash(join(root, "mihomo/dns/resolver.go")));
       assert.deepEqual(evidence.dnsServer, { path: sources.dnsServer, sha256: hash(join(root, "mihomo", sources.dnsServer)) });
@@ -244,7 +251,7 @@ test("bridge closes tracked handshakes before bounded setup drain and preserves 
   assert.match(cleanup, /context\.WithTimeout\(context\.Background\(\), timeout\)/);
   assert.match(cleanup, /DefaultManager\.WaitSetups\(ctx\)/);
   const stop = bridge.split("func stopTunError()")[1].split("//export angelaStopTun")[0];
-  assert.match(stop, /errors\.Join\(providerErr, dnsErr, ntpErr, resourceErr\)/);
+  assert.match(stop, /errors\.Join\(providerErr, dnsErr, ntpErr, mixedErr, resourceErr\)/);
 });
 
 test("ordinary setup drain has explicit acquisition and release without joining relays", () => {

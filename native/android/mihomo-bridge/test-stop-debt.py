@@ -32,7 +32,7 @@ def main():
     gate = "\tif androidRuntime.resourceCleanupPending {\n\t\treturn errAndroidResourceCleanupPending\n\t}\n"
     if original.count(gate) != 2:
         raise SystemExit("configuration gate layout changed; review negative controls")
-    start_gate = " || androidRuntime.resourceCleanupPending {"
+    start_gate = " || androidRuntime.resourceCleanupPending || androidRuntime.mixedCleanupPending {"
     if original.count(start_gate) != 1:
         raise SystemExit("attachment gate layout changed; review negative controls")
     split = original.split(gate)
@@ -43,7 +43,7 @@ def main():
         ("dns", split[0] + gate + split[1] + split[2],
          "^TestAndroidBridgeResourceStopDebtRejectsFreshConfiguration$/^listener$",
          "fresh DNS update bypassed failed explicit-stop resource cleanup"),
-        ("attachment", original.replace(start_gate, " {"),
+        ("attachment", original.replace(start_gate, " || androidRuntime.mixedCleanupPending {"),
          "^TestAndroidBridgeResourceStopDebtBlocksAttachmentBeforeCleanup$",
          "attachment bypassed explicit stop retry and performed cleanup/construction"),
     ]

@@ -18,7 +18,7 @@ test("Mihomo explicit stop owns every provider generation and drains without can
   const stop = bridge.split("func stopTunError()")[1].split("//export angelaStopTun")[0];
   assert.match(stop, /context\.WithTimeout\(context\.Background\(\), androidProviderDrainTimeout\)/);
   assert.ok(stop.indexOf("androidRuntime.closeProviders(ctx)") < stop.indexOf("resourceErr := closeAndroidResources()"));
-  assert.match(stop, /return errors\.Join\(providerErr, dnsErr, ntpErr, resourceErr\)/);
+  assert.match(stop, /return errors\.Join\(providerErr, dnsErr, ntpErr, mixedErr, resourceErr\)/);
   const cleanup = bridge.split("func closeAndroidResources()")[1].split("func stopTunError")[0];
   assert.doesNotMatch(cleanup, /closeProviders/);
   const start = bridge.split("func startAndroidTUNWithConstructor(")[1].split("func closeAndroidResources()")[0];

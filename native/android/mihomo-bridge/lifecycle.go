@@ -48,6 +48,8 @@ type androidTunLifecycle struct {
 	dnsCleanupPending bool
 	// An explicit NTP stop timeout blocks replacement until a successful stop retry.
 	ntpCleanupPending bool
+	// Default mixed TCP accept/handshake workers retain their own stop retry debt.
+	mixedCleanupPending bool
 	// Explicit stop must acknowledge TUN/connection/setup cleanup before a new
 	// config or attachment can proceed. DNS/NTP success must not clear this debt.
 	resourceCleanupPending bool

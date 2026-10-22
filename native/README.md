@@ -71,3 +71,36 @@ three entry gates at a time and must fail at its specific assertion. They do not
 prove bounded Close calls, complete kernel shutdown, overall recovery, or Android
 TUN/JNI device acceptance. Upstream/dependency pins and source/hash/provenance
 gates are unchanged.
+
+## Android default mixed TCP stop boundary
+
+The default `mixed-port` TCP listener is created by `ApplyConfig`, separately
+from the Android TUN. Its accept loop and connections waiting for a first byte
+or an incomplete HTTP/SOCKS handshake do not enter the tunnel tracker snapshot.
+Explicit Android stop now closes every retained default mixed TCP generation,
+then joins its accept/handler exits under one shared two-second deadline. A
+handler may still be inside a synchronous tunnel call; its generation remains
+owned if that call has not returned. Connection-close failures, including a late
+Accept result, and missing listener-close acknowledgements remain concrete retry
+responsibilities even when the handler itself has exited. Only a pure wrapped
+or joined `net.ErrClosed` counts as an already-released socket.
+
+A separate mixed-cleanup debt blocks apply, DNS update and TUN attachment until
+an explicit stop retry succeeds. A successful TUN/DNS/NTP/provider cleanup does
+not erase it. Attachment replacement does not cancel newly applied mixed ingress.
+After successful stop, reapplying the same TCP port creates a fresh listener
+without replacing or losing ownership of an existing mixed UDP listener.
+
+The host tests use the actual bridge, real TCP peers, controlled late Accept and
+Close failures, and race detection. Five actual-bridge negative mutations run
+three times each and must fail at their designated ownership/gate assertions,
+not at a build error, race report or unrelated timeout. The reviewed three-file
+`mixed-lifecycle.patch`, its exact pristine/output hashes, and all three new
+source records are mandatory ABI provenance evidence. Existing pins and gates
+remain enforced.
+
+This is deliberately limited to **default mixed-port TCP accept/handler work**.
+Named mixed inbounds, mixed UDP, other inbound protocols, asynchronously dispatched
+tunnel work, complete kernel shutdown, overall recovery and Android/JNI real-device
+acceptance are not established by this repair. The deadline bounds joining these
+workers, not arbitrary implementation-defined `Close` calls or total stop time.
