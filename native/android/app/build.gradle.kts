@@ -79,6 +79,13 @@ android {
 
     sourceSets["main"].java.srcDirs("../src/main/kotlin")
 
+    // Only verified debug evidence may consume these generated core libraries.
+    // Never substitute the separately CMake-built libmihomo-jni.so shim, and
+    // never feed this test directory into main/release distribution.
+    if (debugNativePackagingEvidence) {
+        sourceSets["debug"].jniLibs.srcDir(layout.buildDirectory.dir("generated/mihomoDebugEvidence/jniLibs"))
+    }
+
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")

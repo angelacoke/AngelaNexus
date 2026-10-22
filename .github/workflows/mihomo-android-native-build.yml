@@ -333,6 +333,7 @@ jobs:
           data = {
               "version": 1,
               "kernel": "mihomo",
+              "projectCommit": "$GITHUB_SHA",
               "kernelVersion": "$MIHOMO_VERSION",
               "source": {"repository": "https://github.com/MetaCubeX/mihomo", "commit": "$SOURCE_HEAD"},
               "platform": "android",

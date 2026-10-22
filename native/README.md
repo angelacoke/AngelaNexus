@@ -206,8 +206,10 @@ source rebuild or a reproducible-build proof.
 
 For a debug-only replay, dispatch `xray-android-native-build` with
 `evidence_android_run` set to a successful `android-build` push run ID and
-`evidence_source_commit` set to that run's full immutable source SHA. This mode
-skips native rebuilding, checks run metadata and actual AAR checkout provenance,
+`evidence_source_commit` set to that run's full immutable source SHA. Also set
+`evidence_mihomo_run` to a successful `mihomo-android-native-build` run at the
+**exact HEAD being dispatched**. Missing or mismatched Mihomo inputs fail closed.
+This mode skips native rebuilding, checks run metadata and actual AAR checkout provenance,
 downloads only that run's prepared AARs, assembles **debug only**, and retains
 an inspectable APK with its original AARs, provenance and packaging report.
 The verifier still uses this checkout's reviewed source lock. A source-lock
@@ -220,3 +222,42 @@ presence. Shim presence is not proof that the Mihomo core is installed, and
 neither native-file hashing nor the existing UI emulator smoke proves kernel
 JNI invocation, VPN traffic or real-device acceptance. Those remain separate
 acceptance requirements.
+
+### Mihomo core bytes in the controlled debug replay
+
+`MihomoNativeLibrarySpec` expects `libclash.so`; `MihomoNativeLibraryLoader`
+finds it under the app's native library directory and checks the committed
+`MihomoNativeArtifactManifest` SHA-256 before loading it. The separate CMake
+`libmihomo-jni.so` exposes Kotlin JNI methods and resolves the core's C exports;
+neither file may stand in for the other.
+
+`scripts/mihomo-debug-evidence.py prepare` binds the immutable successful run
+ID to this project's repository, direct-checkout event, workflow path and exact
+HEAD. It invokes the existing full Mihomo artifact verifier unchanged: upstream
+commit, bridge and patched-source provenance, build settings, committed runtime
+manifest hashes and compliance-document hashes must all match. It additionally
+checks each ABI's shared-object ELF identity and required C exports, including
+`updateDns`. No downloaded hash is promoted automatically to a trusted pin.
+Each newly built ABI's provenance records the producer's actual `GITHUB_SHA`
+as `projectCommit`; it must match the verified GitHub run metadata and the
+exact debug workflow HEAD. Both the run metadata and per-ABI provenance are
+retained and hashed. Older evidence without that project binding is rejected;
+the downloader never backfills or rewrites producer provenance.
+
+Only evidence-mode `assembleDebug` adds
+`app/build/generated/mihomoDebugEvidence/jniLibs` to its debug source set. The
+verified cores are copied there as `<ABI>/libclash.so` without stripping; the
+shim remains independently built by CMake. Main/release source sets, release
+credentials and the blocked distribution review are unchanged. This is a
+controlled debug packaging path, not approval or installation of Mihomo into
+ordinary release builds.
+
+After assembly, the `verify` subcommand rechecks source/run provenance, the
+original artifacts and installed files, then requires exactly the three core
+ABIs in the actual APK, with identical SHA-256s at every stage. Each ABI must
+also include a distinct correctly targeted JNI shim. Duplicate ZIP entries,
+missing cores or shims, extra ABIs, altered bytes and stale successful reports
+fail closed. Both the Xray AAR report and Mihomo report must pass before upload.
+This proves packaging of the selected build's bytes, not an independent
+reproducible build, AAB acceptance, Android symbol resolution, JNI execution,
+VPN traffic, real-device behavior, signing or permission to distribute.

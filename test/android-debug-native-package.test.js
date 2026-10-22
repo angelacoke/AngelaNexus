@@ -196,3 +196,20 @@ test("debug evidence mode preserves original JNI bytes and refuses non-debug Gra
   assert.match(debug, /-Pangelanexus\.debugNativePackagingEvidence=true assembleDebug/);
   assert.ok(debug.indexOf("verify-android-debug-native-package.py") > debug.indexOf("assembleDebug"));
 });
+
+test("Mihomo core preparation and APK verification are mandatory in controlled debug replay", () => {
+  const workflow = readFileSync(join(root, ".github/workflows/xray-android-native-build.yml"), "utf8");
+  const replay = workflow.slice(workflow.indexOf("  debug-packaging-evidence:"));
+  assert.match(replay, /MIHOMO_RUN: \$\{\{ inputs\.evidence_mihomo_run \}\}/);
+  assert.match(replay, /test -n "\$MIHOMO_RUN"/);
+  assert.match(replay, /mihomo-debug-evidence\.py prepare --run-id "\$MIHOMO_RUN"/);
+  assert.match(replay, /--source-commit "\$GITHUB_SHA"/);
+  assert.match(replay, /mihomo-debug-evidence\.py verify/);
+  assert.match(replay, /--expected-commit "\$GITHUB_SHA"/);
+  assert.ok(replay.indexOf("mihomo-debug-evidence.py prepare") < replay.indexOf("assembleDebug"));
+  assert.ok(replay.indexOf("mihomo-debug-evidence.py verify") > replay.indexOf("assembleDebug"));
+  assert.doesNotMatch(replay, /assembleRelease|bundleRelease|ANGELANEXUS_RELEASE_|secrets\./);
+  const gradle = readFileSync(join(root, "native/android/app/build.gradle.kts"), "utf8");
+  assert.match(gradle, /if \(debugNativePackagingEvidence\) \{\s+sourceSets\["debug"\]\.jniLibs\.srcDir\(layout\.buildDirectory\.dir\("generated\/mihomoDebugEvidence\/jniLibs"\)\)/);
+  assert.doesNotMatch(gradle, /sourceSets\["(?:main|release)"\]\.jniLibs\.srcDir/);
+});
