@@ -69,7 +69,7 @@ func TestAndroidBridgeMixedStopReleasesListenerAndRestartsSamePort(t *testing.T)
 		if err := stopTunError(); err != nil {
 			t.Error(err)
 		}
-		// This bounded repair does not claim ownership of mixed UDP.
+		// Ordinary reload also repairs deliberately missing-stop mutants.
 		if err := applyAndroidConfigJSON(bridgeMixedConfig(t, 0)); err != nil {
 			t.Error(err)
 		}

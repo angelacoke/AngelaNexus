@@ -42,6 +42,7 @@ import (
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/listener/mixed"
 	"github.com/metacubex/mihomo/listener/sing_tun"
+	"github.com/metacubex/mihomo/listener/socks"
 	"github.com/metacubex/mihomo/ntp/ntp"
 	"github.com/metacubex/mihomo/tunnel"
 	"github.com/metacubex/mihomo/tunnel/statistic"
@@ -471,7 +472,7 @@ const androidProviderDrainTimeout = 2 * time.Second
 const androidDNSDrainTimeout = 2 * time.Second
 const androidMixedDrainTimeout = 2 * time.Second
 
-var errAndroidMixedCleanupPending = errors.New("mixed TCP listener/handshake cleanup pending; retry stop before applying configuration")
+var errAndroidMixedCleanupPending = errors.New("mixed TCP/UDP listener/packet cleanup pending; retry stop before applying configuration")
 
 // Caller holds androidTunMu. Cancel every owned resolver generation before
 // joining listeners and resolver workers under one deadline. This does not close
@@ -501,14 +502,15 @@ func waitAndroidSetups(timeout time.Duration) error {
 	return statistic.DefaultManager.WaitSetups(ctx)
 }
 
-// Only default mixed-port TCP accept/handler workers are owned here, including
-// a handler inside a synchronous tunnel call. Not other tunnel work, named
-// inbounds, mixed UDP, other protocols, or complete kernel shutdown.
+// Only default mixed-port TCP/UDP generations are owned here, including
+// synchronous ingress handlers and admitted UDP packets until actual Drop.
+// Not other tunnel work, named inbounds, other protocols, or complete shutdown.
 // Attachment cleanup follows apply and must not stop its fresh listener.
 func stopAndroidMixed(timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	err := mixed.StopListeners(ctx)
+	err = errors.Join(err, socks.StopMixedUDP(ctx))
 	androidRuntime.mixedCleanupPending = err != nil
 	return err
 }

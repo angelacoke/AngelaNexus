@@ -19,6 +19,7 @@ COMMIT = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36"
 SING_TUN_VERSION = "v0.4.27"
 # Hashes are of the pristine pinned checkout/module files, before this adapter.
 EXPECTED = {
+    "listener/socks/udp.go": "2c629a54fdc4b11e8549b75ae7b0efae1370b0d12ec3b56317c11207a816cf3c",
     "listener/mixed/mixed.go": "dcc7a92d339611f5c173f1c533db4e21c496ef8effc15374f7889dbec388eb18",
     "listener/listener.go": "1a11cda3fb4a87875d817fe29f1e79973cb8cb6eeccc0ae5e22db15df1277758",
     "adapter/outbound/dns.go": "2b2956d533f11e2cd139c060d4b5e95f7a7f2cf9f52c03ee63cd9f1bdd507887",
@@ -92,8 +93,10 @@ PATCHED_SOCKS5_SHA256 = "71d197060a3a66dab3c9c89ddb2a0be206f858c3f7e5cd5e6a51a60
 
 PATCHED_MIXED_SHA256 = "5547c95db4f622abf6e182e54ba3bea9bd7feaedd9947b96d7a63e60d7167c3d"
 PATCHED_MIXED_REGISTRY_SHA256 = "060fa4dadfa0f0bce77b5c21155e757b96e88e15871d6491130d57c217d3edcb"
-PATCHED_LISTENER_SHA256 = "687b7f599cfa2d7f8f7a59ea9cba1305adbecd686f1365c02baf8c6239848a9b"
-MIXED_LIFECYCLE_PATCH_SHA256 = "e02eec2a86faa103e094e4050b3272c5d9378a2d22f6d6eb9deeb3f6a9504b3d"
+PATCHED_MIXED_UDP_SHA256 = "3e3bbe51844fbb9981bf43147091a7f34784122a9c184e837296610e4d4f48fa"
+PATCHED_MIXED_UDP_REGISTRY_SHA256 = "d26efed8b2b25790b4a9363e30e12006e923220dc12a6dfd5fe3c9ec750b9096"
+PATCHED_LISTENER_SHA256 = "851dc42e8f18e16e2f6712725eca775ca5cac276c9dafd42ae82c7c075aa5895"
+MIXED_LIFECYCLE_PATCH_SHA256 = "56e77bc3b89fac2868f6f6e18b49ed6cae317916dbb08c21b478ae4529206f92"
 
 def sha256(path: Path) -> str:
     h = hashlib.sha256()
@@ -141,6 +144,8 @@ def verify_source(root: Path) -> None:
     extra_source_hashes = {
         "listener/mixed/mixed.go": PATCHED_MIXED_SHA256,
         "listener/mixed/lifecycle.go": PATCHED_MIXED_REGISTRY_SHA256,
+        "listener/socks/udp.go": PATCHED_MIXED_UDP_SHA256,
+        "listener/socks/udp_lifecycle.go": PATCHED_MIXED_UDP_REGISTRY_SHA256,
         "listener/listener.go": PATCHED_LISTENER_SHA256,
         "adapter/outbound/dns.go": PATCHED_DNS_OUTBOUND_SHA256,
         "adapter/outbound/socks5.go": PATCHED_SOCKS5_SHA256,
@@ -165,6 +170,8 @@ def verify_source(root: Path) -> None:
     log_hash = sha256(log_source) if log_source.is_file() else None
     # Existing adapter output is allowed only when it is exactly our output.
     allowed = {
+        "listener/socks/angelanexus_udp_lifecycle_integration_test.go",
+        "angelanexus_android/bridge_mixed_udp_integration_test.go",
         "listener/mixed/angelanexus_mixed_lifecycle_integration_test.go",
         "listener/angelanexus_mixed_recreate_integration_test.go",
         "angelanexus_android/bridge_mixed_integration_test.go",
@@ -466,12 +473,14 @@ def apply_mixed(root: Path) -> None:
         fail("mixed-lifecycle.patch does not match the reviewed patch digest")
     paths = {"listener/mixed/mixed.go": PATCHED_MIXED_SHA256,
              "listener/mixed/lifecycle.go": PATCHED_MIXED_REGISTRY_SHA256,
-             "listener/listener.go": PATCHED_LISTENER_SHA256}
+             "listener/listener.go": PATCHED_LISTENER_SHA256,
+             "listener/socks/udp.go": PATCHED_MIXED_UDP_SHA256,
+             "listener/socks/udp_lifecycle.go": PATCHED_MIXED_UDP_REGISTRY_SHA256}
     if all((root / rel).is_file() and sha256(root / rel) == digest for rel, digest in paths.items()):
         return
     for rel in paths:
         path = root / rel
-        if rel == "listener/mixed/lifecycle.go":
+        if rel in ("listener/mixed/lifecycle.go", "listener/socks/udp_lifecycle.go"):
             if path.exists():
                 fail("mixed registry helper must be absent before patch application")
         elif sha256(path) != EXPECTED[rel]:

@@ -280,23 +280,21 @@
 +}
 --- listener/listener.go
 +++ listener/listener.go
-@@ -457,8 +457,10 @@
- 	shouldUDPIgnore := false
- 
- 	if mixedListener != nil {
+@@ -460,2 +460,4 @@
 -		if mixedListener.RawAddress() != addr {
 -			mixedListener.Close()
 +		if mixedListener.IsClosed() || mixedListener.RawAddress() != addr {
 +			if err = mixedListener.Close(); err != nil {
 +				return // Retain owner; retry cleanup before replacement.
 +			}
- 			mixedListener = nil
- 		} else {
- 			shouldTCPIgnore = true
-@@ -481,15 +483,20 @@
- 		return
- 	}
- 
+@@ -468,2 +470,4 @@
+-		if mixedUDPLister.RawAddress() != addr {
+-			mixedUDPLister.Close()
++		if mixedUDPLister.IsClosed() || mixedUDPLister.RawAddress() != addr {
++			if err = mixedUDPLister.Close(); err != nil {
++				return // Keep this concrete generation until Close acknowledges it.
++			}
+@@ -484,9 +488,14 @@
 -	mixedListener, err = mixed.New(addr, tunnel)
 -	if err != nil {
 -		return
@@ -313,13 +311,321 @@
 +		}
 +	}
 +	if !shouldUDPIgnore {
-+		mixedUDPLister, err = socks.NewUDP(addr, tunnel)
++		mixedUDPLister, err = socks.NewMixedUDP(addr, tunnel)
 +		if err != nil {
 +			if !shouldTCPIgnore { // Only cancel TCP created by this attempt.
 +				mixedListener.Close()
 +			}
 +			return
 +		}
- 	}
- 
- 	log.Infoln("Mixed(http+socks) proxy listening at: %s", mixedListener.Address())
+--- listener/socks/udp.go
++++ listener/socks/udp.go
+@@ -5,0 +6 @@
++	"sync"
+@@ -18,0 +20 @@
++	mu         sync.Mutex
+@@ -19,0 +22,7 @@
++	mixed      bool
++	readerDone bool
++	closeAck   bool
++	pending    int
++	writes     int
++	drained    chan struct{}
++	closeMu    sync.Mutex
+@@ -22,4 +31,3 @@
+-// RawAddress implements C.Listener
+-func (l *UDPListener) RawAddress() string {
+-	return l.addr
+-}
++func (l *UDPListener) RawAddress() string { return l.addr }
++func (l *UDPListener) Address() string    { return l.packetConn.LocalAddr().String() }
++func (l *UDPListener) IsClosed() bool     { l.mu.Lock(); defer l.mu.Unlock(); return l.closed }
+@@ -27,6 +34,0 @@
+-// Address implements C.Listener
+-func (l *UDPListener) Address() string {
+-	return l.packetConn.LocalAddr().String()
+-}
+-
+-// Close implements C.Listener
+@@ -33,0 +36,3 @@
++	l.closeMu.Lock()
++	defer l.closeMu.Unlock()
++	l.mu.Lock()
+@@ -35 +40,14 @@
+-	return l.packetConn.Close()
++	already := l.closeAck
++	l.mu.Unlock()
++	if already {
++		return nil
++	}
++	err := l.packetConn.Close()
++	if err == nil || onlyClosedError(err) {
++		l.mu.Lock()
++		l.closeAck = true
++		l.maybeDrained()
++		l.mu.Unlock()
++		return nil
++	}
++	return err
+@@ -40,0 +59,9 @@
++func NewUDPWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunnel, additions ...inbound.Addition) (*UDPListener, error) {
++	return newUDP(config, lc, tunnel, false, additions...)
++}
++func NewMixedUDP(addr string, tunnel C.Tunnel, additions ...inbound.Addition) (*UDPListener, error) {
++	return NewMixedUDPWithConfig(defaultConfig(addr), inbound.NewListenConfig(), tunnel, additions...)
++}
++func NewMixedUDPWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunnel, additions ...inbound.Addition) (*UDPListener, error) {
++	return newUDP(config, lc, tunnel, true, additions...)
++}
+@@ -42 +69 @@
+-func NewUDPWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunnel, additions ...inbound.Addition) (*UDPListener, error) {
++func newUDP(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunnel, mixed bool, additions ...inbound.Addition) (*UDPListener, error) {
+@@ -44,4 +71 @@
+-		additions = []inbound.Addition{
+-			inbound.WithInName("DEFAULT-SOCKS"),
+-			inbound.WithSpecialRules(""),
+-		}
++		additions = []inbound.Addition{inbound.WithInName("DEFAULT-SOCKS"), inbound.WithSpecialRules("")}
+@@ -49 +73 @@
+-	l, err := lc.ListenPacket(context.Background(), "udp", config.Listen)
++	pc, err := lc.ListenPacket(context.Background(), "udp", config.Listen)
+@@ -53,2 +77 @@
+-
+-	if err := sockopt.UDPReuseaddr(l); err != nil {
++	if err := sockopt.UDPReuseaddr(pc); err != nil {
+@@ -56,0 +80,8 @@
++	l := &UDPListener{packetConn: pc, addr: config.Listen, mixed: mixed}
++	if mixed {
++		l.drained = make(chan struct{})
++		registerUDPMixed(l)
++	}
++	go l.readLoop(N.NewEnhancePacketConn(pc), tunnel, additions...)
++	return l, nil
++}
+@@ -58,9 +89,24 @@
+-	sl := &UDPListener{
+-		packetConn: l,
+-		addr:       config.Listen,
+-	}
+-	conn := N.NewEnhancePacketConn(l)
+-	go func() {
+-		for {
+-			data, put, remoteAddr, err := conn.WaitReadFrom()
+-			if err != nil {
++func (l *UDPListener) readLoop(conn N.EnhancePacketConn, tunnel C.Tunnel, additions ...inbound.Addition) {
++	defer func() {
++		if l.mixed {
++			l.mu.Lock()
++			l.readerDone = true
++			l.maybeDrained()
++			l.mu.Unlock()
++		}
++	}()
++	for {
++		data, put, remoteAddr, err := conn.WaitReadFrom()
++		if err != nil {
++			if put != nil {
++				put()
++			}
++			if l.IsClosed() {
++				return
++			}
++			continue
++		}
++		if l.mixed {
++			l.mu.Lock()
++			if l.closed {
++				l.mu.Unlock()
+@@ -70,3 +115,0 @@
+-				if sl.closed {
+-					break
+-				}
+@@ -75 +118,5 @@
+-			handleSocksUDP(l, tunnel, data, put, remoteAddr, additions...)
++			l.pending++
++			l.mu.Unlock()
++			handleMixedSocksUDP(l, tunnel, data, put, remoteAddr, additions...)
++		} else {
++			handleSocksUDP(l.packetConn, tunnel, data, put, remoteAddr, additions...)
+@@ -77,3 +124 @@
+-	}()
+-
+-	return sl, nil
++	}
+@@ -85 +129,0 @@
+-		// Unresolved UDP packet, return buffer to the pool
+@@ -91,6 +135 @@
+-	packet := &packet{
+-		pc:      pc,
+-		rAddr:   addr,
+-		payload: payload,
+-		put:     put,
+-	}
++	packet := &packet{pc: pc, rAddr: addr, payload: payload, put: put}
+--- listener/socks/udp_lifecycle.go
++++ listener/socks/udp_lifecycle.go
+@@ -0,0 +1,164 @@
++package socks
++
++import (
++	"context"
++	"errors"
++	"net"
++	"sync"
++
++	"github.com/metacubex/mihomo/adapter/inbound"
++	C "github.com/metacubex/mihomo/constant"
++	"github.com/metacubex/mihomo/transport/socks5"
++)
++
++var udpRegistry struct {
++	sync.Mutex
++	generations map[*UDPListener]struct{}
++}
++
++func registerUDPMixed(l *UDPListener) {
++	udpRegistry.Lock()
++	if udpRegistry.generations == nil {
++		udpRegistry.generations = make(map[*UDPListener]struct{})
++	}
++	udpRegistry.generations[l] = struct{}{}
++	udpRegistry.Unlock()
++}
++
++func onlyClosedError(err error) bool {
++	if err == net.ErrClosed {
++		return true
++	}
++	if u, ok := err.(interface{ Unwrap() []error }); ok {
++		if len(u.Unwrap()) == 0 {
++			return false
++		}
++		for _, e := range u.Unwrap() {
++			if !onlyClosedError(e) {
++				return false
++			}
++		}
++		return true
++	}
++	if u, ok := err.(interface{ Unwrap() error }); ok {
++		return onlyClosedError(u.Unwrap())
++	}
++	return false
++}
++
++func (l *UDPListener) maybeDrained() {
++	// Drain acknowledges reader/packet exit, not successful Close. The caller
++	// separately retains a failed close acknowledgement for retry.
++	if l.closed && l.readerDone && l.pending == 0 && l.writes == 0 {
++		select {
++		case <-l.drained:
++		default:
++			close(l.drained)
++		}
++	}
++}
++
++func (l *UDPListener) releasePacket() {
++	l.mu.Lock()
++	if l.pending > 0 {
++		l.pending--
++	}
++	l.maybeDrained()
++	l.mu.Unlock()
++}
++
++// StopMixedUDP cancels every snapshot generation before waiting on any of them.
++// A single context deadline is shared; timed-out or close-failed generations
++// remain registered for a later retry. Newly registered generations are not
++// retroactively owned by this snapshot.
++func StopMixedUDP(ctx context.Context) error {
++	udpRegistry.Lock()
++	ls := make([]*UDPListener, 0, len(udpRegistry.generations))
++	for l := range udpRegistry.generations {
++		ls = append(ls, l)
++	}
++	udpRegistry.Unlock()
++	var errs []error
++	failed := make(map[*UDPListener]bool)
++	for _, l := range ls {
++		if err := l.Close(); err != nil {
++			failed[l] = true
++			errs = append(errs, err)
++		}
++	}
++	for _, l := range ls {
++		select {
++		case <-l.drained:
++		case <-ctx.Done():
++			failed[l] = true
++			errs = append(errs, ctx.Err())
++		}
++		if !failed[l] {
++			udpRegistry.Lock()
++			delete(udpRegistry.generations, l)
++			udpRegistry.Unlock()
++		}
++	}
++	return errors.Join(errs...)
++}
++
++type mixedUDPPacket struct {
++	listener *UDPListener
++	pc       net.PacketConn
++	rAddr    net.Addr
++	payload  []byte
++	put      func()
++	once     sync.Once
++	release  func()
++}
++
++func (p *mixedUDPPacket) Data() []byte        { return p.payload }
++func (p *mixedUDPPacket) LocalAddr() net.Addr { return p.rAddr }
++func (p *mixedUDPPacket) InAddr() net.Addr    { return p.pc.LocalAddr() }
++func (p *mixedUDPPacket) WriteBack(b []byte, addr net.Addr) (int, error) {
++	l := p.listener
++	l.mu.Lock()
++	if l.closed {
++		l.mu.Unlock()
++		return 0, net.ErrClosed
++	}
++	// Drop acknowledges payload ownership, not relay write-back ownership.
++	l.writes++
++	l.mu.Unlock()
++	defer func() {
++		l.mu.Lock()
++		l.writes--
++		l.maybeDrained()
++		l.mu.Unlock()
++	}()
++	encoded, err := socks5.EncodeUDPPacket(socks5.ParseAddrToSocksAddr(addr), b)
++	if err != nil {
++		return 0, err
++	}
++	return p.pc.WriteTo(encoded, p.rAddr)
++}
++
++func (p *mixedUDPPacket) Drop() {
++	p.once.Do(func() {
++		p.payload = nil
++		if p.put != nil {
++			p.put()
++		}
++		p.release()
++	})
++}
++
++func handleMixedSocksUDP(l *UDPListener, tunnel C.Tunnel, buf []byte, put func(), addr net.Addr, additions ...inbound.Addition) {
++	target, payload, err := socks5.DecodeUDPPacket(buf)
++	if err != nil {
++		if put != nil {
++			put()
++		}
++		l.releasePacket()
++		return
++	}
++	p := &mixedUDPPacket{listener: l, pc: l.packetConn, rAddr: addr, payload: payload, put: put, release: l.releasePacket}
++	// The packet remains owned by the generation until the tunnel calls Drop;
++	// no forced Drop is attempted when a handler has retained Data().
++	tunnel.HandleUDPPacket(inbound.NewPacket(target, p, C.SOCKS5, additions...))
++}

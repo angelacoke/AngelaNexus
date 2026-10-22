@@ -59,6 +59,8 @@ function verifierFixture() {
   const patchedDnsOutbound = "fixture patched DNS outbound association";
   const patchedMixed = "fixture patched mixed";
   const patchedMixedRegistry = "fixture patched mixed registry";
+  const patchedMixedUDP = "fixture patched mixed UDP";
+  const patchedMixedUDPRegistry = "fixture patched mixed UDP registry";
   const patchedListener = "fixture patched listener";
   const mixedLifecyclePatch = "fixture mixed lifecycle patch\n";
   const patchedSocks5AssociationHash = digest(patchedSocks5Association);
@@ -70,8 +72,11 @@ function verifierFixture() {
   mkdirSync(join(repo, "ntp/ntp"), { recursive: true });
   mkdirSync(join(repo, "adapter/outbound"), { recursive: true });
   mkdirSync(join(repo, "listener/mixed"), { recursive: true });
+  mkdirSync(join(repo, "listener/socks"), { recursive: true });
   writeFileSync(join(repo, "listener/mixed/mixed.go"), patchedMixed);
   writeFileSync(join(repo, "listener/mixed/lifecycle.go"), patchedMixedRegistry);
+  writeFileSync(join(repo, "listener/socks/udp.go"), patchedMixedUDP);
+  writeFileSync(join(repo, "listener/socks/udp_lifecycle.go"), patchedMixedUDPRegistry);
   writeFileSync(join(repo, "listener/listener.go"), patchedListener);
   writeFileSync(join(repo, "dns/resolver.go"), "fixture patched DNS resolver");
   writeFileSync(join(repo, "dns/doh.go"), "fixture patched DoH source");
@@ -94,7 +99,7 @@ function verifierFixture() {
   writeFileSync(join(sourceDir, "statistics.patch"), statisticsPatch);
   writeFileSync(join(sourceDir, "late-connections.patch"), lateConnectionsPatch);
   writeFileSync(join(sourceDir, "mixed-lifecycle.patch"), mixedLifecyclePatch);
-  writeFileSync(join(sourceDir, "prepare-upstream.py"), `PATCHED_SERVER_SHA256 = "${patchedSourceHash}"\nPATCHED_DNS_RESOLVER_SHA256 = "${patchedDnsResolverHash}"\nPATCHED_DNS_SERVER_SHA256 = "${patchedDnsServerHash}"\nPATCHED_DNS_DOH_SHA256 = "${patchedDnsDoHHash}"\nPATCHED_DNS_CLIENT_SHA256 = "${patchedDnsClientHash}"\nPATCHED_DNS_TLS_SHA256 = "${patchedDnsTLSHash}"\nPATCHED_DNS_DHCP_SHA256 = "${patchedDnsDHCPHash}"\nPATCHED_DNS_UTIL_SHA256 = "${patchedDnsUtilHash}"\nPATCHED_DHCP_DISCOVERY_SHA256 = "${patchedDhcpDiscoveryHash}"\nPATCHED_PROVIDER_FETCHER_SHA256 = "${patchedProviderFetcherHash}"\nPATCHED_PROVIDER_HEALTHCHECK_SHA256 = "${patchedProviderHealthcheckHash}"\nPATCHED_PROXY_PROVIDER_SHA256 = "${patchedProxyProviderHash}"\nPATCHED_STATISTICS_SHA256 = "${patchedStatisticsHash}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${patchedStatisticsHash}"\nPATCHED_TRACKER_SHA256 = "${patchedTrackerHash}"\nPATCHED_TUNNEL_SHA256 = "${patchedTunnelHash}"\nPATCHED_NAT_TABLE_SHA256 = "${patchedNatTableHash}"\nPATCHED_CONNECTION_SHA256 = "${patchedConnectionHash}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${patchedQuicSnifferHash}"\nPATCHED_TPROXY_PACKET_SHA256 = "${patchedTproxyPacketHash}"\nPATCHED_LOG_SHA256 = "${patchedLogHash}"\nPATCHED_NTP_SERVICE_SHA256 = "${patchedNtpServiceHash}"\nPATCHED_SOCKS5_SHA256 = "${patchedSocks5AssociationHash}"\nPATCHED_DNS_OUTBOUND_SHA256 = "${patchedDnsOutboundHash}"\nPATCHED_MIXED_SHA256 = "${digest(patchedMixed)}"\nPATCHED_MIXED_REGISTRY_SHA256 = "${digest(patchedMixedRegistry)}"\nPATCHED_LISTENER_SHA256 = "${digest(patchedListener)}"\nMIXED_LIFECYCLE_PATCH_SHA256 = "${digest(mixedLifecyclePatch)}"\n`);
+  writeFileSync(join(sourceDir, "prepare-upstream.py"), `PATCHED_SERVER_SHA256 = "${patchedSourceHash}"\nPATCHED_DNS_RESOLVER_SHA256 = "${patchedDnsResolverHash}"\nPATCHED_DNS_SERVER_SHA256 = "${patchedDnsServerHash}"\nPATCHED_DNS_DOH_SHA256 = "${patchedDnsDoHHash}"\nPATCHED_DNS_CLIENT_SHA256 = "${patchedDnsClientHash}"\nPATCHED_DNS_TLS_SHA256 = "${patchedDnsTLSHash}"\nPATCHED_DNS_DHCP_SHA256 = "${patchedDnsDHCPHash}"\nPATCHED_DNS_UTIL_SHA256 = "${patchedDnsUtilHash}"\nPATCHED_DHCP_DISCOVERY_SHA256 = "${patchedDhcpDiscoveryHash}"\nPATCHED_PROVIDER_FETCHER_SHA256 = "${patchedProviderFetcherHash}"\nPATCHED_PROVIDER_HEALTHCHECK_SHA256 = "${patchedProviderHealthcheckHash}"\nPATCHED_PROXY_PROVIDER_SHA256 = "${patchedProxyProviderHash}"\nPATCHED_STATISTICS_SHA256 = "${patchedStatisticsHash}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${patchedStatisticsHash}"\nPATCHED_TRACKER_SHA256 = "${patchedTrackerHash}"\nPATCHED_TUNNEL_SHA256 = "${patchedTunnelHash}"\nPATCHED_NAT_TABLE_SHA256 = "${patchedNatTableHash}"\nPATCHED_CONNECTION_SHA256 = "${patchedConnectionHash}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${patchedQuicSnifferHash}"\nPATCHED_TPROXY_PACKET_SHA256 = "${patchedTproxyPacketHash}"\nPATCHED_LOG_SHA256 = "${patchedLogHash}"\nPATCHED_NTP_SERVICE_SHA256 = "${patchedNtpServiceHash}"\nPATCHED_SOCKS5_SHA256 = "${patchedSocks5AssociationHash}"\nPATCHED_DNS_OUTBOUND_SHA256 = "${patchedDnsOutboundHash}"\nPATCHED_MIXED_SHA256 = "${digest(patchedMixed)}"\nPATCHED_MIXED_REGISTRY_SHA256 = "${digest(patchedMixedRegistry)}"\nPATCHED_MIXED_UDP_SHA256 = "${digest(patchedMixedUDP)}"\nPATCHED_MIXED_UDP_REGISTRY_SHA256 = "${digest(patchedMixedUDPRegistry)}"\nPATCHED_LISTENER_SHA256 = "${digest(patchedListener)}"\nMIXED_LIFECYCLE_PATCH_SHA256 = "${digest(mixedLifecyclePatch)}"\n`);
   const abis = ["arm64-v8a", "armeabi-v7a", "x86_64"];
   const commit = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36";
   const specs = abis.map(abi => `MihomoNativeLibrarySpec(abi = "${abi}", sha256 = "${"a".repeat(64)}")`).join(",\n");
@@ -131,6 +136,8 @@ function verifierFixture() {
       dnsOutbound: { path: "adapter/outbound/dns.go", sha256: patchedDnsOutboundHash },
       mixedListener: { path: "listener/mixed/mixed.go", sha256: digest(patchedMixed) },
       mixedListenerRegistry: { path: "listener/mixed/lifecycle.go", sha256: digest(patchedMixedRegistry) },
+      mixedUDPListener: { path: "listener/socks/udp.go", sha256: digest(patchedMixedUDP) },
+      mixedUDPRegistry: { path: "listener/socks/udp_lifecycle.go", sha256: digest(patchedMixedUDPRegistry) },
       inboundListener: { path: "listener/listener.go", sha256: digest(patchedListener) },
       ownershipAdapter: { ...evidence("prepare-upstream.py"), patchedSource: { path: "listener/sing_tun/server.go", sha256: patchedSourceHash } },
       statisticsPatch: { ...evidence("statistics.patch"), patchedSource: { path: "tunnel/statistic/manager.go", sha256: patchedStatisticsHash } },

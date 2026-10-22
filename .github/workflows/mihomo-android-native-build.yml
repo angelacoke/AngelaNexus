@@ -111,6 +111,8 @@ jobs:
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/ntp_lifecycle_integration_test.go" ./ntp/ntp/angelanexus_ntp_lifecycle_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge_ntp_integration_test.go" ./angelanexus_android/bridge_ntp_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge_mixed_integration_test.go" ./angelanexus_android/bridge_mixed_integration_test.go
+          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge_mixed_udp_integration_test.go" ./angelanexus_android/bridge_mixed_udp_integration_test.go
+          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/udp_lifecycle_integration_test.go" ./listener/socks/angelanexus_udp_lifecycle_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/mixed_lifecycle_integration_test.go" ./listener/mixed/angelanexus_mixed_lifecycle_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/mixed_recreate_integration_test.go" ./listener/angelanexus_mixed_recreate_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/provider_lifecycle_integration_test.go" ./component/resource/angelanexus_provider_lifecycle_integration_test.go
@@ -157,9 +159,12 @@ jobs:
           go test -race -tags=with_gvisor,cmfa -run '^TestAngelaNexusMixedRecreate' -count=20 -timeout=120s ./listener
           go test -list '^TestAngelaNexusMixed' ./listener/mixed | grep '^TestAngelaNexusMixed'
           go test -race -run '^TestAngelaNexusMixed' -count=20 -timeout=120s ./listener/mixed
+          go test -list '^TestAngelaNexusMixedUDP' ./listener/socks | grep '^TestAngelaNexusMixedUDP'
+          go test -race -run '^TestAngelaNexusMixedUDP' -count=20 -timeout=120s ./listener/socks
           go test -tags=with_gvisor,cmfa -list '^TestAndroidBridgeMixed' ./angelanexus_android | grep '^TestAndroidBridgeMixed'
           go test -race -tags=with_gvisor,cmfa -run '^TestAndroidBridgeMixed' -count=20 -timeout=120s ./angelanexus_android
           python3 "$GITHUB_WORKSPACE/native/android/mihomo-bridge/test-mixed-stop.py" "$PWD" --logs "$RUNNER_TEMP/mixed-stop-negative"
+          python3 "$GITHUB_WORKSPACE/native/android/mihomo-bridge/test-mixed-udp-stop.py" "$PWD" --logs "$RUNNER_TEMP/mixed-udp-stop-negative"
           # Test the entire dedicated package that the NDK build consumes.
           go test -race -tags=with_gvisor,cmfa -run '^TestAndroidBridge' -count=1 -timeout=90s -v ./angelanexus_android
           go test -tags=with_gvisor,cmfa -list '^TestAndroidBridgeResourceStopDebt' ./angelanexus_android | grep '^TestAndroidBridgeResourceStopDebt'
@@ -229,6 +234,8 @@ jobs:
           PATCHED_MIXED_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/listener/mixed/mixed.go" | awk '{print $1}')"
           PATCHED_MIXED_REGISTRY_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/listener/mixed/lifecycle.go" | awk '{print $1}')"
           PATCHED_LISTENER_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/listener/listener.go" | awk '{print $1}')"
+          PATCHED_MIXED_UDP_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/listener/socks/udp.go" | awk '{print $1}')"
+          PATCHED_MIXED_UDP_REGISTRY_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/listener/socks/udp_lifecycle.go" | awk '{print $1}')"
           PATCHED_SERVER_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/listener/sing_tun/server.go" | awk '{print $1}')"
           STATISTICS_PATCH_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/statistics.patch" | awk '{print $1}')"
           PATCHED_LATE_MANAGER_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/tunnel/statistic/manager.go" | awk '{print $1}')"
@@ -300,6 +307,8 @@ jobs:
               "mixedListenerAdapter": {"path": "native/android/mihomo-bridge/mixed-lifecycle.patch", "sha256": "$MIXED_LIFECYCLE_PATCH_SHA256"},
               "mixedListener": {"path": "listener/mixed/mixed.go", "sha256": "$PATCHED_MIXED_SHA256"},
               "mixedListenerRegistry": {"path": "listener/mixed/lifecycle.go", "sha256": "$PATCHED_MIXED_REGISTRY_SHA256"},
+              "mixedUDPListener": {"path": "listener/socks/udp.go", "sha256": "$PATCHED_MIXED_UDP_SHA256"},
+              "mixedUDPRegistry": {"path": "listener/socks/udp_lifecycle.go", "sha256": "$PATCHED_MIXED_UDP_REGISTRY_SHA256"},
               "inboundListener": {"path": "listener/listener.go", "sha256": "$PATCHED_LISTENER_SHA256"},
               "artifact": {"name": "libclash-${{ matrix.abi }}.so", "sha256": "$ARTIFACT_SHA256"},
           }
