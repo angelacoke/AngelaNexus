@@ -6,6 +6,15 @@ plugins {
 
 import java.util.Base64
 
+// Evidence mode must never alter release packaging/signing. AGP's normal strip
+// task changes AAR bytes even when native sources are identical.
+val debugNativePackagingEvidence = providers.gradleProperty("angelanexus.debugNativePackagingEvidence").orNull == "true"
+if (debugNativePackagingEvidence) {
+    check(gradle.startParameter.taskNames.isNotEmpty() && gradle.startParameter.taskNames.all {
+        it.substringAfterLast(":") == "assembleDebug"
+    }) { "Native packaging evidence mode permits assembleDebug only; never release tasks." }
+}
+
 android {
     namespace = "app.angelanexus"
     compileSdk = 35
@@ -80,6 +89,10 @@ android {
     packaging {
         jniLibs {
             keepDebugSymbols.add("**/libclash.so")
+            if (debugNativePackagingEvidence) {
+                keepDebugSymbols.add("**/libgojni.so")
+                keepDebugSymbols.add("**/libbox.so")
+            }
         }
     }
 }

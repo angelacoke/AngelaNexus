@@ -142,7 +142,16 @@ jobs:
         run: gradle --no-daemon --console=plain --stacktrace testDebugUnitTest
       - name: Assemble Android debug APK
         working-directory: native/android
-        run: gradle --no-daemon --console=plain --stacktrace --info assembleDebug
+        run: gradle --no-daemon --console=plain --stacktrace --info -Pangelanexus.debugNativePackagingEvidence=true assembleDebug
+      - name: Verify actual debug APK native bytes against source-locked AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/verify-android-debug-native-package.py \
+            --apk native/android/app/build/outputs/apk/debug/app-debug.apk \
+            --aar native/android/app/libs/libXray.aar \
+            --provenance native/android/app/libs/libxray-provenance.json \
+            --expected-commit "$GITHUB_SHA" --report "$RUNNER_TEMP/android-debug-native-package.json"
       - name: Run Android emulator runtime smoke test
         shell: bash
         env:
@@ -239,6 +248,8 @@ jobs:
             ${{ runner.temp }}/angelanexus-emulator.log
             ${{ runner.temp }}/angelanexus-logcat.txt
             ${{ runner.temp }}/angelanexus-activities.txt
+            ${{ runner.temp }}/android-debug-native-package.json
+            native/android/app/libs/libxray-provenance.json
           if-no-files-found: warn
           retention-days: 14
 

@@ -183,3 +183,40 @@ evidence. The exact patch and every pre-adapter/final source digest are mandator
 three-ABI provenance, alongside all existing pins and source checks. Full kernel
 shutdown, arbitrary asynchronous work, Android/JNI real-device acceptance and
 packaging/release approval remain separate, unfinished boundaries.
+
+## Debug APK native packaging evidence
+
+`android-build` verifies the final debug APK, not just Gradle declarations.
+`scripts/verify-android-debug-native-package.py` checks the full source lock,
+producer checkout SHA, Android toolchain and final deduplicated libXray AAR digest,
+then requires each of `arm64-v8a`, `armeabi-v7a` and `x86_64` to contain exactly
+the AAR's `libgojni.so` bytes, with the correct ELF machine. Duplicate ZIP
+entries, missing/extra Xray ABIs, stale reports and modified native bytes fail
+closed. The report includes the APK, AAR, provenance and per-library SHA-256s.
+Separate native-build AARs are different build instances: matching source does
+not establish matching bytes, and they must not be substituted in this claim.
+
+Normal Android Gradle Plugin stripping changes native-library bytes. Debug CI
+uses `-Pangelanexus.debugNativePackagingEvidence=true` to preserve original
+`libgojni.so` and `libbox.so` bytes. This opt-in mode rejects any requested task
+other than `assembleDebug`; release packaging/signing remains unchanged.
+Provenance validation here checks the producer's recorded claims against the
+reviewed source lock and exact downloaded artifact. It is not an independent
+source rebuild or a reproducible-build proof.
+
+For a debug-only replay, dispatch `xray-android-native-build` with
+`evidence_android_run` set to a successful `android-build` push run ID and
+`evidence_source_commit` set to that run's full immutable source SHA. This mode
+skips native rebuilding, checks run metadata and actual AAR checkout provenance,
+downloads only that run's prepared AARs, assembles **debug only**, and retains
+an inspectable APK with its original AARs, provenance and packaging report.
+The verifier still uses this checkout's reviewed source lock. A source-lock
+change, wrong producer run or unavailable/expired artifact fails rather than
+falling back to a different build. No release tasks, release credentials,
+distribution approvals, fixed Mihomo library hashes or signing gates are changed.
+
+The existing Mihomo JNI shim is reported separately from `libclash.so` core
+presence. Shim presence is not proof that the Mihomo core is installed, and
+neither native-file hashing nor the existing UI emulator smoke proves kernel
+JNI invocation, VPN traffic or real-device acceptance. Those remain separate
+acceptance requirements.
