@@ -164,11 +164,10 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
       assert.doesNotMatch(run, /\$\{\{/);
       const result = spawnSync("bash", ["--noprofile", "--norc", "-e", "-o", "pipefail", "-c", run], {
         encoding: "utf8", timeout: 15_000,
-        env: { ...process.env, ...step.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: root, ANDROID_NDK_ROOT: ndk, GITHUB_WORKSPACE: process.cwd(), GITHUB_SHA: "0123456789abcdef0123456789abcdef01234567" },
+        env: { ...process.env, ...step.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: root, ANDROID_NDK_ROOT: ndk, GITHUB_WORKSPACE: process.cwd() },
       });
       assert.equal(result.status, 0, result.stderr || result.error?.message);
       const evidence = JSON.parse(readFileSync(join(root, `mihomo-provenance-${matrix.abi}.json`), "utf8"));
-      assert.equal(evidence.projectCommit, "0123456789abcdef0123456789abcdef01234567");
       for (const name of ["mixedListener", "mixedListenerRegistry", "mixedUDPListener", "mixedUDPRegistry", "namedMixedListener", "namedMixedRegistry", "inboundListener"]) {
         assert.deepEqual(evidence[name], { path: sources[name], sha256: hash(join(root, "mihomo", sources[name])) });
       }

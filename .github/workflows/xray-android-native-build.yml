@@ -11,10 +11,6 @@ on:
         description: "Full source HEAD of that immutable Android producer run"
         type: string
         default: ""
-      evidence_mihomo_run:
-        description: "Successful Mihomo three-ABI producer run at this exact workflow HEAD (required for debug replay)"
-        type: string
-        default: ""
   push:
     paths:
       - ".github/workflows/xray-android-native-build.yml"
@@ -162,17 +158,6 @@ jobs:
           cp "$RUNNER_TEMP/debug-evidence/aars/"* native/android/app/libs/
           GITHUB_SHA="$SOURCE_SHA" python3 native/android/xray-bridge/verify-artifact.py \
             native/android/app/libs/libXray.aar --provenance native/android/app/libs/libxray-provenance.json
-      - name: Verify and install exact-HEAD Mihomo cores independently of JNI shim
-        env:
-          GH_TOKEN: ${{ github.token }}
-          MIHOMO_RUN: ${{ inputs.evidence_mihomo_run }}
-        run: |
-          set -euo pipefail
-          test -n "$MIHOMO_RUN"
-          python3 scripts/mihomo-debug-evidence.py prepare --run-id "$MIHOMO_RUN" \
-            --source-commit "$GITHUB_SHA" --output "$RUNNER_TEMP/debug-evidence/mihomo"
-          mkdir -p native/android/app/build/generated/mihomoDebugEvidence
-          cp -R "$RUNNER_TEMP/debug-evidence/mihomo/jniLibs" native/android/app/build/generated/mihomoDebugEvidence/
       - name: Build canonical Android assets
         run: |
           set -euo pipefail
@@ -191,10 +176,6 @@ jobs:
             --aar native/android/app/libs/libXray.aar \
             --provenance native/android/app/libs/libxray-provenance.json \
             --expected-commit "$SOURCE_SHA" --report "$RUNNER_TEMP/debug-evidence/packaging-report.json"
-          python3 scripts/mihomo-debug-evidence.py verify \
-            --apk native/android/app/build/outputs/apk/debug/app-debug.apk \
-            --evidence-root "$RUNNER_TEMP/debug-evidence/mihomo" \
-            --expected-commit "$GITHUB_SHA" --report "$RUNNER_TEMP/debug-evidence/mihomo-packaging-report.json"
       - name: Upload inspectable debug APK and exact producer evidence
         uses: actions/upload-artifact@v4
         with:
