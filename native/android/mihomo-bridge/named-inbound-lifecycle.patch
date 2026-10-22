@@ -25,13 +25,14 @@
  		}
  		m.l = append(m.l, l)
  		if m.udp {
- 			lUDP, err := socks.NewUDPWithConfig(config, lc, tunnel, m.Additions()...)
+-			lUDP, err := socks.NewUDPWithConfig(config, lc, tunnel, m.Additions()...)
++			lUDP, err := socks.NewOwnedUDPWithConfig(config, lc, tunnel, m.Additions()...)
  			if err != nil {
 +				_ = m.Close()
  				return err
  			}
  			m.lUDP = append(m.lUDP, lUDP)
-@@ -95,6 +99,33 @@
+@@ -95,6 +99,37 @@
  }
  
  // Close implements constant.InboundListener
@@ -50,13 +51,17 @@
 +	return len(m.l) > 0 || len(m.lUDP) > 0
 +}
 +
-+// WaitClosed joins named mixed TCP accept loops and handlers. UDP is deliberately
-+// only Close-acknowledged here; packet-worker joining is outside this boundary.
++// WaitClosed joins named mixed TCP accept loops/handlers and UDP readers/handlers.
 +func (m *Mixed) WaitClosed(ctx context.Context) error {
 +	var errs []error
 +	for _, l := range m.l {
 +		if err := l.WaitClosed(ctx); err != nil {
 +			errs = append(errs, fmt.Errorf("wait tcp listener %s: %w", l.Address(), err))
++		}
++	}
++	for _, l := range m.lUDP {
++		if err := l.WaitClosed(ctx); err != nil {
++			errs = append(errs, fmt.Errorf("wait udp listener %s: %w", l.Address(), err))
 +		}
 +	}
 +	return errors.Join(errs...)
@@ -105,7 +110,7 @@
  		}
 --- listener/inbound/mixed_lifecycle.go
 +++ listener/inbound/mixed_lifecycle.go
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,58 @@
 +package inbound
 +
 +import (
@@ -132,10 +137,9 @@
 +	namedMixedRegistry.generations[m] = struct{}{}
 +}
 +
-+// StopNamedMixed cancels and joins named mixed TCP generations only. UDP is
-+// Close-acknowledged by Mixed.Close; packet-reader joining is intentionally not
-+// claimed by this API. Failed closes and timed-out handlers remain registered
-+// so a later call can retry the same concrete generation.
++// StopNamedMixed cancels and joins each named mixed TCP/UDP generation.
++// Failed closes, retained packets, write-backs and timed-out synchronous
++// handlers remain registered so a later call retries the same concrete owner.
 +func StopNamedMixed(ctx context.Context) error {
 +	namedMixedRegistry.Lock()
 +	generations := make([]*Mixed, 0, len(namedMixedRegistry.generations))

@@ -94,15 +94,15 @@ PATCHED_SOCKS5_SHA256 = "71d197060a3a66dab3c9c89ddb2a0be206f858c3f7e5cd5e6a51a60
 
 PATCHED_MIXED_SHA256 = "5547c95db4f622abf6e182e54ba3bea9bd7feaedd9947b96d7a63e60d7167c3d"
 PATCHED_MIXED_REGISTRY_SHA256 = "060fa4dadfa0f0bce77b5c21155e757b96e88e15871d6491130d57c217d3edcb"
-PATCHED_MIXED_UDP_SHA256 = "3e3bbe51844fbb9981bf43147091a7f34784122a9c184e837296610e4d4f48fa"
-PATCHED_MIXED_UDP_REGISTRY_SHA256 = "d26efed8b2b25790b4a9363e30e12006e923220dc12a6dfd5fe3c9ec750b9096"
+PATCHED_MIXED_UDP_SHA256 = "840f2220dc9fb1f69d0f7eed7c36a50fecaa00d210269b75cace18f46950e0f1"
+PATCHED_MIXED_UDP_REGISTRY_SHA256 = "dca5077262f19d453e07874d2a37837b5a77d148eacbf9b5ba74ec7a68d06ece"
 PATCHED_LISTENER_SHA256 = "851dc42e8f18e16e2f6712725eca775ca5cac276c9dafd42ae82c7c075aa5895"
-MIXED_LIFECYCLE_PATCH_SHA256 = "56e77bc3b89fac2868f6f6e18b49ed6cae317916dbb08c21b478ae4529206f92"
+MIXED_LIFECYCLE_PATCH_SHA256 = "8163aa7a8b8d1ef98f2d20d9bf112768eda024d27b5e3b8bdea569e085031961"
 
-PATCHED_NAMED_MIXED_SHA256 = "9bca10117b3c033fa4f81be1033b8e01432e8c21259c3d4cf86b1a7734077827"
-PATCHED_NAMED_MIXED_REGISTRY_SHA256 = "5b4669c52fb13aade67d7fd538d168d42f922d9dddf1a1f6a1d1e6b2e622cbf6"
+PATCHED_NAMED_MIXED_SHA256 = "8e1139350e89b018f04257deaa84d4d9f4e937e5abc9a893ddc3ab03e7089ba2"
+PATCHED_NAMED_MIXED_REGISTRY_SHA256 = "d65dead7c08333cf78471f586131e43503092bb5abd9dea4c1631ecd813668cd"
 PATCHED_NAMED_LISTENER_SHA256 = "786b8e6b7854508df329c1e19b97cd69e05f3161cd69ea3514fc7974ff7baab0"
-NAMED_INBOUND_LIFECYCLE_PATCH_SHA256 = "46ffb8783539b077f962b2944dccb46f2aac5c005a8b35ed9e38d5e4ccaa3d7c"
+NAMED_INBOUND_LIFECYCLE_PATCH_SHA256 = "bf5a8ad2f373e17cba2f668e19fadc7da245efd14535ecd21afa110f0d46d348"
 
 def sha256(path: Path) -> str:
     h = hashlib.sha256()
@@ -181,7 +181,9 @@ def verify_source(root: Path) -> None:
         "listener/inbound/angelanexus_named_inbound_lifecycle_integration_test.go",
         "listener/angelanexus_named_recreate_integration_test.go",
         "angelanexus_android/bridge_named_inbound_integration_test.go",
+        "angelanexus_android/bridge_named_udp_integration_test.go",
         "listener/socks/angelanexus_udp_lifecycle_integration_test.go",
+        "listener/socks/angelanexus_named_udp_lifecycle_integration_test.go",
         "angelanexus_android/bridge_mixed_udp_integration_test.go",
         "listener/mixed/angelanexus_mixed_lifecycle_integration_test.go",
         "listener/angelanexus_mixed_recreate_integration_test.go",

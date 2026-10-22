@@ -369,40 +369,48 @@
 +	return err
 @@ -40,0 +59,9 @@
 +func NewUDPWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunnel, additions ...inbound.Addition) (*UDPListener, error) {
-+	return newUDP(config, lc, tunnel, false, additions...)
++	return newUDP(config, lc, tunnel, false, false, additions...)
 +}
 +func NewMixedUDP(addr string, tunnel C.Tunnel, additions ...inbound.Addition) (*UDPListener, error) {
 +	return NewMixedUDPWithConfig(defaultConfig(addr), inbound.NewListenConfig(), tunnel, additions...)
 +}
 +func NewMixedUDPWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunnel, additions ...inbound.Addition) (*UDPListener, error) {
-+	return newUDP(config, lc, tunnel, true, additions...)
++	return newUDP(config, lc, tunnel, true, true, additions...)
 +}
-@@ -42 +69 @@
+@@ -42 +69,7 @@
 -func NewUDPWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunnel, additions ...inbound.Addition) (*UDPListener, error) {
-+func newUDP(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunnel, mixed bool, additions ...inbound.Addition) (*UDPListener, error) {
-@@ -44,4 +71 @@
++// NewOwnedUDPWithConfig creates a mixed UDP generation without registering
++// it in the default mixed-port UDP registry. Named inbounds own its lifecycle.
++func NewOwnedUDPWithConfig(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunnel, additions ...inbound.Addition) (*UDPListener, error) {
++	return newUDP(config, lc, tunnel, true, false, additions...)
++}
++
++func newUDP(config LC.AuthServer, lc C.InboundListenConfig, tunnel C.Tunnel, mixed bool, register bool, additions ...inbound.Addition) (*UDPListener, error) {
+@@ -44,4 +77 @@
 -		additions = []inbound.Addition{
 -			inbound.WithInName("DEFAULT-SOCKS"),
 -			inbound.WithSpecialRules(""),
 -		}
 +		additions = []inbound.Addition{inbound.WithInName("DEFAULT-SOCKS"), inbound.WithSpecialRules("")}
-@@ -49 +73 @@
+@@ -49 +79 @@
 -	l, err := lc.ListenPacket(context.Background(), "udp", config.Listen)
 +	pc, err := lc.ListenPacket(context.Background(), "udp", config.Listen)
-@@ -53,2 +77 @@
+@@ -53,2 +83 @@
 -
 -	if err := sockopt.UDPReuseaddr(l); err != nil {
 +	if err := sockopt.UDPReuseaddr(pc); err != nil {
-@@ -56,0 +80,8 @@
+@@ -56,0 +86,10 @@
 +	l := &UDPListener{packetConn: pc, addr: config.Listen, mixed: mixed}
 +	if mixed {
 +		l.drained = make(chan struct{})
-+		registerUDPMixed(l)
++		if register {
++			registerUDPMixed(l)
++		}
 +	}
 +	go l.readLoop(N.NewEnhancePacketConn(pc), tunnel, additions...)
 +	return l, nil
 +}
-@@ -58,9 +89,24 @@
+@@ -58,9 +97,24 @@
 -	sl := &UDPListener{
 -		packetConn: l,
 -		addr:       config.Listen,
@@ -436,25 +444,25 @@
 +			l.mu.Lock()
 +			if l.closed {
 +				l.mu.Unlock()
-@@ -70,3 +115,0 @@
+@@ -70,3 +123,0 @@
 -				if sl.closed {
 -					break
 -				}
-@@ -75 +118,5 @@
+@@ -75 +126,5 @@
 -			handleSocksUDP(l, tunnel, data, put, remoteAddr, additions...)
 +			l.pending++
 +			l.mu.Unlock()
 +			handleMixedSocksUDP(l, tunnel, data, put, remoteAddr, additions...)
 +		} else {
 +			handleSocksUDP(l.packetConn, tunnel, data, put, remoteAddr, additions...)
-@@ -77,3 +124 @@
+@@ -77,3 +132 @@
 -	}()
 -
 -	return sl, nil
 +	}
-@@ -85 +129,0 @@
+@@ -85 +137,0 @@
 -		// Unresolved UDP packet, return buffer to the pool
-@@ -91,6 +135 @@
+@@ -91,6 +143 @@
 -	packet := &packet{
 -		pc:      pc,
 -		rAddr:   addr,
@@ -464,7 +472,7 @@
 +	packet := &packet{pc: pc, rAddr: addr, payload: payload, put: put}
 --- listener/socks/udp_lifecycle.go
 +++ listener/socks/udp_lifecycle.go
-@@ -0,0 +1,164 @@
+@@ -0,0 +1,177 @@
 +package socks
 +
 +import (
@@ -511,6 +519,19 @@
 +		return onlyClosedError(u.Unwrap())
 +	}
 +	return false
++}
++
++// WaitClosed joins the UDP reader and all inline packet handlers.
++func (l *UDPListener) WaitClosed(ctx context.Context) error {
++	if l.drained == nil {
++		return nil
++	}
++	select {
++	case <-l.drained:
++		return nil
++	case <-ctx.Done():
++		return ctx.Err()
++	}
 +}
 +
 +func (l *UDPListener) maybeDrained() {

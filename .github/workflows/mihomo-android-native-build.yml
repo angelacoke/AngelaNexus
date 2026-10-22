@@ -113,7 +113,9 @@ jobs:
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge_mixed_integration_test.go" ./angelanexus_android/bridge_mixed_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge_mixed_udp_integration_test.go" ./angelanexus_android/bridge_mixed_udp_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge_named_inbound_integration_test.go" ./angelanexus_android/bridge_named_inbound_integration_test.go
+          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge_named_udp_integration_test.go" ./angelanexus_android/bridge_named_udp_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/udp_lifecycle_integration_test.go" ./listener/socks/angelanexus_udp_lifecycle_integration_test.go
+          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/named_udp_lifecycle_integration_test.go" ./listener/socks/angelanexus_named_udp_lifecycle_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/mixed_lifecycle_integration_test.go" ./listener/mixed/angelanexus_mixed_lifecycle_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/mixed_recreate_integration_test.go" ./listener/angelanexus_mixed_recreate_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/named_inbound_lifecycle_integration_test.go" ./listener/inbound/angelanexus_named_inbound_lifecycle_integration_test.go
@@ -166,6 +168,8 @@ jobs:
           go test -race -run '^TestAngelaNexusNamed' -count=20 -timeout=120s ./listener/inbound
           go test -tags=with_gvisor,cmfa -list '^TestAngelaNexusNamed' ./listener | grep '^TestAngelaNexusNamed'
           go test -race -tags=with_gvisor,cmfa -run '^TestAngelaNexusNamed' -count=20 -timeout=120s ./listener
+          go test -list '^TestAngelaNexusNamedUDP' ./listener/socks | grep '^TestAngelaNexusNamedUDP'
+          go test -race -run '^TestAngelaNexusNamedUDP' -count=20 -timeout=120s ./listener/socks
           go test -list '^TestAngelaNexusMixedUDP' ./listener/socks | grep '^TestAngelaNexusMixedUDP'
           go test -race -run '^TestAngelaNexusMixedUDP' -count=20 -timeout=120s ./listener/socks
           go test -tags=with_gvisor,cmfa -list '^TestAndroidBridgeMixed' ./angelanexus_android | grep '^TestAndroidBridgeMixed'
@@ -174,6 +178,7 @@ jobs:
           go test -race -tags=with_gvisor,cmfa -run '^TestAndroidBridgeNamedInbound' -count=20 -timeout=120s ./angelanexus_android
           python3 "$GITHUB_WORKSPACE/native/android/mihomo-bridge/test-mixed-stop.py" "$PWD" --logs "$RUNNER_TEMP/mixed-stop-negative"
           python3 "$GITHUB_WORKSPACE/native/android/mihomo-bridge/test-named-inbound-stop.py" "$PWD" --logs "$RUNNER_TEMP/named-inbound-stop-negative"
+          python3 "$GITHUB_WORKSPACE/native/android/mihomo-bridge/test-named-udp-stop.py" "$PWD" --logs "$RUNNER_TEMP/named-udp-stop-negative"
           python3 "$GITHUB_WORKSPACE/native/android/mihomo-bridge/test-mixed-udp-stop.py" "$PWD" --logs "$RUNNER_TEMP/mixed-udp-stop-negative"
           # Test the entire dedicated package that the NDK build consumes.
           go test -race -tags=with_gvisor,cmfa -run '^TestAndroidBridge' -count=1 -timeout=90s -v ./angelanexus_android

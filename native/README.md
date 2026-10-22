@@ -121,7 +121,7 @@ A stopped named mixed instance is not reused merely because its configuration is
 equal. Reload/removal must retain a failed-close owner, and explicit stop can
 still reach generations no longer present in the current listener map. The
 `named-inbound-lifecycle.patch`, exact pristine/intermediate/final digests and
-named source records are mandatory provenance evidence alongside the unchanged
+named source records are mandatory provenance evidence alongside the reviewed
 default mixed adapter and upstream pins. Actual-bridge race tests cover idle and
 half-handshake peers, same-configuration rebuild, failed-close retry gates and a
 handler whose exit remains blocked after its socket closes. Mutation controls
@@ -130,9 +130,26 @@ The bridge listener fixture uses an explicit named authentication store so the
 test isolates resource ownership from existing mutable default authentication/IP
 filter globals during apply. Synchronizing those globals is not part of this fix.
 
-This is **named mixed TCP ingress cleanup**, not a generic inbound shutdown.
-Named mixed UDP sockets are close-acknowledged, but their packet-reader/packet
-workers are not joined here. Other named inbound protocols, asynchronous tunnel
+This is **named mixed TCP/UDP ingress cleanup**, not a generic inbound shutdown.
+Named mixed UDP uses the owned packet adapter without registering in the default
+mixed-port UDP registry. Its containing named `Mixed` generation joins the UDP
+reader (including its synchronous tunnel callback), retained packets until
+`Drop`, and admitted write-backs until method exit. Closing the socket alone
+cannot acknowledge any of these. A timeout retains the whole named generation
+and its independent named-cleanup debt for a later explicit stop retry. Payload
+buffers are not forcibly reclaimed while retained; malformed and late packets
+are returned, and `Drop` acknowledges a valid packet exactly once. Retired packets
+cannot initiate a new write-back after close. Ordinary named SOCKS UDP is not
+silently enrolled in either mixed registry.
+
+Actual-bridge race regressions cover held packets, dropped-but-blocked handlers,
+write-backs, close-acknowledgement failures, default/named registry isolation,
+and real named UDP tunnel round-trips over same-configuration stop/restart.
+Eighteen UDP-specific negative controls reject the old unowned constructor,
+wrong registry membership, forgotten generations and each missing packet/write-back/reader join.
+The exact reviewed UDP and named source hashes remain mandatory ABI provenance.
+The deadline bounds exit waiting, not arbitrary synchronous `Close` calls.
+Other named inbound protocols, asynchronous tunnel
 work, arbitrary blocking `Close` implementations, complete kernel shutdown and
 Android/JNI real-device acceptance remain outside this boundary. No packaged
 library hash, licensing approval or release gate is relaxed by the repair.
