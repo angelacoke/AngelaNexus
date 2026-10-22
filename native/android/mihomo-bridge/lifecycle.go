@@ -50,6 +50,9 @@ type androidTunLifecycle struct {
 	ntpCleanupPending bool
 	// Default mixed TCP accept/handshake workers retain their own stop retry debt.
 	mixedCleanupPending bool
+	// Named mixed generations are a separate owner; other stop successes must
+	// never clear their failed-close or bounded TCP handler-drain responsibility.
+	namedCleanupPending bool
 	// Explicit stop must acknowledge TUN/connection/setup cleanup before a new
 	// config or attachment can proceed. DNS/NTP success must not clear this debt.
 	resourceCleanupPending bool

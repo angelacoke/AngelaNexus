@@ -62,6 +62,9 @@ function verifierFixture() {
   const patchedMixedUDP = "fixture patched mixed UDP";
   const patchedMixedUDPRegistry = "fixture patched mixed UDP registry";
   const patchedListener = "fixture patched listener";
+  const patchedNamedMixed = "fixture patched named mixed";
+  const patchedNamedMixedRegistry = "fixture patched named mixed registry";
+  const namedInboundLifecyclePatch = "fixture named inbound lifecycle patch\n";
   const mixedLifecyclePatch = "fixture mixed lifecycle patch\n";
   const patchedSocks5AssociationHash = digest(patchedSocks5Association);
   const patchedDnsOutboundHash = digest(patchedDnsOutbound);
@@ -72,9 +75,12 @@ function verifierFixture() {
   mkdirSync(join(repo, "ntp/ntp"), { recursive: true });
   mkdirSync(join(repo, "adapter/outbound"), { recursive: true });
   mkdirSync(join(repo, "listener/mixed"), { recursive: true });
+  mkdirSync(join(repo, "listener/inbound"), { recursive: true });
   mkdirSync(join(repo, "listener/socks"), { recursive: true });
   writeFileSync(join(repo, "listener/mixed/mixed.go"), patchedMixed);
   writeFileSync(join(repo, "listener/mixed/lifecycle.go"), patchedMixedRegistry);
+  writeFileSync(join(repo, "listener/inbound/mixed.go"), patchedNamedMixed);
+  writeFileSync(join(repo, "listener/inbound/mixed_lifecycle.go"), patchedNamedMixedRegistry);
   writeFileSync(join(repo, "listener/socks/udp.go"), patchedMixedUDP);
   writeFileSync(join(repo, "listener/socks/udp_lifecycle.go"), patchedMixedUDPRegistry);
   writeFileSync(join(repo, "listener/listener.go"), patchedListener);
@@ -99,7 +105,8 @@ function verifierFixture() {
   writeFileSync(join(sourceDir, "statistics.patch"), statisticsPatch);
   writeFileSync(join(sourceDir, "late-connections.patch"), lateConnectionsPatch);
   writeFileSync(join(sourceDir, "mixed-lifecycle.patch"), mixedLifecyclePatch);
-  writeFileSync(join(sourceDir, "prepare-upstream.py"), `PATCHED_SERVER_SHA256 = "${patchedSourceHash}"\nPATCHED_DNS_RESOLVER_SHA256 = "${patchedDnsResolverHash}"\nPATCHED_DNS_SERVER_SHA256 = "${patchedDnsServerHash}"\nPATCHED_DNS_DOH_SHA256 = "${patchedDnsDoHHash}"\nPATCHED_DNS_CLIENT_SHA256 = "${patchedDnsClientHash}"\nPATCHED_DNS_TLS_SHA256 = "${patchedDnsTLSHash}"\nPATCHED_DNS_DHCP_SHA256 = "${patchedDnsDHCPHash}"\nPATCHED_DNS_UTIL_SHA256 = "${patchedDnsUtilHash}"\nPATCHED_DHCP_DISCOVERY_SHA256 = "${patchedDhcpDiscoveryHash}"\nPATCHED_PROVIDER_FETCHER_SHA256 = "${patchedProviderFetcherHash}"\nPATCHED_PROVIDER_HEALTHCHECK_SHA256 = "${patchedProviderHealthcheckHash}"\nPATCHED_PROXY_PROVIDER_SHA256 = "${patchedProxyProviderHash}"\nPATCHED_STATISTICS_SHA256 = "${patchedStatisticsHash}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${patchedStatisticsHash}"\nPATCHED_TRACKER_SHA256 = "${patchedTrackerHash}"\nPATCHED_TUNNEL_SHA256 = "${patchedTunnelHash}"\nPATCHED_NAT_TABLE_SHA256 = "${patchedNatTableHash}"\nPATCHED_CONNECTION_SHA256 = "${patchedConnectionHash}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${patchedQuicSnifferHash}"\nPATCHED_TPROXY_PACKET_SHA256 = "${patchedTproxyPacketHash}"\nPATCHED_LOG_SHA256 = "${patchedLogHash}"\nPATCHED_NTP_SERVICE_SHA256 = "${patchedNtpServiceHash}"\nPATCHED_SOCKS5_SHA256 = "${patchedSocks5AssociationHash}"\nPATCHED_DNS_OUTBOUND_SHA256 = "${patchedDnsOutboundHash}"\nPATCHED_MIXED_SHA256 = "${digest(patchedMixed)}"\nPATCHED_MIXED_REGISTRY_SHA256 = "${digest(patchedMixedRegistry)}"\nPATCHED_MIXED_UDP_SHA256 = "${digest(patchedMixedUDP)}"\nPATCHED_MIXED_UDP_REGISTRY_SHA256 = "${digest(patchedMixedUDPRegistry)}"\nPATCHED_LISTENER_SHA256 = "${digest(patchedListener)}"\nMIXED_LIFECYCLE_PATCH_SHA256 = "${digest(mixedLifecyclePatch)}"\n`);
+  writeFileSync(join(sourceDir, "named-inbound-lifecycle.patch"), namedInboundLifecyclePatch);
+  writeFileSync(join(sourceDir, "prepare-upstream.py"), `PATCHED_SERVER_SHA256 = "${patchedSourceHash}"\nPATCHED_DNS_RESOLVER_SHA256 = "${patchedDnsResolverHash}"\nPATCHED_DNS_SERVER_SHA256 = "${patchedDnsServerHash}"\nPATCHED_DNS_DOH_SHA256 = "${patchedDnsDoHHash}"\nPATCHED_DNS_CLIENT_SHA256 = "${patchedDnsClientHash}"\nPATCHED_DNS_TLS_SHA256 = "${patchedDnsTLSHash}"\nPATCHED_DNS_DHCP_SHA256 = "${patchedDnsDHCPHash}"\nPATCHED_DNS_UTIL_SHA256 = "${patchedDnsUtilHash}"\nPATCHED_DHCP_DISCOVERY_SHA256 = "${patchedDhcpDiscoveryHash}"\nPATCHED_PROVIDER_FETCHER_SHA256 = "${patchedProviderFetcherHash}"\nPATCHED_PROVIDER_HEALTHCHECK_SHA256 = "${patchedProviderHealthcheckHash}"\nPATCHED_PROXY_PROVIDER_SHA256 = "${patchedProxyProviderHash}"\nPATCHED_STATISTICS_SHA256 = "${patchedStatisticsHash}"\nSTATISTICS_PATCH_SHA256 = "${digest(statisticsPatch)}"\nLATE_CONNECTIONS_PATCH_SHA256 = "${digest(lateConnectionsPatch)}"\nPATCHED_LATE_MANAGER_SHA256 = "${patchedStatisticsHash}"\nPATCHED_TRACKER_SHA256 = "${patchedTrackerHash}"\nPATCHED_TUNNEL_SHA256 = "${patchedTunnelHash}"\nPATCHED_NAT_TABLE_SHA256 = "${patchedNatTableHash}"\nPATCHED_CONNECTION_SHA256 = "${patchedConnectionHash}"\nPATCHED_QUIC_SNIFFER_SHA256 = "${patchedQuicSnifferHash}"\nPATCHED_TPROXY_PACKET_SHA256 = "${patchedTproxyPacketHash}"\nPATCHED_LOG_SHA256 = "${patchedLogHash}"\nPATCHED_NTP_SERVICE_SHA256 = "${patchedNtpServiceHash}"\nPATCHED_SOCKS5_SHA256 = "${patchedSocks5AssociationHash}"\nPATCHED_DNS_OUTBOUND_SHA256 = "${patchedDnsOutboundHash}"\nPATCHED_MIXED_SHA256 = "${digest(patchedMixed)}"\nPATCHED_MIXED_REGISTRY_SHA256 = "${digest(patchedMixedRegistry)}"\nPATCHED_MIXED_UDP_SHA256 = "${digest(patchedMixedUDP)}"\nPATCHED_MIXED_UDP_REGISTRY_SHA256 = "${digest(patchedMixedUDPRegistry)}"\nPATCHED_LISTENER_SHA256 = "${digest(patchedListener)}"\nPATCHED_NAMED_MIXED_SHA256 = "${digest(patchedNamedMixed)}"\nPATCHED_NAMED_MIXED_REGISTRY_SHA256 = "${digest(patchedNamedMixedRegistry)}"\nPATCHED_NAMED_LISTENER_SHA256 = "${digest(patchedListener)}"\nNAMED_INBOUND_LIFECYCLE_PATCH_SHA256 = "${digest(namedInboundLifecyclePatch)}"\nMIXED_LIFECYCLE_PATCH_SHA256 = "${digest(mixedLifecyclePatch)}"\n`);
   const abis = ["arm64-v8a", "armeabi-v7a", "x86_64"];
   const commit = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36";
   const specs = abis.map(abi => `MihomoNativeLibrarySpec(abi = "${abi}", sha256 = "${"a".repeat(64)}")`).join(",\n");
@@ -138,10 +145,13 @@ function verifierFixture() {
       mixedListenerRegistry: { path: "listener/mixed/lifecycle.go", sha256: digest(patchedMixedRegistry) },
       mixedUDPListener: { path: "listener/socks/udp.go", sha256: digest(patchedMixedUDP) },
       mixedUDPRegistry: { path: "listener/socks/udp_lifecycle.go", sha256: digest(patchedMixedUDPRegistry) },
+      namedMixedListener: { path: "listener/inbound/mixed.go", sha256: digest(patchedNamedMixed) },
+      namedMixedRegistry: { path: "listener/inbound/mixed_lifecycle.go", sha256: digest(patchedNamedMixedRegistry) },
       inboundListener: { path: "listener/listener.go", sha256: digest(patchedListener) },
       ownershipAdapter: { ...evidence("prepare-upstream.py"), patchedSource: { path: "listener/sing_tun/server.go", sha256: patchedSourceHash } },
       statisticsPatch: { ...evidence("statistics.patch"), patchedSource: { path: "tunnel/statistic/manager.go", sha256: patchedStatisticsHash } },
       mixedListenerAdapter: { path: `${bridgeDir}/mixed-lifecycle.patch`, sha256: digest(mixedLifecyclePatch) },
+      namedInboundAdapter: { path: `${bridgeDir}/named-inbound-lifecycle.patch`, sha256: digest(namedInboundLifecyclePatch) },
       lateConnectionsPatch: {
         path: `${bridgeDir}/late-connections.patch`, sha256: digest(lateConnectionsPatch),
         patchedSources: {
@@ -195,6 +205,14 @@ test("Android workflow stages and tests the dedicated library package", () => {
   assert.match(host.run, /sed '1,2d' .*bridge\.go.*> \.\/angelanexus_android\/bridge\.go/);
   assert.match(host.run, /cp .*?(?:bridge_)?integration_test\.go" \.\/angelanexus_android\/(?:bridge_)?integration_test\.go/);
   assert.match(host.run, /cp .*library_integration_test\.go" \.\/angelanexus_android\/library_integration_test\.go/);
+  assert.match(host.run, /bridge_named_inbound_integration_test\.go" \.\/angelanexus_android\/bridge_named_inbound_integration_test\.go/);
+  assert.match(host.run, /named_inbound_lifecycle_integration_test\.go" \.\/listener\/inbound\/angelanexus_named_inbound_lifecycle_integration_test\.go/);
+  assert.match(host.run, /named_recreate_integration_test\.go" \.\/listener\/angelanexus_named_recreate_integration_test\.go/);
+  assert.match(host.run, /-list '\^TestAndroidBridgeNamedInbound'/);
+  assert.match(host.run, /-run '\^TestAndroidBridgeNamedInbound'/);
+  assert.match(host.run, /-list '\^TestAngelaNexusNamed'/);
+  assert.match(host.run, /-run '\^TestAngelaNexusNamed'/);
+  assert.match(host.run, /test-named-inbound-stop\.py/);
   assert.match(host.run, /go test -race -tags=with_gvisor,cmfa -run '\^TestAndroidBridge' -count=1 -timeout=90s -v \.\/angelanexus_android/);
   assert.match(host.run, /go build -trimpath -tags=with_gvisor,cmfa -buildmode=c-shared -o "\$RUNNER_TEMP\/libclash-host\.so" \.\/angelanexus_android/);
   assert.match(host.run, /timeout 30s python3 .*smoke-mihomo-library\.py.*"\$RUNNER_TEMP\/libclash-host\.so" --foreign-host-flag=library-smoke/);
@@ -213,6 +231,10 @@ test("provenance records the dedicated package and library entry digest", () => 
   assert.match(provenance.run, /"providerFetcher": \{"path": "component\/resource\/fetcher\.go", "sha256": "\$PATCHED_PROVIDER_FETCHER_SHA256"\}/);
   assert.match(provenance.run, /"tproxyPacket": \{\"path\": \"listener\/tproxy\/packet\.go\", \"sha256\": \"\$PATCHED_TPROXY_PACKET_SHA256\"\}/);
   assert.match(provenance.run, /"libraryEntry": \{"path": "native\/android\/mihomo-bridge\/library\.go", "sha256": "\$LIBRARY_ENTRY_SHA256"\}/);
+  assert.match(provenance.run, /"namedInboundAdapter": \{"path": "native\/android\/mihomo-bridge\/named-inbound-lifecycle\.patch", "sha256": "\$NAMED_INBOUND_LIFECYCLE_PATCH_SHA256"\}/);
+  assert.match(provenance.run, /"namedMixedListener": \{"path": "listener\/inbound\/mixed\.go", "sha256": "\$PATCHED_NAMED_MIXED_SHA256"\}/);
+  assert.match(provenance.run, /"namedMixedRegistry": \{"path": "listener\/inbound\/mixed_lifecycle\.go", "sha256": "\$PATCHED_NAMED_MIXED_REGISTRY_SHA256"\}/);
+  assert.match(provenance.run, /"inboundListener": \{"path": "listener\/listener\.go", "sha256": "\$PATCHED_NAMED_LISTENER_SHA256"\}/);
 });
 
 test("verifier validates build.package and libraryEntry instead of merely preserving them", () => {

@@ -19,6 +19,7 @@ COMMIT = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36"
 SING_TUN_VERSION = "v0.4.27"
 # Hashes are of the pristine pinned checkout/module files, before this adapter.
 EXPECTED = {
+    "listener/inbound/mixed.go": "682a911588dd8e74cecfe0b480d25d35f6a0a7d0ab96273d80d087fcd0361a03",
     "listener/socks/udp.go": "2c629a54fdc4b11e8549b75ae7b0efae1370b0d12ec3b56317c11207a816cf3c",
     "listener/mixed/mixed.go": "dcc7a92d339611f5c173f1c533db4e21c496ef8effc15374f7889dbec388eb18",
     "listener/listener.go": "1a11cda3fb4a87875d817fe29f1e79973cb8cb6eeccc0ae5e22db15df1277758",
@@ -98,6 +99,11 @@ PATCHED_MIXED_UDP_REGISTRY_SHA256 = "d26efed8b2b25790b4a9363e30e12006e923220dc12
 PATCHED_LISTENER_SHA256 = "851dc42e8f18e16e2f6712725eca775ca5cac276c9dafd42ae82c7c075aa5895"
 MIXED_LIFECYCLE_PATCH_SHA256 = "56e77bc3b89fac2868f6f6e18b49ed6cae317916dbb08c21b478ae4529206f92"
 
+PATCHED_NAMED_MIXED_SHA256 = "9bca10117b3c033fa4f81be1033b8e01432e8c21259c3d4cf86b1a7734077827"
+PATCHED_NAMED_MIXED_REGISTRY_SHA256 = "5b4669c52fb13aade67d7fd538d168d42f922d9dddf1a1f6a1d1e6b2e622cbf6"
+PATCHED_NAMED_LISTENER_SHA256 = "786b8e6b7854508df329c1e19b97cd69e05f3161cd69ea3514fc7974ff7baab0"
+NAMED_INBOUND_LIFECYCLE_PATCH_SHA256 = "46ffb8783539b077f962b2944dccb46f2aac5c005a8b35ed9e38d5e4ccaa3d7c"
+
 def sha256(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -142,6 +148,8 @@ def verify_source(root: Path) -> None:
     tproxy_packet_hash = sha256(tproxy_packet) if tproxy_packet.is_file() else None
     dns_doh_hash = sha256(root / "dns/doh.go") if (root / "dns/doh.go").is_file() else None
     extra_source_hashes = {
+        "listener/inbound/mixed.go": PATCHED_NAMED_MIXED_SHA256,
+        "listener/inbound/mixed_lifecycle.go": PATCHED_NAMED_MIXED_REGISTRY_SHA256,
         "listener/mixed/mixed.go": PATCHED_MIXED_SHA256,
         "listener/mixed/lifecycle.go": PATCHED_MIXED_REGISTRY_SHA256,
         "listener/socks/udp.go": PATCHED_MIXED_UDP_SHA256,
@@ -170,6 +178,9 @@ def verify_source(root: Path) -> None:
     log_hash = sha256(log_source) if log_source.is_file() else None
     # Existing adapter output is allowed only when it is exactly our output.
     allowed = {
+        "listener/inbound/angelanexus_named_inbound_lifecycle_integration_test.go",
+        "listener/angelanexus_named_recreate_integration_test.go",
+        "angelanexus_android/bridge_named_inbound_integration_test.go",
         "listener/socks/angelanexus_udp_lifecycle_integration_test.go",
         "angelanexus_android/bridge_mixed_udp_integration_test.go",
         "listener/mixed/angelanexus_mixed_lifecycle_integration_test.go",
@@ -205,6 +216,8 @@ def verify_source(root: Path) -> None:
     }
     for line in dirty.splitlines():
         path = line[3:] if len(line) >= 4 else ""
+        if path == "listener/listener.go" and sha256(root / path) == PATCHED_NAMED_LISTENER_SHA256:
+            continue
         if path in extra_source_hashes and sha256(root / path) == extra_source_hashes[path]:
             continue
         if path in extra_source_hashes:
@@ -247,6 +260,8 @@ def verify_source(root: Path) -> None:
             fail(f"missing pinned source file: {rel}")
         actual_hash = sha256(path)
         if actual_hash != expected:
+            if rel == "listener/listener.go" and actual_hash == PATCHED_NAMED_LISTENER_SHA256:
+                continue
             if rel in extra_source_hashes and actual_hash == extra_source_hashes[rel]:
                 continue
             # A patched server.go is handled below, but every other source must
@@ -476,7 +491,9 @@ def apply_mixed(root: Path) -> None:
              "listener/listener.go": PATCHED_LISTENER_SHA256,
              "listener/socks/udp.go": PATCHED_MIXED_UDP_SHA256,
              "listener/socks/udp_lifecycle.go": PATCHED_MIXED_UDP_REGISTRY_SHA256}
-    if all((root / rel).is_file() and sha256(root / rel) == digest for rel, digest in paths.items()):
+    if all((root / rel).is_file() and (sha256(root / rel) == digest or
+           (rel == "listener/listener.go" and sha256(root / rel) == PATCHED_NAMED_LISTENER_SHA256))
+           for rel, digest in paths.items()):
         return
     for rel in paths:
         path = root / rel
@@ -512,6 +529,49 @@ def apply_mixed(root: Path) -> None:
     for rel, content in outputs.items():
         (root / rel).write_bytes(content)
 
+def apply_named(root: Path) -> None:
+    patch = Path(__file__).with_name("named-inbound-lifecycle.patch")
+    if not patch.is_file() or sha256(patch) != NAMED_INBOUND_LIFECYCLE_PATCH_SHA256:
+        fail("named-inbound-lifecycle.patch does not match the reviewed patch digest")
+    paths = {"listener/inbound/mixed.go": PATCHED_NAMED_MIXED_SHA256,
+             "listener/listener.go": PATCHED_NAMED_LISTENER_SHA256,
+             "listener/inbound/mixed_lifecycle.go": PATCHED_NAMED_MIXED_REGISTRY_SHA256}
+    if all((root / rel).is_file() and sha256(root / rel) == digest for rel, digest in paths.items()):
+        return
+    inputs = {"listener/inbound/mixed.go": EXPECTED["listener/inbound/mixed.go"],
+              "listener/listener.go": PATCHED_LISTENER_SHA256}
+    for rel, digest in inputs.items():
+        if sha256(root / rel) != digest:
+            fail(f"named inbound patch input {rel} does not match reviewed source")
+    if (root / "listener/inbound/mixed_lifecycle.go").exists():
+        fail("named mixed registry must be absent before patch application")
+    import re
+    sections = [part for part in re.split(r"(?m)(?=^--- )", patch.read_text()) if part]
+    if len(sections) != len(paths):
+        fail("named inbound patch must contain exactly the reviewed source sections")
+    outputs = {}
+    with tempfile.TemporaryDirectory(prefix="angelanexus-named-") as tmp:
+        empty = Path(tmp) / "empty"
+        empty.write_bytes(b"")
+        for index, (rel, digest) in enumerate(paths.items()):
+            section = sections[index]
+            if not section.startswith(f"--- {rel}\n+++ {rel}\n"):
+                fail(f"named inbound patch section path mismatch: {rel}")
+            section_path = Path(tmp) / f"{index}.patch"
+            section_path.write_text(section)
+            output = Path(tmp) / f"{index}.go"
+            input_path = root / rel if (root / rel).is_file() else empty
+            try:
+                subprocess.run(["patch", "--batch", "--silent", "--output", str(output),
+                                str(input_path), str(section_path)], check=True, capture_output=True)
+            except (OSError, subprocess.CalledProcessError) as exc:
+                fail(f"named inbound patch failed before source replacement: {exc}")
+            if not output.is_file() or sha256(output) != digest:
+                fail(f"named inbound patched {rel} digest mismatch before source replacement")
+            outputs[rel] = output.read_bytes()
+    for rel, content in outputs.items():
+        (root / rel).write_bytes(content)
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("source", type=Path, help="pinned mihomo checkout")
@@ -522,6 +582,7 @@ def main() -> None:
     apply_statistics(root)
     apply_late(root)
     apply_mixed(root)
+    apply_named(root)
     print(f"prepared {root} for sing-tun {SING_TUN_VERSION} owned FD and joinable statistics")
 
 

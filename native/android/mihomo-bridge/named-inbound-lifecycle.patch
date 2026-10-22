@@ -1,0 +1,167 @@
+--- listener/inbound/mixed.go
++++ listener/inbound/mixed.go
+@@ -1,6 +1,7 @@
+ package inbound
+ 
+ import (
++	"context"
+ 	"errors"
+ 	"fmt"
+ 	"strings"
+@@ -64,6 +65,7 @@
+ 
+ // Listen implements constant.InboundListener
+ func (m *Mixed) Listen(tunnel C.Tunnel) error {
++	registerNamedMixed(m)
+ 	lc := m.ListenConfig()
+ 	for _, addr := range strings.Split(m.RawAddress(), ",") {
+ 		config := LC.AuthServer{
+@@ -79,12 +81,14 @@
+ 		}
+ 		l, err := mixed.NewWithConfig(config, lc, tunnel, m.Additions()...)
+ 		if err != nil {
++			_ = m.Close()
+ 			return err
+ 		}
+ 		m.l = append(m.l, l)
+ 		if m.udp {
+ 			lUDP, err := socks.NewUDPWithConfig(config, lc, tunnel, m.Additions()...)
+ 			if err != nil {
++				_ = m.Close()
+ 				return err
+ 			}
+ 			m.lUDP = append(m.lUDP, lUDP)
+@@ -95,6 +99,33 @@
+ }
+ 
+ // Close implements constant.InboundListener
++// IsClosed reports whether this generation has been asked to stop.
++func (m *Mixed) IsClosed() bool {
++	for _, l := range m.l {
++		if !l.IsClosed() {
++			return false
++		}
++	}
++	for _, l := range m.lUDP {
++		if !l.IsClosed() {
++			return false
++		}
++	}
++	return len(m.l) > 0 || len(m.lUDP) > 0
++}
++
++// WaitClosed joins named mixed TCP accept loops and handlers. UDP is deliberately
++// only Close-acknowledged here; packet-worker joining is outside this boundary.
++func (m *Mixed) WaitClosed(ctx context.Context) error {
++	var errs []error
++	for _, l := range m.l {
++		if err := l.WaitClosed(ctx); err != nil {
++			errs = append(errs, fmt.Errorf("wait tcp listener %s: %w", l.Address(), err))
++		}
++	}
++	return errors.Join(errs...)
++}
++
+ func (m *Mixed) Close() error {
+ 	var errs []error
+ 	for _, l := range m.l {
+--- listener/listener.go
++++ listener/listener.go
+@@ -639,9 +639,16 @@
+ 
+ 	for name, newListener := range newListenerMap {
+ 		if oldListener, ok := inboundListeners[name]; ok {
+-			if !oldListener.Config().Equal(newListener.Config()) {
+-				_ = oldListener.Close()
+-			} else {
++			equal := oldListener.Config().Equal(newListener.Config())
++			closed := false
++			if probe, ok := oldListener.(interface{ IsClosed() bool }); ok {
++				closed = probe.IsClosed()
++			}
++			if equal && !closed {
++				continue
++			}
++			if err := oldListener.Close(); err != nil {
++				log.Errorln("Listener %s close err: %s", name, err.Error())
+ 				continue
+ 			}
+ 		}
+@@ -651,11 +658,13 @@
+ 		}
+ 		inboundListeners[name] = newListener
+ 	}
+-
+ 	if dropOld {
+ 		for name, oldListener := range inboundListeners {
+ 			if _, ok := newListenerMap[name]; !ok {
+-				_ = oldListener.Close()
++				if err := oldListener.Close(); err != nil {
++					log.Errorln("Listener %s close err: %s", name, err.Error())
++					continue
++				}
+ 				delete(inboundListeners, name)
+ 			}
+ 		}
+--- listener/inbound/mixed_lifecycle.go
++++ listener/inbound/mixed_lifecycle.go
+@@ -0,0 +1,59 @@
++package inbound
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"sync"
++)
++
++// namedMixedRegistry owns every named mixed generation once Listen starts,
++// including retired and partially-created generations. The default mixed-port
++// listener has a separate registry in listener/mixed and is not included here.
++var namedMixedRegistry struct {
++	sync.Mutex
++	generations map[*Mixed]struct{}
++}
++
++func registerNamedMixed(m *Mixed) {
++	namedMixedRegistry.Lock()
++	defer namedMixedRegistry.Unlock()
++	if namedMixedRegistry.generations == nil {
++		namedMixedRegistry.generations = make(map[*Mixed]struct{})
++	}
++	namedMixedRegistry.generations[m] = struct{}{}
++}
++
++// StopNamedMixed cancels and joins named mixed TCP generations only. UDP is
++// Close-acknowledged by Mixed.Close; packet-reader joining is intentionally not
++// claimed by this API. Failed closes and timed-out handlers remain registered
++// so a later call can retry the same concrete generation.
++func StopNamedMixed(ctx context.Context) error {
++	namedMixedRegistry.Lock()
++	generations := make([]*Mixed, 0, len(namedMixedRegistry.generations))
++	for m := range namedMixedRegistry.generations {
++		generations = append(generations, m)
++	}
++	namedMixedRegistry.Unlock()
++
++	var errs []error
++	done := make(map[*Mixed]bool, len(generations))
++	for _, m := range generations {
++		if err := m.Close(); err != nil {
++			done[m] = true
++			errs = append(errs, fmt.Errorf("close named mixed %s: %w", m.Name(), err))
++		}
++	}
++	for _, m := range generations {
++		if err := m.WaitClosed(ctx); err != nil {
++			done[m] = true
++			errs = append(errs, fmt.Errorf("drain named mixed %s: %w", m.Name(), err))
++		}
++		if !done[m] {
++			namedMixedRegistry.Lock()
++			delete(namedMixedRegistry.generations, m)
++			namedMixedRegistry.Unlock()
++		}
++	}
++	return errors.Join(errs...)
++}

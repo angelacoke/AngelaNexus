@@ -104,3 +104,35 @@ Named mixed inbounds, mixed UDP, other inbound protocols, asynchronously dispatc
 tunnel work, complete kernel shutdown, overall recovery and Android/JNI real-device
 acceptance are not established by this repair. The deadline bounds joining these
 workers, not arbitrary implementation-defined `Close` calls or total stop time.
+
+## Android named mixed inbound stop boundary
+
+Named `listeners: [{type: mixed, ...}]` are distinct from the default
+`mixed-port` registry. Explicit Android stop also retains each named mixed
+instance from the beginning of `Listen`, including partially created and retired
+instances, closes its sockets, and joins its TCP accept loop and synchronous
+first-byte/HTTP/SOCKS handshake handlers under a separate shared deadline.
+Failed close acknowledgements and handler timeouts retain that concrete generation
+for a later stop retry. Independent named-cleanup debt blocks apply, DNS updates
+and TUN attachment; successful cleanup of another component cannot erase it.
+Attachment replacement itself does not close freshly applied named listeners.
+
+A stopped named mixed instance is not reused merely because its configuration is
+equal. Reload/removal must retain a failed-close owner, and explicit stop can
+still reach generations no longer present in the current listener map. The
+`named-inbound-lifecycle.patch`, exact pristine/intermediate/final digests and
+named source records are mandatory provenance evidence alongside the unchanged
+default mixed adapter and upstream pins. Actual-bridge race tests cover idle and
+half-handshake peers, same-configuration rebuild, failed-close retry gates and a
+handler whose exit remains blocked after its socket closes. Mutation controls
+must fail at the designated ownership/gate assertion, never merely fail to build.
+The bridge listener fixture uses an explicit named authentication store so the
+test isolates resource ownership from existing mutable default authentication/IP
+filter globals during apply. Synchronizing those globals is not part of this fix.
+
+This is **named mixed TCP ingress cleanup**, not a generic inbound shutdown.
+Named mixed UDP sockets are close-acknowledged, but their packet-reader/packet
+workers are not joined here. Other named inbound protocols, asynchronous tunnel
+work, arbitrary blocking `Close` implementations, complete kernel shutdown and
+Android/JNI real-device acceptance remain outside this boundary. No packaged
+library hash, licensing approval or release gate is relaxed by the repair.

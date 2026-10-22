@@ -52,6 +52,9 @@ MIXED_UDP_LISTENER_PATH = "listener/socks/udp.go"
 MIXED_UDP_REGISTRY_PATH = "listener/socks/udp_lifecycle.go"
 INBOUND_LISTENER_PATH = "listener/listener.go"
 MIXED_LIFECYCLE_PATCH_PATH = "native/android/mihomo-bridge/mixed-lifecycle.patch"
+NAMED_MIXED_LISTENER_PATH = "listener/inbound/mixed.go"
+NAMED_MIXED_REGISTRY_PATH = "listener/inbound/mixed_lifecycle.go"
+NAMED_INBOUND_LIFECYCLE_PATCH_PATH = "native/android/mihomo-bridge/named-inbound-lifecycle.patch"
 
 
 class VerificationError(Exception):
@@ -120,7 +123,7 @@ def adapter_values(repo: Path) -> tuple[str, ...]:
         tree = ast.parse(text, filename=str(path))
     except (SyntaxError, ValueError) as exc:
         fail(f"invalid upstream adapter script {path}: {exc}")
-    wanted = {"PATCHED_SERVER_SHA256": [], "PATCHED_DNS_RESOLVER_SHA256": [], "PATCHED_DNS_SERVER_SHA256": [], "PATCHED_DNS_DOH_SHA256": [], "PATCHED_DNS_CLIENT_SHA256": [], "PATCHED_DNS_TLS_SHA256": [], "PATCHED_DNS_DHCP_SHA256": [], "PATCHED_DNS_UTIL_SHA256": [], "PATCHED_PROVIDER_FETCHER_SHA256": [], "PATCHED_STATISTICS_SHA256": [], "STATISTICS_PATCH_SHA256": [], "LATE_CONNECTIONS_PATCH_SHA256": [], "PATCHED_LATE_MANAGER_SHA256": [], "PATCHED_TRACKER_SHA256": [], "PATCHED_TUNNEL_SHA256": [], "PATCHED_NAT_TABLE_SHA256": [], "PATCHED_CONNECTION_SHA256": [], "PATCHED_QUIC_SNIFFER_SHA256": [], "PATCHED_TPROXY_PACKET_SHA256": [], "PATCHED_LOG_SHA256": [], "PATCHED_PROVIDER_HEALTHCHECK_SHA256": [], "PATCHED_PROXY_PROVIDER_SHA256": [], "PATCHED_DHCP_DISCOVERY_SHA256": [], "PATCHED_NTP_SERVICE_SHA256": [], "PATCHED_SOCKS5_SHA256": [], "PATCHED_DNS_OUTBOUND_SHA256": [], "PATCHED_MIXED_SHA256": [], "PATCHED_MIXED_REGISTRY_SHA256": [], "PATCHED_MIXED_UDP_SHA256": [], "PATCHED_MIXED_UDP_REGISTRY_SHA256": [], "PATCHED_LISTENER_SHA256": [], "MIXED_LIFECYCLE_PATCH_SHA256": []}
+    wanted = {"PATCHED_SERVER_SHA256": [], "PATCHED_DNS_RESOLVER_SHA256": [], "PATCHED_DNS_SERVER_SHA256": [], "PATCHED_DNS_DOH_SHA256": [], "PATCHED_DNS_CLIENT_SHA256": [], "PATCHED_DNS_TLS_SHA256": [], "PATCHED_DNS_DHCP_SHA256": [], "PATCHED_DNS_UTIL_SHA256": [], "PATCHED_PROVIDER_FETCHER_SHA256": [], "PATCHED_STATISTICS_SHA256": [], "STATISTICS_PATCH_SHA256": [], "LATE_CONNECTIONS_PATCH_SHA256": [], "PATCHED_LATE_MANAGER_SHA256": [], "PATCHED_TRACKER_SHA256": [], "PATCHED_TUNNEL_SHA256": [], "PATCHED_NAT_TABLE_SHA256": [], "PATCHED_CONNECTION_SHA256": [], "PATCHED_QUIC_SNIFFER_SHA256": [], "PATCHED_TPROXY_PACKET_SHA256": [], "PATCHED_LOG_SHA256": [], "PATCHED_PROVIDER_HEALTHCHECK_SHA256": [], "PATCHED_PROXY_PROVIDER_SHA256": [], "PATCHED_DHCP_DISCOVERY_SHA256": [], "PATCHED_NTP_SERVICE_SHA256": [], "PATCHED_SOCKS5_SHA256": [], "PATCHED_DNS_OUTBOUND_SHA256": [], "PATCHED_MIXED_SHA256": [], "PATCHED_MIXED_REGISTRY_SHA256": [], "PATCHED_MIXED_UDP_SHA256": [], "PATCHED_MIXED_UDP_REGISTRY_SHA256": [], "PATCHED_LISTENER_SHA256": [], "MIXED_LIFECYCLE_PATCH_SHA256": [], "PATCHED_NAMED_MIXED_SHA256": [], "PATCHED_NAMED_MIXED_REGISTRY_SHA256": [], "PATCHED_NAMED_LISTENER_SHA256": [], "NAMED_INBOUND_LIFECYCLE_PATCH_SHA256": []}
     for node in tree.body:
         if isinstance(node, ast.Assign):
             targets = node.targets
@@ -142,7 +145,7 @@ def adapter_values(repo: Path) -> tuple[str, ...]:
     for name, values in wanted.items():
         if len(values) != 1:
             fail(f"upstream adapter must define exactly one {name} constant")
-    return (sha256(path), wanted["PATCHED_SERVER_SHA256"][0], wanted["PATCHED_DNS_RESOLVER_SHA256"][0], wanted["PATCHED_DNS_SERVER_SHA256"][0], wanted["PATCHED_DNS_DOH_SHA256"][0], wanted["PATCHED_DNS_CLIENT_SHA256"][0], wanted["PATCHED_DNS_TLS_SHA256"][0], wanted["PATCHED_DNS_DHCP_SHA256"][0], wanted["PATCHED_DNS_UTIL_SHA256"][0], wanted["PATCHED_PROVIDER_FETCHER_SHA256"][0], wanted["STATISTICS_PATCH_SHA256"][0], wanted["PATCHED_STATISTICS_SHA256"][0], wanted["LATE_CONNECTIONS_PATCH_SHA256"][0], wanted["PATCHED_LATE_MANAGER_SHA256"][0], wanted["PATCHED_TRACKER_SHA256"][0], wanted["PATCHED_TUNNEL_SHA256"][0], wanted["PATCHED_NAT_TABLE_SHA256"][0], wanted["PATCHED_CONNECTION_SHA256"][0], wanted["PATCHED_QUIC_SNIFFER_SHA256"][0], wanted["PATCHED_TPROXY_PACKET_SHA256"][0], wanted["PATCHED_LOG_SHA256"][0], wanted["PATCHED_PROVIDER_HEALTHCHECK_SHA256"][0], wanted["PATCHED_PROXY_PROVIDER_SHA256"][0], wanted["PATCHED_DHCP_DISCOVERY_SHA256"][0], wanted["PATCHED_NTP_SERVICE_SHA256"][0], wanted["PATCHED_SOCKS5_SHA256"][0], wanted["PATCHED_DNS_OUTBOUND_SHA256"][0], wanted["PATCHED_MIXED_SHA256"][0], wanted["PATCHED_MIXED_REGISTRY_SHA256"][0], wanted["PATCHED_MIXED_UDP_SHA256"][0], wanted["PATCHED_MIXED_UDP_REGISTRY_SHA256"][0], wanted["PATCHED_LISTENER_SHA256"][0], wanted["MIXED_LIFECYCLE_PATCH_SHA256"][0])
+    return (sha256(path), wanted["PATCHED_SERVER_SHA256"][0], wanted["PATCHED_DNS_RESOLVER_SHA256"][0], wanted["PATCHED_DNS_SERVER_SHA256"][0], wanted["PATCHED_DNS_DOH_SHA256"][0], wanted["PATCHED_DNS_CLIENT_SHA256"][0], wanted["PATCHED_DNS_TLS_SHA256"][0], wanted["PATCHED_DNS_DHCP_SHA256"][0], wanted["PATCHED_DNS_UTIL_SHA256"][0], wanted["PATCHED_PROVIDER_FETCHER_SHA256"][0], wanted["STATISTICS_PATCH_SHA256"][0], wanted["PATCHED_STATISTICS_SHA256"][0], wanted["LATE_CONNECTIONS_PATCH_SHA256"][0], wanted["PATCHED_LATE_MANAGER_SHA256"][0], wanted["PATCHED_TRACKER_SHA256"][0], wanted["PATCHED_TUNNEL_SHA256"][0], wanted["PATCHED_NAT_TABLE_SHA256"][0], wanted["PATCHED_CONNECTION_SHA256"][0], wanted["PATCHED_QUIC_SNIFFER_SHA256"][0], wanted["PATCHED_TPROXY_PACKET_SHA256"][0], wanted["PATCHED_LOG_SHA256"][0], wanted["PATCHED_PROVIDER_HEALTHCHECK_SHA256"][0], wanted["PATCHED_PROXY_PROVIDER_SHA256"][0], wanted["PATCHED_DHCP_DISCOVERY_SHA256"][0], wanted["PATCHED_NTP_SERVICE_SHA256"][0], wanted["PATCHED_SOCKS5_SHA256"][0], wanted["PATCHED_DNS_OUTBOUND_SHA256"][0], wanted["PATCHED_MIXED_SHA256"][0], wanted["PATCHED_MIXED_REGISTRY_SHA256"][0], wanted["PATCHED_MIXED_UDP_SHA256"][0], wanted["PATCHED_MIXED_UDP_REGISTRY_SHA256"][0], wanted["PATCHED_LISTENER_SHA256"][0], wanted["MIXED_LIFECYCLE_PATCH_SHA256"][0], wanted["PATCHED_NAMED_MIXED_SHA256"][0], wanted["PATCHED_NAMED_MIXED_REGISTRY_SHA256"][0], wanted["PATCHED_NAMED_LISTENER_SHA256"][0], wanted["NAMED_INBOUND_LIFECYCLE_PATCH_SHA256"][0])
 
 
 def manifest_values(repo: Path) -> tuple[str, str, str, dict[str, str]]:
@@ -181,7 +184,7 @@ def manifest_values(repo: Path) -> tuple[str, str, str, dict[str, str]]:
 
 def verify(artifacts_root: Path, repo: Path) -> None:
     version, commit, manifest_tproxy_hash, manifest_hashes = manifest_values(repo)
-    adapter_hash, patched_source_hash, dns_resolver_hash, dns_server_hash, dns_doh_hash, dns_client_hash, dns_tls_hash, dns_dhcp_hash, dns_util_hash, provider_fetcher_hash, statistics_patch_hash, patched_statistics_hash, late_patch_hash, late_manager_hash, tracker_hash, tunnel_hash, nat_table_hash, connection_hash, quic_sniffer_hash, tproxy_packet_hash, log_hash, provider_healthcheck_hash, proxy_provider_hash, dhcp_discovery_hash, ntp_service_hash, socks5_hash, dns_outbound_hash, mixed_hash, mixed_registry_hash, mixed_udp_hash, mixed_udp_registry_hash, listener_hash, mixed_patch_hash = adapter_values(repo)
+    adapter_hash, patched_source_hash, dns_resolver_hash, dns_server_hash, dns_doh_hash, dns_client_hash, dns_tls_hash, dns_dhcp_hash, dns_util_hash, provider_fetcher_hash, statistics_patch_hash, patched_statistics_hash, late_patch_hash, late_manager_hash, tracker_hash, tunnel_hash, nat_table_hash, connection_hash, quic_sniffer_hash, tproxy_packet_hash, log_hash, provider_healthcheck_hash, proxy_provider_hash, dhcp_discovery_hash, ntp_service_hash, socks5_hash, dns_outbound_hash, mixed_hash, mixed_registry_hash, mixed_udp_hash, mixed_udp_registry_hash, listener_hash, mixed_patch_hash, named_mixed_hash, named_mixed_registry_hash, named_listener_hash, named_patch_hash = adapter_values(repo)
     if manifest_tproxy_hash != tproxy_packet_hash:
         fail(f"Kotlin manifest TProxy packet SHA-256 mismatch: manifest {manifest_tproxy_hash}, adapter {tproxy_packet_hash}")
     actual_statistics_patch_hash = sha256(repo / STATISTICS_PATCH_PATH)
@@ -272,7 +275,7 @@ def verify(artifacts_root: Path, repo: Path) -> None:
             fail(f"provenance {abi} dnsDoH path mismatch")
         if require_hash(dns_doh, "sha256", f"provenance.dnsDoH {abi}") != dns_doh_hash:
             fail(f"provenance {abi} dnsDoH SHA-256 mismatch")
-        for name, relative, expected in (("dnsClient", DNS_CLIENT_PATH, dns_client_hash), ("dnsTLS", DNS_TLS_PATH, dns_tls_hash), ("dnsDHCP", DNS_DHCP_PATH, dns_dhcp_hash), ("dnsUtil", DNS_UTIL_PATH, dns_util_hash), ("dhcpDiscovery", DHCP_DISCOVERY_PATH, dhcp_discovery_hash), ("ntpService", NTP_SERVICE_PATH, ntp_service_hash), ("socks5Association", SOCKS5_ASSOCIATION_PATH, socks5_hash), ("dnsOutbound", DNS_OUTBOUND_PATH, dns_outbound_hash), ("mixedListener", MIXED_LISTENER_PATH, mixed_hash), ("mixedListenerRegistry", MIXED_LISTENER_REGISTRY_PATH, mixed_registry_hash), ("mixedUDPListener", MIXED_UDP_LISTENER_PATH, mixed_udp_hash), ("mixedUDPRegistry", MIXED_UDP_REGISTRY_PATH, mixed_udp_registry_hash), ("inboundListener", INBOUND_LISTENER_PATH, listener_hash)):
+        for name, relative, expected in (("dnsClient", DNS_CLIENT_PATH, dns_client_hash), ("dnsTLS", DNS_TLS_PATH, dns_tls_hash), ("dnsDHCP", DNS_DHCP_PATH, dns_dhcp_hash), ("dnsUtil", DNS_UTIL_PATH, dns_util_hash), ("dhcpDiscovery", DHCP_DISCOVERY_PATH, dhcp_discovery_hash), ("ntpService", NTP_SERVICE_PATH, ntp_service_hash), ("socks5Association", SOCKS5_ASSOCIATION_PATH, socks5_hash), ("dnsOutbound", DNS_OUTBOUND_PATH, dns_outbound_hash), ("mixedListener", MIXED_LISTENER_PATH, mixed_hash), ("mixedListenerRegistry", MIXED_LISTENER_REGISTRY_PATH, mixed_registry_hash), ("mixedUDPListener", MIXED_UDP_LISTENER_PATH, mixed_udp_hash), ("mixedUDPRegistry", MIXED_UDP_REGISTRY_PATH, mixed_udp_registry_hash), ("namedMixedListener", NAMED_MIXED_LISTENER_PATH, named_mixed_hash), ("namedMixedRegistry", NAMED_MIXED_REGISTRY_PATH, named_mixed_registry_hash), ("inboundListener", INBOUND_LISTENER_PATH, named_listener_hash)):
             evidence = require_object(record, name, f"provenance {abi}")
             if require(evidence, "path", f"provenance.{name} {abi}") != relative:
                 fail(f"provenance {abi} {name} path mismatch")
@@ -298,6 +301,11 @@ def verify(artifacts_root: Path, repo: Path) -> None:
             fail(f"provenance {abi} statistics patchedSource path mismatch")
         if require_hash(patched_statistics, "sha256", f"provenance.statisticsPatch.patchedSource {abi}") != late_manager_hash:
             fail(f"provenance {abi} statistics patchedSource SHA-256 mismatch")
+        named_adapter = require_object(record, "namedInboundAdapter", f"provenance {abi}")
+        if require(named_adapter, "path", f"provenance.namedInboundAdapter {abi}") != NAMED_INBOUND_LIFECYCLE_PATCH_PATH:
+            fail(f"provenance {abi} namedInboundAdapter path mismatch")
+        if require_hash(named_adapter, "sha256", f"provenance.namedInboundAdapter {abi}") != named_patch_hash:
+            fail(f"provenance {abi} namedInboundAdapter SHA-256 mismatch")
         mixed_adapter = require_object(record, "mixedListenerAdapter", f"provenance {abi}")
         if require(mixed_adapter, "path", f"provenance.mixedListenerAdapter {abi}") != MIXED_LIFECYCLE_PATCH_PATH:
             fail(f"provenance {abi} mixedListenerAdapter path mismatch")

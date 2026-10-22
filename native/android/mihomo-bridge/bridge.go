@@ -40,6 +40,7 @@ import (
 	"github.com/metacubex/mihomo/dns"
 	"github.com/metacubex/mihomo/hub/executor"
 	LC "github.com/metacubex/mihomo/listener/config"
+	namedinbound "github.com/metacubex/mihomo/listener/inbound"
 	"github.com/metacubex/mihomo/listener/mixed"
 	"github.com/metacubex/mihomo/listener/sing_tun"
 	"github.com/metacubex/mihomo/listener/socks"
@@ -202,6 +203,9 @@ func applyAndroidConfigJSONAtGeneration(data []byte, generation uint64) error {
 	if androidRuntime.mixedCleanupPending {
 		return errAndroidMixedCleanupPending
 	}
+	if androidRuntime.namedCleanupPending {
+		return errAndroidNamedCleanupPending
+	}
 	if androidRuntime.resourceCleanupPending {
 		return errAndroidResourceCleanupPending
 	}
@@ -256,6 +260,9 @@ func updateAndroidDNSAtGeneration(dns string, generation uint64) error {
 	}
 	if androidRuntime.mixedCleanupPending {
 		return errAndroidMixedCleanupPending
+	}
+	if androidRuntime.namedCleanupPending {
+		return errAndroidNamedCleanupPending
 	}
 	if androidRuntime.resourceCleanupPending {
 		return errAndroidResourceCleanupPending
@@ -325,7 +332,7 @@ func startAndroidTUNWithConstructor(fd int, stack, address, dns string, generati
 
 	// Fetcher.Close is irreversible. A fresh apply/DNS reparse must construct
 	// new providers before attaching again; never reopen a stopped generation.
-	if androidRuntime.providersStopped || androidRuntime.resolversStopped || androidRuntime.dnsCleanupPending || androidRuntime.ntpCleanupPending || androidRuntime.resourceCleanupPending || androidRuntime.mixedCleanupPending {
+	if androidRuntime.providersStopped || androidRuntime.resolversStopped || androidRuntime.dnsCleanupPending || androidRuntime.ntpCleanupPending || androidRuntime.namedCleanupPending || androidRuntime.resourceCleanupPending || androidRuntime.mixedCleanupPending {
 		return false
 	}
 	tunnel.OnSuspend()
@@ -515,6 +522,21 @@ func stopAndroidMixed(timeout time.Duration) error {
 	return err
 }
 
+const androidNamedDrainTimeout = 2 * time.Second
+
+var errAndroidNamedCleanupPending = errors.New("named mixed inbound cleanup pending; retry stop before applying configuration")
+
+// Exclusive to explicit stop: attachment replacement follows apply and must not
+// cancel newly applied named ingress. This joins named mixed TCP accept and
+// synchronous ingress handlers, not all inbound protocols or complete shutdown.
+func stopAndroidNamed(timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	err := namedinbound.StopNamedMixed(ctx)
+	androidRuntime.namedCleanupPending = err != nil
+	return err
+}
+
 func stopTunError() error {
 	// Reject and drain socket hooks even if config.Parse/ApplyConfig currently
 	// holds the control mutex. This does not cancel parsing or completed hooks.
@@ -533,11 +555,12 @@ func stopTunError() error {
 	dnsErr := stopAndroidDNS(androidDNSDrainTimeout)
 	ntpErr := stopAndroidNTP(androidNTPDrainTimeout)
 	mixedErr := stopAndroidMixed(androidMixedDrainTimeout)
+	namedErr := stopAndroidNamed(androidNamedDrainTimeout)
 	resourceErr := closeAndroidResources()
 	// Other components may already be clean. Preserve this independent debt even
 	// after pendingStops becomes zero; only explicit stop retries acknowledge it.
 	androidRuntime.resourceCleanupPending = resourceErr != nil
-	return errors.Join(providerErr, dnsErr, ntpErr, mixedErr, resourceErr)
+	return errors.Join(providerErr, dnsErr, ntpErr, mixedErr, namedErr, resourceErr)
 }
 
 //export angelaStopTun
