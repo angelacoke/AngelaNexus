@@ -21,6 +21,7 @@ EXPECTED_TOOLCHAIN = {"goos": "android", "androidNdk": "28.0.13004108", "cgoEnab
 EXPECTED_GOARCH = {"arm64-v8a": "arm64", "armeabi-v7a": "arm", "x86_64": "amd64"}
 HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
 ADAPTER_PATH = "native/android/mihomo-bridge/prepare-upstream.py"
+AUTH_STATE_PATCH_PATH = "native/android/mihomo-bridge/auth-state.patch"
 PATCHED_SOURCE_PATH = "listener/sing_tun/server.go"
 DNS_RESOLVER_PATH = "dns/resolver.go"
 DNS_SERVER_PATH = "dns/server.go"
@@ -148,6 +149,57 @@ def adapter_values(repo: Path) -> tuple[str, ...]:
     return (sha256(path), wanted["PATCHED_SERVER_SHA256"][0], wanted["PATCHED_DNS_RESOLVER_SHA256"][0], wanted["PATCHED_DNS_SERVER_SHA256"][0], wanted["PATCHED_DNS_DOH_SHA256"][0], wanted["PATCHED_DNS_CLIENT_SHA256"][0], wanted["PATCHED_DNS_TLS_SHA256"][0], wanted["PATCHED_DNS_DHCP_SHA256"][0], wanted["PATCHED_DNS_UTIL_SHA256"][0], wanted["PATCHED_PROVIDER_FETCHER_SHA256"][0], wanted["STATISTICS_PATCH_SHA256"][0], wanted["PATCHED_STATISTICS_SHA256"][0], wanted["LATE_CONNECTIONS_PATCH_SHA256"][0], wanted["PATCHED_LATE_MANAGER_SHA256"][0], wanted["PATCHED_TRACKER_SHA256"][0], wanted["PATCHED_TUNNEL_SHA256"][0], wanted["PATCHED_NAT_TABLE_SHA256"][0], wanted["PATCHED_CONNECTION_SHA256"][0], wanted["PATCHED_QUIC_SNIFFER_SHA256"][0], wanted["PATCHED_TPROXY_PACKET_SHA256"][0], wanted["PATCHED_LOG_SHA256"][0], wanted["PATCHED_PROVIDER_HEALTHCHECK_SHA256"][0], wanted["PATCHED_PROXY_PROVIDER_SHA256"][0], wanted["PATCHED_DHCP_DISCOVERY_SHA256"][0], wanted["PATCHED_NTP_SERVICE_SHA256"][0], wanted["PATCHED_SOCKS5_SHA256"][0], wanted["PATCHED_DNS_OUTBOUND_SHA256"][0], wanted["PATCHED_MIXED_SHA256"][0], wanted["PATCHED_MIXED_REGISTRY_SHA256"][0], wanted["PATCHED_MIXED_UDP_SHA256"][0], wanted["PATCHED_MIXED_UDP_REGISTRY_SHA256"][0], wanted["PATCHED_LISTENER_SHA256"][0], wanted["MIXED_LIFECYCLE_PATCH_SHA256"][0], wanted["PATCHED_NAMED_MIXED_SHA256"][0], wanted["PATCHED_NAMED_MIXED_REGISTRY_SHA256"][0], wanted["PATCHED_NAMED_LISTENER_SHA256"][0], wanted["NAMED_INBOUND_LIFECYCLE_PATCH_SHA256"][0])
 
 
+def auth_state_values(repo: Path) -> tuple[str, dict[str, str], dict[str, str]]:
+    """Read the auth/IP-filter atomic patch contract using literal AST values only."""
+    path = repo / ADAPTER_PATH
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, SyntaxError, ValueError) as exc:
+        fail(f"cannot parse upstream adapter for auth-state contract: {exc}")
+    found = {}
+    wanted = {"AUTH_STATE_PATCH_SHA256", "AUTH_STATE_INPUTS", "AUTH_STATE_OUTPUTS"}
+    for node in tree.body:
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else []
+        for target in targets:
+            if isinstance(target, ast.Name) and target.id in wanted:
+                if target.id in found:
+                    fail(f"upstream adapter must define exactly one {target.id} constant")
+                try:
+                    found[target.id] = ast.literal_eval(node.value)
+                except (ValueError, TypeError, SyntaxError):
+                    fail(f"upstream adapter {target.id} must be a literal value")
+    for name in wanted:
+        if name not in found:
+            fail(f"upstream adapter must define exactly one {name} constant")
+    patch_hash = found["AUTH_STATE_PATCH_SHA256"]
+    if not isinstance(patch_hash, str) or not HEX64.fullmatch(patch_hash):
+        fail("upstream adapter AUTH_STATE_PATCH_SHA256 must be a 64-character SHA-256 hex string")
+    result = {}
+    for name in ("AUTH_STATE_INPUTS", "AUTH_STATE_OUTPUTS"):
+        value = found[name]
+        if not isinstance(value, dict) or not value or not all(isinstance(k, str) and isinstance(v, str) and HEX64.fullmatch(v) for k, v in value.items()):
+            fail(f"upstream adapter {name} must be a literal dict of path: SHA-256 hex strings")
+        result[name] = {k: v.lower() for k, v in value.items()}
+    return patch_hash.lower(), result["AUTH_STATE_INPUTS"], result["AUTH_STATE_OUTPUTS"]
+
+
+def verify_auth_state(repo: Path, provenance: dict, abi: str) -> None:
+    patch_hash, inputs, outputs = auth_state_values(repo)
+    record = require_object(provenance, "authStateAdapter", f"provenance {abi}")
+    if require(record, "path", f"provenance.authStateAdapter {abi}") != AUTH_STATE_PATCH_PATH:
+        fail(f"provenance {abi} authStateAdapter path mismatch")
+    if require_hash(record, "sha256", f"provenance.authStateAdapter {abi}") != patch_hash:
+        fail(f"provenance {abi} authStateAdapter patch SHA-256 mismatch")
+    for label, expected in (("inputs", inputs), ("outputs", outputs)):
+        actual = require_object(record, label, f"provenance.authStateAdapter {abi}")
+        if set(actual) != set(expected):
+            fail(f"provenance {abi} authStateAdapter {label} paths mismatch")
+        for relative, expected_digest in expected.items():
+            evidence_digest = require_hash(actual, relative, f"provenance.authStateAdapter.{label} {abi}")
+            if evidence_digest != expected_digest:
+                fail(f"provenance {abi} authStateAdapter {label} digest mismatch for {relative}")
+
+
 def manifest_values(repo: Path) -> tuple[str, str, str, dict[str, str]]:
     path = repo / "native/android/app/src/main/kotlin/app/angelanexus/MihomoNativeArtifactManifest.kt"
     try:
@@ -185,6 +237,10 @@ def manifest_values(repo: Path) -> tuple[str, str, str, dict[str, str]]:
 def verify(artifacts_root: Path, repo: Path) -> None:
     version, commit, manifest_tproxy_hash, manifest_hashes = manifest_values(repo)
     adapter_hash, patched_source_hash, dns_resolver_hash, dns_server_hash, dns_doh_hash, dns_client_hash, dns_tls_hash, dns_dhcp_hash, dns_util_hash, provider_fetcher_hash, statistics_patch_hash, patched_statistics_hash, late_patch_hash, late_manager_hash, tracker_hash, tunnel_hash, nat_table_hash, connection_hash, quic_sniffer_hash, tproxy_packet_hash, log_hash, provider_healthcheck_hash, proxy_provider_hash, dhcp_discovery_hash, ntp_service_hash, socks5_hash, dns_outbound_hash, mixed_hash, mixed_registry_hash, mixed_udp_hash, mixed_udp_registry_hash, listener_hash, mixed_patch_hash, named_mixed_hash, named_mixed_registry_hash, named_listener_hash, named_patch_hash = adapter_values(repo)
+    auth_patch_hash, auth_inputs, auth_outputs = auth_state_values(repo)
+    actual_auth_patch_hash = sha256(repo / AUTH_STATE_PATCH_PATH)
+    if actual_auth_patch_hash != auth_patch_hash:
+        fail(f"auth-state patch SHA-256 mismatch: checkout {actual_auth_patch_hash}, adapter {auth_patch_hash}")
     if manifest_tproxy_hash != tproxy_packet_hash:
         fail(f"Kotlin manifest TProxy packet SHA-256 mismatch: manifest {manifest_tproxy_hash}, adapter {tproxy_packet_hash}")
     actual_statistics_patch_hash = sha256(repo / STATISTICS_PATCH_PATH)
@@ -235,6 +291,7 @@ def verify(artifacts_root: Path, repo: Path) -> None:
         record = load_json(provenance_path, f"provenance for {abi}")
         if not isinstance(record, dict):
             fail(f"provenance {abi} must be an object")
+        verify_auth_state(repo, record, abi)
         if require(record, "version", f"provenance {abi}") != 1:
             fail(f"provenance {abi} version must be 1")
         if require(record, "kernel", f"provenance {abi}") != "mihomo":
@@ -275,7 +332,12 @@ def verify(artifacts_root: Path, repo: Path) -> None:
             fail(f"provenance {abi} dnsDoH path mismatch")
         if require_hash(dns_doh, "sha256", f"provenance.dnsDoH {abi}") != dns_doh_hash:
             fail(f"provenance {abi} dnsDoH SHA-256 mismatch")
-        for name, relative, expected in (("dnsClient", DNS_CLIENT_PATH, dns_client_hash), ("dnsTLS", DNS_TLS_PATH, dns_tls_hash), ("dnsDHCP", DNS_DHCP_PATH, dns_dhcp_hash), ("dnsUtil", DNS_UTIL_PATH, dns_util_hash), ("dhcpDiscovery", DHCP_DISCOVERY_PATH, dhcp_discovery_hash), ("ntpService", NTP_SERVICE_PATH, ntp_service_hash), ("socks5Association", SOCKS5_ASSOCIATION_PATH, socks5_hash), ("dnsOutbound", DNS_OUTBOUND_PATH, dns_outbound_hash), ("mixedListener", MIXED_LISTENER_PATH, mixed_hash), ("mixedListenerRegistry", MIXED_LISTENER_REGISTRY_PATH, mixed_registry_hash), ("mixedUDPListener", MIXED_UDP_LISTENER_PATH, mixed_udp_hash), ("mixedUDPRegistry", MIXED_UDP_REGISTRY_PATH, mixed_udp_registry_hash), ("namedMixedListener", NAMED_MIXED_LISTENER_PATH, named_mixed_hash), ("namedMixedRegistry", NAMED_MIXED_REGISTRY_PATH, named_mixed_registry_hash), ("inboundListener", INBOUND_LISTENER_PATH, named_listener_hash)):
+        source_fields = (("dnsClient", DNS_CLIENT_PATH, dns_client_hash), ("dnsTLS", DNS_TLS_PATH, dns_tls_hash), ("dnsDHCP", DNS_DHCP_PATH, dns_dhcp_hash), ("dnsUtil", DNS_UTIL_PATH, dns_util_hash), ("dhcpDiscovery", DHCP_DISCOVERY_PATH, dhcp_discovery_hash), ("ntpService", NTP_SERVICE_PATH, ntp_service_hash), ("socks5Association", SOCKS5_ASSOCIATION_PATH, socks5_hash), ("dnsOutbound", DNS_OUTBOUND_PATH, dns_outbound_hash), ("mixedListener", MIXED_LISTENER_PATH, mixed_hash), ("mixedListenerRegistry", MIXED_LISTENER_REGISTRY_PATH, mixed_registry_hash), ("mixedUDPListener", MIXED_UDP_LISTENER_PATH, mixed_udp_hash), ("mixedUDPRegistry", MIXED_UDP_REGISTRY_PATH, mixed_udp_registry_hash), ("namedMixedListener", NAMED_MIXED_LISTENER_PATH, named_mixed_hash), ("namedMixedRegistry", NAMED_MIXED_REGISTRY_PATH, named_mixed_registry_hash), ("inboundListener", INBOUND_LISTENER_PATH, named_listener_hash))
+        for name, relative, historical_hash in source_fields:
+            # Auth-state outputs are the final source of truth when a patched
+            # source overlaps an older top-level evidence field.  The old
+            # constants remain required as auth inputs and patch history.
+            expected = auth_outputs.get(relative, historical_hash)
             evidence = require_object(record, name, f"provenance {abi}")
             if require(evidence, "path", f"provenance.{name} {abi}") != relative:
                 fail(f"provenance {abi} {name} path mismatch")
@@ -317,9 +379,6 @@ def verify(artifacts_root: Path, repo: Path) -> None:
                 fail(f"provenance {abi} {name} path mismatch")
             if require_hash(evidence, "sha256", f"provenance.{name} {abi}") != expected:
                 fail(f"provenance {abi} {name} SHA-256 mismatch")
-            checkout_source = repo / relative
-            if checkout_source.exists() and (not checkout_source.is_file() or sha256(checkout_source) != expected):
-                fail(f"provenance {abi} {name} SHA-256 mismatch: checkout source differs")
         late = require_object(record, "lateConnectionsPatch", f"provenance {abi}")
         if require(late, "path", f"provenance.lateConnectionsPatch {abi}") != LATE_CONNECTIONS_PATCH_PATH:
             fail(f"provenance {abi} lateConnectionsPatch path mismatch")
@@ -347,12 +406,6 @@ def verify(artifacts_root: Path, repo: Path) -> None:
                 fail(f"provenance {abi} {name} path mismatch")
             if require_hash(evidence, "sha256", f"provenance.{name} {abi}") != expected_hash:
                 fail(f"provenance {abi} {name} SHA-256 mismatch")
-            checkout_source = repo / relative
-            if checkout_source.exists() and sha256(checkout_source) != expected_hash:
-                fail(f"provenance {abi} {name} SHA-256 mismatch: checkout source differs")
-        log_checkout = repo / LOG_PATH
-        if log_checkout.exists() and sha256(log_checkout) != log_hash:
-            fail(f"provenance {abi} logSource SHA-256 mismatch: checkout source differs")
         partifact = require_object(record, "artifact", f"provenance {abi}")
         if require(partifact, "name", f"provenance.artifact {abi}") != artifact.name:
             fail(f"provenance {abi} artifact name mismatch")

@@ -8,6 +8,11 @@ on:
       - "native/android/**"
       - "scripts/smoke-mihomo-library.py"
       - "scripts/verify-mihomo-native-artifacts.py"
+      - "test/mihomo-native-artifacts.test.js"
+      - "test/mihomo-auth-state.test.js"
+      - "test/mihomo-late-connections.test.js"
+      - "test/mihomo-library-entry.test.js"
+      - "test/mihomo-named-udp.test.js"
 
 permissions:
   contents: read
@@ -125,6 +130,8 @@ jobs:
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/log_level_integration_test.go" ./log/angelanexus_log_level_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/socks5_lifecycle_integration_test.go" ./adapter/outbound/angelanexus_socks5_lifecycle_integration_test.go
           cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/dns_outbound_lifecycle_integration_test.go" ./adapter/outbound/angelanexus_dns_outbound_lifecycle_integration_test.go
+          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/auth_state_integration_test.go" ./adapter/inbound/angelanexus_auth_state_integration_test.go
+          cp "$GITHUB_WORKSPACE/native/android/mihomo-bridge/bridge_auth_state_integration_test.go" ./angelanexus_android/bridge_auth_state_integration_test.go
           # go test exits successfully for an empty -run selection: reject it.
           go test -tags=with_gvisor,cmfa -list '^TestAngelaNexusNATLocal' ./component/nat | grep '^TestAngelaNexusNATLocal'
           go test -race -tags=with_gvisor,cmfa -run '^TestAngelaNexusNATLocal' -count=20 -timeout=90s ./component/nat
@@ -179,6 +186,11 @@ jobs:
           python3 "$GITHUB_WORKSPACE/native/android/mihomo-bridge/test-mixed-stop.py" "$PWD" --logs "$RUNNER_TEMP/mixed-stop-negative"
           python3 "$GITHUB_WORKSPACE/native/android/mihomo-bridge/test-named-inbound-stop.py" "$PWD" --logs "$RUNNER_TEMP/named-inbound-stop-negative"
           python3 "$GITHUB_WORKSPACE/native/android/mihomo-bridge/test-named-udp-stop.py" "$PWD" --logs "$RUNNER_TEMP/named-udp-stop-negative"
+          go test -list '^TestAngelaNexusAuthState' ./adapter/inbound | grep '^TestAngelaNexusAuthState'
+          go test -tags=with_gvisor,cmfa -list '^TestAndroidBridgeAuthState' ./angelanexus_android | grep '^TestAndroidBridgeAuthState'
+          go test -race -run '^TestAngelaNexusAuthState' -count=20 -timeout=120s ./adapter/inbound
+          go test -race -tags=with_gvisor,cmfa -run '^TestAndroidBridgeAuthState' -count=20 -timeout=120s ./angelanexus_android
+          python3 "$GITHUB_WORKSPACE/native/android/mihomo-bridge/test-auth-state.py" "$PWD" --logs "$RUNNER_TEMP/auth-state-negative"
           python3 "$GITHUB_WORKSPACE/native/android/mihomo-bridge/test-mixed-udp-stop.py" "$PWD" --logs "$RUNNER_TEMP/mixed-udp-stop-negative"
           # Test the entire dedicated package that the NDK build consumes.
           go test -race -tags=with_gvisor,cmfa -run '^TestAndroidBridge' -count=1 -timeout=90s -v ./angelanexus_android
@@ -245,6 +257,7 @@ jobs:
           LIFECYCLE_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/lifecycle.go" | awk '{print $1}')"
           LIBRARY_ENTRY_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/library.go" | awk '{print $1}')"
           ADAPTER_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/prepare-upstream.py" | awk '{print $1}')"
+          AUTH_STATE_PATCH_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/auth-state.patch" | awk '{print $1}')"
           MIXED_LIFECYCLE_PATCH_SHA256="$(sha256sum "$GITHUB_WORKSPACE/native/android/mihomo-bridge/mixed-lifecycle.patch" | awk '{print $1}')"
           PATCHED_MIXED_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/listener/mixed/mixed.go" | awk '{print $1}')"
           PATCHED_MIXED_REGISTRY_SHA256="$(sha256sum "$RUNNER_TEMP/mihomo/listener/mixed/lifecycle.go" | awk '{print $1}')"
@@ -288,8 +301,34 @@ jobs:
           SOURCE_HEAD="$(git -C "$RUNNER_TEMP/mihomo" rev-parse HEAD)"
           test "$SOURCE_HEAD" = "$MIHOMO_COMMIT"
           python3 - <<PY
+          import ast
+          import hashlib
           import json
           from pathlib import Path
+
+          def sha256(path):
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+          prepare = Path("$GITHUB_WORKSPACE/native/android/mihomo-bridge/prepare-upstream.py")
+          tree = ast.parse(prepare.read_text(encoding="utf-8"), filename=str(prepare))
+          contract = {}
+          for node in tree.body:
+              targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else []
+              for target in targets:
+                  if isinstance(target, ast.Name) and target.id in {"AUTH_STATE_PATCH_SHA256", "AUTH_STATE_INPUTS", "AUTH_STATE_OUTPUTS"}:
+                      if target.id in contract:
+                          raise SystemExit(f"duplicate auth-state constant: {target.id}")
+                      contract[target.id] = ast.literal_eval(node.value)
+          if set(contract) != {"AUTH_STATE_PATCH_SHA256", "AUTH_STATE_INPUTS", "AUTH_STATE_OUTPUTS"}:
+              raise SystemExit("missing auth-state prepare constants")
+          auth_inputs = dict(contract["AUTH_STATE_INPUTS"])
+          auth_outputs = dict(contract["AUTH_STATE_OUTPUTS"])
+          if contract["AUTH_STATE_PATCH_SHA256"] != "$AUTH_STATE_PATCH_SHA256":
+              raise SystemExit("auth-state patch hash disagrees with prepare contract")
+          for path, expected in auth_outputs.items():
+              actual = sha256(Path("$RUNNER_TEMP/mihomo") / path)
+              if actual != expected:
+                  raise SystemExit(f"auth-state final output digest mismatch: {path}")
+          auth_state_adapter = {"path": "native/android/mihomo-bridge/auth-state.patch", "sha256": contract["AUTH_STATE_PATCH_SHA256"], "inputs": auth_inputs, "outputs": auth_outputs}
           out = Path("$RUNNER_TEMP/mihomo-provenance-${{ matrix.abi }}.json")
           data = {
               "version": 1,
@@ -304,6 +343,7 @@ jobs:
               "lifecycle": {"path": "native/android/mihomo-bridge/lifecycle.go", "sha256": "$LIFECYCLE_SHA256"},
               "libraryEntry": {"path": "native/android/mihomo-bridge/library.go", "sha256": "$LIBRARY_ENTRY_SHA256"},
               "ownershipAdapter": {"path": "native/android/mihomo-bridge/prepare-upstream.py", "sha256": "$ADAPTER_SHA256", "patchedSource": {"path": "listener/sing_tun/server.go", "sha256": "$PATCHED_SERVER_SHA256"}},
+              "authStateAdapter": auth_state_adapter,
               "dnsResolver": {"path": "dns/resolver.go", "sha256": "$PATCHED_DNS_RESOLVER_SHA256"},
               "dnsServer": {"path": "dns/server.go", "sha256": "$PATCHED_DNS_SERVER_SHA256"},
               "dnsDoH": {"path": "dns/doh.go", "sha256": "$PATCHED_DNS_DOH_SHA256"},

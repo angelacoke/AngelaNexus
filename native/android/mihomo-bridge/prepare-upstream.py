@@ -17,8 +17,35 @@ from pathlib import Path
 
 COMMIT = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36"
 SING_TUN_VERSION = "v0.4.27"
+AUTH_STATE_PATCH_SHA256 = "cf70485d53a7059a0396cda177a84179ed22bb27bde8bd9b2a16bdf1979db6b2"
+AUTH_STATE_INPUTS = {
+ "adapter/inbound/auth.go": "7bf77f4ab816f5e08feab3484d522f9c0ff3fea8149288d5e03682885dfa18af",
+ "adapter/inbound/ipfilter.go": "ee87266cee609fb3799907b907cd4b26036d97c1fd54af80528af2b4cbc69ac0",
+ "adapter/inbound/auth_state.go": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+ "listener/auth/auth.go": "b905164191c08b3b20379ae8b8c2ce99711a4a537133f4e9e736233f3ae042df",
+ "listener/mixed/mixed.go": "5547c95db4f622abf6e182e54ba3bea9bd7feaedd9947b96d7a63e60d7167c3d",
+ "listener/socks/tcp.go": "61d411da10f090208e6c1f14cd06487a7b48458dc6011a45cd88a9950b1dfe41",
+ "listener/http/server.go": "421297167a40ef3cc090d3d0939680971d5f7d6eb121c64c596880ed7c8ecd28",
+ "hub/executor/executor.go": "183595fd58704d60d2137463e751938c1a02a23b57ef1d977b647e3640b64849",
+}
+AUTH_STATE_OUTPUTS = {
+    "adapter/inbound/auth.go": "a9608905aadf1881d70c982334de86892a5be170d0c3d722f7b71b0ceda88134",
+    "adapter/inbound/ipfilter.go": "b6625bbaafd7c7774f0d09601305ee4bcc1a6c3db5bee6d0c9f4f102bb240481",
+    "adapter/inbound/auth_state.go": "048944195c9650f437bc66b9ac4b7cc693189d24910ba0d87976ff965b32e01f",
+    "listener/auth/auth.go": "1fbdc72752cd540580d1e3394417c5db4a2c380d4bc210d9360224e1aaedd99c",
+    "listener/mixed/mixed.go": "7b794922754080e34717311f6b7fdc6220c4f72f96e70481f9b5144b34e40f63",
+    "listener/socks/tcp.go": "42b0185ba4cf0feef085243201310f8b0b425135a342d9ca1b6bf8ffb0394ac4",
+    "listener/http/server.go": "1b3738f1430540047496b28d403e03164e398d6a83b7da8c300c4d452f79ccbe",
+    "hub/executor/executor.go": "c10a801f5be41a5da3483a146f0e54619324d6b78fc1d44d50b95aff2fd5939c"
+}
 # Hashes are of the pristine pinned checkout/module files, before this adapter.
 EXPECTED = {
+    'adapter/inbound/auth.go': '7bf77f4ab816f5e08feab3484d522f9c0ff3fea8149288d5e03682885dfa18af',
+    'adapter/inbound/ipfilter.go': 'ee87266cee609fb3799907b907cd4b26036d97c1fd54af80528af2b4cbc69ac0',
+    'listener/auth/auth.go': 'b905164191c08b3b20379ae8b8c2ce99711a4a537133f4e9e736233f3ae042df',
+    'listener/socks/tcp.go': '61d411da10f090208e6c1f14cd06487a7b48458dc6011a45cd88a9950b1dfe41',
+    'listener/http/server.go': '421297167a40ef3cc090d3d0939680971d5f7d6eb121c64c596880ed7c8ecd28',
+    'hub/executor/executor.go': '183595fd58704d60d2137463e751938c1a02a23b57ef1d977b647e3640b64849',
     "listener/inbound/mixed.go": "682a911588dd8e74cecfe0b480d25d35f6a0a7d0ab96273d80d087fcd0361a03",
     "listener/socks/udp.go": "2c629a54fdc4b11e8549b75ae7b0efae1370b0d12ec3b56317c11207a816cf3c",
     "listener/mixed/mixed.go": "dcc7a92d339611f5c173f1c533db4e21c496ef8effc15374f7889dbec388eb18",
@@ -164,6 +191,7 @@ def verify_source(root: Path) -> None:
         "dns/util.go": PATCHED_DNS_UTIL_SHA256,
         "component/dhcp/dhcp.go": PATCHED_DHCP_DISCOVERY_SHA256,
     }
+    extra_source_hashes.update(AUTH_STATE_OUTPUTS)
     dns_server = root / "dns/server.go"
     dns_server_hash = sha256(dns_server) if dns_server.is_file() else None
     dns_resolver = root / "dns/resolver.go"
@@ -178,6 +206,8 @@ def verify_source(root: Path) -> None:
     log_hash = sha256(log_source) if log_source.is_file() else None
     # Existing adapter output is allowed only when it is exactly our output.
     allowed = {
+        "adapter/inbound/angelanexus_auth_state_integration_test.go",
+        "angelanexus_android/bridge_auth_state_integration_test.go",
         "listener/inbound/angelanexus_named_inbound_lifecycle_integration_test.go",
         "listener/angelanexus_named_recreate_integration_test.go",
         "angelanexus_android/bridge_named_inbound_integration_test.go",
@@ -219,6 +249,8 @@ def verify_source(root: Path) -> None:
     for line in dirty.splitlines():
         path = line[3:] if len(line) >= 4 else ""
         if path == "listener/listener.go" and sha256(root / path) == PATCHED_NAMED_LISTENER_SHA256:
+            continue
+        if path in AUTH_STATE_INPUTS and (root / path).is_file() and sha256(root / path) == AUTH_STATE_INPUTS[path]:
             continue
         if path in extra_source_hashes and sha256(root / path) == extra_source_hashes[path]:
             continue
@@ -263,6 +295,8 @@ def verify_source(root: Path) -> None:
         actual_hash = sha256(path)
         if actual_hash != expected:
             if rel == "listener/listener.go" and actual_hash == PATCHED_NAMED_LISTENER_SHA256:
+                continue
+            if rel in AUTH_STATE_INPUTS and actual_hash == AUTH_STATE_INPUTS[rel]:
                 continue
             if rel in extra_source_hashes and actual_hash == extra_source_hashes[rel]:
                 continue
@@ -494,6 +528,7 @@ def apply_mixed(root: Path) -> None:
              "listener/socks/udp.go": PATCHED_MIXED_UDP_SHA256,
              "listener/socks/udp_lifecycle.go": PATCHED_MIXED_UDP_REGISTRY_SHA256}
     if all((root / rel).is_file() and (sha256(root / rel) == digest or
+           (rel in AUTH_STATE_OUTPUTS and sha256(root / rel) == AUTH_STATE_OUTPUTS[rel]) or
            (rel == "listener/listener.go" and sha256(root / rel) == PATCHED_NAMED_LISTENER_SHA256))
            for rel, digest in paths.items()):
         return
@@ -574,6 +609,49 @@ def apply_named(root: Path) -> None:
     for rel, content in outputs.items():
         (root / rel).write_bytes(content)
 
+def apply_auth_state(root: Path) -> None:
+    patch = Path(__file__).with_name("auth-state.patch")
+    if not patch.is_file() or sha256(patch) != AUTH_STATE_PATCH_SHA256:
+        fail("auth-state.patch does not match the reviewed patch digest")
+    if all((root / rel).is_file() and sha256(root / rel) == digest
+           for rel, digest in AUTH_STATE_OUTPUTS.items()):
+        return
+    empty_digest = hashlib.sha256(b"").hexdigest()
+    for rel, digest in AUTH_STATE_INPUTS.items():
+        path = root / rel
+        if digest == empty_digest:
+            if path.exists():
+                fail(f"auth-state new path must be absent: {rel}")
+        elif not path.is_file() or sha256(path) != digest:
+            fail(f"auth-state input mismatch: {rel}")
+    import re
+    sections = [part for part in re.split(r"(?m)(?=^--- )", patch.read_text()) if part]
+    if len(sections) != len(AUTH_STATE_OUTPUTS):
+        fail("auth-state patch must contain exactly the reviewed source sections")
+    outputs = {}
+    with tempfile.TemporaryDirectory(prefix="angelanexus-auth-state-") as tmp:
+        empty = Path(tmp) / "empty"
+        empty.write_bytes(b"")
+        for index, (rel, digest) in enumerate(AUTH_STATE_OUTPUTS.items()):
+            section = sections[index]
+            if not section.startswith(f"--- {rel}\n+++ {rel}\n"):
+                fail(f"auth-state patch section path mismatch: {rel}")
+            section_path = Path(tmp) / f"{index}.patch"
+            section_path.write_text(section)
+            output = Path(tmp) / f"{index}.go"
+            input_path = root / rel if (root / rel).is_file() else empty
+            try:
+                subprocess.run(["patch", "--batch", "--silent", "--output", str(output),
+                                str(input_path), str(section_path)], check=True, capture_output=True)
+            except (OSError, subprocess.CalledProcessError) as exc:
+                fail(f"auth-state patch failed before source replacement: {exc}")
+            if not output.is_file() or sha256(output) != digest:
+                fail(f"auth-state patched {rel} digest mismatch before source replacement")
+            outputs[rel] = output.read_bytes()
+    for rel, content in outputs.items():
+        (root / rel).write_bytes(content)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("source", type=Path, help="pinned mihomo checkout")
@@ -585,6 +663,7 @@ def main() -> None:
     apply_late(root)
     apply_mixed(root)
     apply_named(root)
+    apply_auth_state(root)
     print(f"prepared {root} for sing-tun {SING_TUN_VERSION} owned FD and joinable statistics")
 
 

@@ -1,0 +1,323 @@
+--- adapter/inbound/auth.go
++++ adapter/inbound/auth.go
+@@ -7,32 +7,34 @@
+ 	C "github.com/metacubex/mihomo/constant"
+ )
+ 
+-var skipAuthPrefixes []netip.Prefix
+-
+-func SetSkipAuthPrefixes(prefixes []netip.Prefix) {
+-	skipAuthPrefixes = prefixes
++func SetSkipAuthPrefixes(p []netip.Prefix) {
++	authState.mu.Lock()
++	authState.skip = clonePrefixes(p)
++	authState.mu.Unlock()
+ }
+-
+-func SkipAuthPrefixes() []netip.Prefix {
+-	return skipAuthPrefixes
+-}
+-
+-func SkipAuthRemoteAddr(addr net.Addr) bool {
++func SkipAuthPrefixes() []netip.Prefix { return clonePrefixes(AuthSnapshotNow().SkipAuthPrefixes) }
++func SkipAuthRemoteAddr(a net.Addr) bool {
+ 	m := C.Metadata{}
+-	if err := m.SetRemoteAddr(addr); err != nil {
++	if m.SetRemoteAddr(a) != nil {
+ 		return false
+ 	}
+ 	return skipAuth(m.AddrPort().Addr())
+ }
+-
+-func SkipAuthRemoteAddress(addr string) bool {
++func SkipAuthRemoteAddress(a string) bool {
+ 	m := C.Metadata{}
+-	if err := m.SetRemoteAddress(addr); err != nil {
++	if m.SetRemoteAddress(a) != nil {
+ 		return false
+ 	}
+ 	return skipAuth(m.AddrPort().Addr())
+ }
+-
+-func skipAuth(addr netip.Addr) bool {
+-	return prefixesContains(skipAuthPrefixes, addr)
++func SkipAuthRemoteAddrSnapshot(a net.Addr, s AuthSnapshot) bool {
++	m := C.Metadata{}
++	if m.SetRemoteAddr(a) != nil {
++		return false
++	}
++	return prefixesContains(s.SkipAuthPrefixes, m.AddrPort().Addr())
+ }
++func skipAuth(a netip.Addr) bool {
++	s := AuthSnapshotNow()
++	return prefixesContains(s.SkipAuthPrefixes, a)
++}
+--- adapter/inbound/ipfilter.go
++++ adapter/inbound/ipfilter.go
+@@ -7,41 +7,35 @@
+ 	C "github.com/metacubex/mihomo/constant"
+ )
+ 
+-var lanAllowedIPs []netip.Prefix
+-var lanDisAllowedIPs []netip.Prefix
+-
+-func SetAllowedIPs(prefixes []netip.Prefix) {
+-	lanAllowedIPs = prefixes
++func SetAllowedIPs(p []netip.Prefix) {
++	authState.mu.Lock()
++	authState.allow = clonePrefixes(p)
++	authState.mu.Unlock()
+ }
+-
+-func SetDisAllowedIPs(prefixes []netip.Prefix) {
+-	lanDisAllowedIPs = prefixes
++func SetDisAllowedIPs(p []netip.Prefix) {
++	authState.mu.Lock()
++	authState.deny = clonePrefixes(p)
++	authState.mu.Unlock()
+ }
+-
+-func AllowedIPs() []netip.Prefix {
+-	return lanAllowedIPs
+-}
+-
+-func DisAllowedIPs() []netip.Prefix {
+-	return lanDisAllowedIPs
+-}
+-
+-func IsRemoteAddrDisAllowed(addr net.Addr) bool {
++func AllowedIPs() []netip.Prefix    { return clonePrefixes(AuthSnapshotNow().AllowedIPs) }
++func DisAllowedIPs() []netip.Prefix { return clonePrefixes(AuthSnapshotNow().DisAllowedIPs) }
++func IsRemoteAddrDisAllowed(a net.Addr) bool {
+ 	m := C.Metadata{}
+-	if err := m.SetRemoteAddr(addr); err != nil {
++	if m.SetRemoteAddr(a) != nil {
+ 		return false
+ 	}
+-	ipAddr := m.AddrPort().Addr()
+-	if ipAddr.IsValid() {
+-		return isAllowed(ipAddr) && !isDisAllowed(ipAddr)
++	ip := m.AddrPort().Addr()
++	if ip.IsValid() {
++		s := AuthSnapshotNow()
++		return prefixesContains(s.AllowedIPs, ip) && !prefixesContains(s.DisAllowedIPs, ip)
+ 	}
+ 	return false
+ }
+-
+-func isAllowed(addr netip.Addr) bool {
+-	return prefixesContains(lanAllowedIPs, addr)
++func IsRemoteAddrDisAllowedSnapshot(a net.Addr, s AuthSnapshot) bool {
++	m := C.Metadata{}
++	if m.SetRemoteAddr(a) != nil {
++		return false
++	}
++	ip := m.AddrPort().Addr()
++	return ip.IsValid() && prefixesContains(s.AllowedIPs, ip) && !prefixesContains(s.DisAllowedIPs, ip)
+ }
+-
+-func isDisAllowed(addr netip.Addr) bool {
+-	return prefixesContains(lanDisAllowedIPs, addr)
+-}
+--- adapter/inbound/auth_state.go
++++ adapter/inbound/auth_state.go
+@@ -0,0 +1,50 @@
++package inbound
++
++import (
++	"net/netip"
++	"sync"
++
++	"github.com/metacubex/mihomo/component/auth"
++)
++
++// AuthSnapshot is an immutable, generation-consistent admission view.
++type AuthSnapshot struct {
++	Authenticator    auth.Authenticator
++	SkipAuthPrefixes []netip.Prefix
++	AllowedIPs       []netip.Prefix
++	DisAllowedIPs    []netip.Prefix
++}
++
++var authState struct {
++	mu                sync.RWMutex
++	authenticator     auth.Authenticator
++	skip, allow, deny []netip.Prefix
++}
++
++func clonePrefixes(v []netip.Prefix) []netip.Prefix { return append([]netip.Prefix(nil), v...) }
++func AuthSnapshotNow() AuthSnapshot {
++	authState.mu.RLock()
++	defer authState.mu.RUnlock()
++	return AuthSnapshot{authState.authenticator, clonePrefixes(authState.skip), clonePrefixes(authState.allow), clonePrefixes(authState.deny)}
++}
++
++// ApplyAuthState publishes users and all admission filters as one generation.
++func ApplyAuthState(users []auth.AuthUser, skip, allow, deny []netip.Prefix) {
++	a := auth.NewAuthenticator(append([]auth.AuthUser(nil), users...))
++	authState.mu.Lock()
++	authState.authenticator = a
++	authState.skip = clonePrefixes(skip)
++	authState.allow = clonePrefixes(allow)
++	authState.deny = clonePrefixes(deny)
++	authState.mu.Unlock()
++}
++func SetDefaultAuthenticator(a auth.Authenticator) {
++	authState.mu.Lock()
++	authState.authenticator = a
++	authState.mu.Unlock()
++}
++func DefaultAuthenticator() auth.Authenticator {
++	authState.mu.RLock()
++	defer authState.mu.RUnlock()
++	return authState.authenticator
++}
+--- listener/auth/auth.go
++++ listener/auth/auth.go
+@@ -1,33 +1,26 @@
+ package auth
+ 
+ import (
++	"github.com/metacubex/mihomo/adapter/inbound"
+ 	"github.com/metacubex/mihomo/component/auth"
+ )
+ 
+-type authStore struct {
+-	authenticator auth.Authenticator
+-}
++type authStore struct{ authenticator auth.Authenticator }
+ 
+-func (a *authStore) Authenticator() auth.Authenticator {
+-	return a.authenticator
+-}
++func (a *authStore) Authenticator() auth.Authenticator     { return a.authenticator }
++func (a *authStore) SetAuthenticator(x auth.Authenticator) { a.authenticator = x }
++func NewAuthStore(x auth.Authenticator) auth.AuthStore     { return &authStore{x} }
+ 
+-func (a *authStore) SetAuthenticator(authenticator auth.Authenticator) {
+-	a.authenticator = authenticator
+-}
++var Default auth.AuthStore = defaultStore{}
+ 
+-func NewAuthStore(authenticator auth.Authenticator) auth.AuthStore {
+-	return &authStore{authenticator}
+-}
++type defaultStore struct{}
+ 
+-var Default auth.AuthStore = NewAuthStore(nil)
++func (defaultStore) Authenticator() auth.Authenticator     { return inbound.DefaultAuthenticator() }
++func (defaultStore) SetAuthenticator(x auth.Authenticator) { inbound.SetDefaultAuthenticator(x) }
+ 
+ type nilAuthStore struct{}
+ 
+-func (a *nilAuthStore) Authenticator() auth.Authenticator {
+-	return nil
+-}
++func (*nilAuthStore) Authenticator() auth.Authenticator   { return nil }
++func (*nilAuthStore) SetAuthenticator(auth.Authenticator) {}
+ 
+-func (a *nilAuthStore) SetAuthenticator(authenticator auth.Authenticator) {}
+-
+-var Nil auth.AuthStore = (*nilAuthStore)(nil) // always return nil, even call SetAuthenticator() with a non-nil authenticator
++var Nil auth.AuthStore = (*nilAuthStore)(nil)
+--- listener/mixed/mixed.go
++++ listener/mixed/mixed.go
+@@ -213,14 +213,17 @@
+ 				continue
+ 			}
+ 			store := config.AuthStore
+-			if isDefault || store == authStore.Default { // only apply on default listener
+-				if !inbound.IsRemoteAddrDisAllowed(c.RemoteAddr()) {
++			if isDefault || store == authStore.Default { // one generation for admission and handshake
++				snap := inbound.AuthSnapshotNow()
++				if !inbound.IsRemoteAddrDisAllowedSnapshot(c.RemoteAddr(), snap) {
+ 					_ = c.Close()
+ 					ml.untrack(c)
+ 					continue
+ 				}
+-				if inbound.SkipAuthRemoteAddr(c.RemoteAddr()) {
++				if inbound.SkipAuthRemoteAddrSnapshot(c.RemoteAddr(), snap) {
+ 					store = authStore.Nil
++				} else {
++					store = authStore.NewAuthStore(snap.Authenticator)
+ 				}
+ 			}
+ 			go func() { defer ml.untrack(c); handleConn(c, tunnel, store, additions...) }()
+--- listener/socks/tcp.go
++++ listener/socks/tcp.go
+@@ -132,13 +132,17 @@
+ 				continue
+ 			}
+ 			store := config.AuthStore
+-			if isDefault || store == authStore.Default { // only apply on default listener
+-				if !inbound.IsRemoteAddrDisAllowed(c.RemoteAddr()) {
++			if isDefault || store == authStore.Default { // one generation for admission and handshake
++				snap := inbound.AuthSnapshotNow()
++				if !inbound.IsRemoteAddrDisAllowedSnapshot(c.RemoteAddr(), snap) {
+ 					_ = c.Close()
++
+ 					continue
+ 				}
+-				if inbound.SkipAuthRemoteAddr(c.RemoteAddr()) {
++				if inbound.SkipAuthRemoteAddrSnapshot(c.RemoteAddr(), snap) {
+ 					store = authStore.Nil
++				} else {
++					store = authStore.NewAuthStore(snap.Authenticator)
+ 				}
+ 			}
+ 			go handleSocks(c, tunnel, store, additions...)
+--- listener/http/server.go
++++ listener/http/server.go
+@@ -135,13 +135,17 @@
+ 			}
+ 
+ 			store := config.AuthStore
+-			if isDefault || store == authStore.Default { // only apply on default listener
+-				if !inbound.IsRemoteAddrDisAllowed(conn.RemoteAddr()) {
++			if isDefault || store == authStore.Default { // one generation for admission and handshake
++				snap := inbound.AuthSnapshotNow()
++				if !inbound.IsRemoteAddrDisAllowedSnapshot(conn.RemoteAddr(), snap) {
+ 					_ = conn.Close()
++
+ 					continue
+ 				}
+-				if inbound.SkipAuthRemoteAddr(conn.RemoteAddr()) {
++				if inbound.SkipAuthRemoteAddrSnapshot(conn.RemoteAddr(), snap) {
+ 					store = authStore.Nil
++				} else {
++					store = authStore.NewAuthStore(snap.Authenticator)
+ 				}
+ 			}
+ 			go HandleConn(conn, tunnel, store, additions...)
+--- hub/executor/executor.go
++++ hub/executor/executor.go
+@@ -96,7 +96,6 @@
+ 	}
+ 
+ 	updateExperimental(cfg.Experimental)
+-	updateUsers(cfg.Users)
+ 	updateProxies(cfg.Proxies, cfg.Providers)
+ 	updateRules(cfg.Rules, cfg.SubRules, cfg.RuleProviders)
+ 	updateSniffer(cfg.Sniffer)
+@@ -104,6 +103,11 @@
+ 	updateGeneral(cfg.General, true)
+ 	updateDNS(cfg.DNS, cfg.General.IPv6)
+ 	updateNTP(cfg.NTP) // initialize NTP after DNS because an NTP server may be a hostname.
++	if force {
++		inbound.ApplyAuthState(cfg.Users, cfg.General.SkipAuthPrefixes, cfg.General.LanAllowedIPs, cfg.General.LanDisAllowedIPs)
++	} else {
++		updateUsers(cfg.Users)
++	}
+ 	updateListeners(cfg.General, cfg.Listeners, force)
+ 	updateTun(cfg.General) // tun should not care "force"
+ 	updateIPTables(cfg)
+@@ -191,9 +195,6 @@
+ 
+ 	allowLan := general.AllowLan
+ 	listener.SetAllowLan(allowLan)
+-	inbound.SetSkipAuthPrefixes(general.SkipAuthPrefixes)
+-	inbound.SetAllowedIPs(general.LanAllowedIPs)
+-	inbound.SetDisAllowedIPs(general.LanDisAllowedIPs)
+ 
+ 	bindAddress := general.BindAddress
+ 	listener.SetBindAddress(bindAddress)

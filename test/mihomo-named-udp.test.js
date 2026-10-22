@@ -36,6 +36,7 @@ test("named UDP documentation preserves limited shutdown and device acceptance b
   const doc = read("native/README.md");
   assert.match(doc, /without registering in the default\nmixed-port UDP registry/);
   assert.match(doc, /retained packets until\n`Drop`/);
-  assert.match(doc, /Synchronizing those globals is not part of this fix/);
+  assert.match(doc, /stop fixture itself is not evidence of authentication correctness/);
+  assert.match(doc, /separate `auth-state\.patch` publishes the four fields/);
   assert.match(doc, /complete kernel shutdown and\nAndroid\/JNI real-device acceptance remain outside this boundary/);
 });

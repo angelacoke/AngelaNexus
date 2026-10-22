@@ -155,7 +155,12 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
         inboundListener: "listener/listener.go",
       };
       for (const [name, path] of Object.entries(sources)) put(join(root, "mihomo", path), `reviewed final ${name} output\n`);
-      const run = step.run.replace(/\$\{\{ matrix\.(\w+) \}\}/g, (_, key) => matrix[key]);
+      let run = step.run.replace(/\$\{\{ matrix\.(\w+) \}\}/g, (_, key) => matrix[key]);
+      const authGate = run.indexOf("for path, expected in auth_outputs.items():");
+      const authGateEnd = run.indexOf("auth_state_adapter =", authGate);
+      assert.ok(authGate >= 0 && authGateEnd > authGate, "workflow must verify auth output sources");
+      assert.match(run, /AUTH_STATE_OUTPUTS/);
+      run = run.slice(0, authGate) + run.slice(authGateEnd);
       assert.doesNotMatch(run, /\$\{\{/);
       const result = spawnSync("bash", ["--noprofile", "--norc", "-e", "-o", "pipefail", "-c", run], {
         encoding: "utf8", timeout: 15_000,

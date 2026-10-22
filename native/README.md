@@ -127,8 +127,9 @@ half-handshake peers, same-configuration rebuild, failed-close retry gates and a
 handler whose exit remains blocked after its socket closes. Mutation controls
 must fail at the designated ownership/gate assertion, never merely fail to build.
 The bridge listener fixture uses an explicit named authentication store so the
-test isolates resource ownership from existing mutable default authentication/IP
-filter globals during apply. Synchronizing those globals is not part of this fix.
+test isolates resource ownership from default authentication/IP-filter policy.
+The separate admission-state adapter below covers concurrent policy publication;
+the stop fixture itself is not evidence of authentication correctness.
 
 This is **named mixed TCP/UDP ingress cleanup**, not a generic inbound shutdown.
 Named mixed UDP uses the owned packet adapter without registering in the default
@@ -153,3 +154,32 @@ Other named inbound protocols, asynchronous tunnel
 work, arbitrary blocking `Close` implementations, complete kernel shutdown and
 Android/JNI real-device acceptance remain outside this boundary. No packaged
 library hash, licensing approval or release gate is relaxed by the repair.
+
+## Authentication and IP-filter apply boundary
+
+The pinned upstream publishes default credentials, skip-auth prefixes, allowed
+prefixes and denied prefixes through independent mutable globals. Concurrent
+admission can race those writes, and a mixed connection accepted before a reload
+can read a later configuration's credentials when its first byte finally arrives.
+The separate `auth-state.patch` publishes the four fields under one bounded
+in-memory lock and captures one immutable admission view per default mixed,
+SOCKS or HTTP TCP connection. Neither parsing nor network I/O runs under that
+lock. Prefix input and getter slices are copied, not exposed as mutable backing
+storage. A non-forced executor apply changes credentials only, preserving the
+existing filter policy. Individual filter setter APIs remain synchronized.
+
+Named listeners with omitted users still inherit default credentials and filters;
+explicit named users and an explicit empty user list retain their independent
+authentication and global-filter bypass semantics. An already admitted connection
+keeps its captured authentication policy until its handshake finishes; later
+connections use the newly published policy. This is admission consistency, not
+retroactive revocation of established connections or a change to UDP admission.
+
+Host regressions use the production bridge, real TCP peers and actual config
+apply. Independent old-source controls must reproduce both cross-generation
+credentials at pre-first-byte admission and the specific auth/filter data races;
+build errors, unrelated panics and empty test selections are not accepted as
+evidence. The exact patch and every pre-adapter/final source digest are mandatory
+three-ABI provenance, alongside all existing pins and source checks. Full kernel
+shutdown, arbitrary asynchronous work, Android/JNI real-device acceptance and
+packaging/release approval remain separate, unfinished boundaries.
