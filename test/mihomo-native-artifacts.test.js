@@ -155,7 +155,7 @@ ${ABIS.map((abi) => ` val ${abi.replaceAll("-", "_")} = MihomoNativeLibrarySpec(
   for (const abi of ABIS) {
     const artifact = `libclash-${abi}.so`;
     writeFileSync(join(artifacts, abi, `mihomo-provenance-${abi}.json`), JSON.stringify({
-      version: 1, kernel: "mihomo", kernelVersion: "1.19.32", platform: "android", abi,
+      version: 1, kernel: "mihomo", kernelVersion: "1.19.32", platform: "android", abi, projectCommit: COMMIT,
       source: { repository: REPOSITORY, commit: COMMIT },
       toolchain: { go: "go version go1.24.8 linux/amd64", androidNdk: "28.0.13004108", compiler: "Android clang", goos: "android", goarch: abi === "arm64-v8a" ? "arm64" : abi === "armeabi-v7a" ? "arm" : "amd64", goarm: abi === "armeabi-v7a" ? "7" : null, cgoEnabled: true },
       build: { trimpath: true, buildmode: "c-shared", package: "./angelanexus_android", tags: ["with_gvisor", "cmfa"], versionLdflag: "github.com/metacubex/mihomo/constant.Version=v1.19.32" },
@@ -234,8 +234,8 @@ ${ABIS.map((abi) => ` val ${abi.replaceAll("-", "_")} = MihomoNativeLibrarySpec(
   }
   return { root, artifacts };
 }
-function run(fx) {
-  return spawnSync("python3", [verifier, "--artifacts-root", fx.artifacts, "--repo-root", fx.root], { encoding: "utf8" });
+function run(fx, expectedProjectCommit = COMMIT) {
+  return spawnSync("python3", [verifier, "--artifacts-root", fx.artifacts, "--repo-root", fx.root, "--expected-project-commit", expectedProjectCommit], { encoding: "utf8" });
 }
 function mutate(fx, abi, edit) {
   const path = join(fx.artifacts, abi, `mihomo-provenance-${abi}.json`);
@@ -253,6 +253,32 @@ test("verifies complete, exact Mihomo fixture", () => withFixture((fx) => {
   assert.equal(result.status, 0, result.stderr);
 }));
 
+test("requires an exact trusted project commit for every ABI", () => withFixture((fx) => {
+  for (const [label, edit] of [
+    ["missing", p => { delete p.projectCommit; }],
+    ["wrong type", p => { p.projectCommit = 123; }],
+    ["malformed", p => { p.projectCommit = COMMIT.toUpperCase(); }],
+    ["mismatch", p => { p.projectCommit = "0".repeat(40); }],
+  ]) {
+    const fresh = fixture();
+    try {
+      mutate(fresh, "arm64-v8a", edit);
+      const result = run(fresh);
+      assert.equal(result.status, 1, `${label}: ${result.stderr}`);
+      assert.match(result.stderr, /projectCommit/);
+    } finally { rmSync(fresh.root, { recursive: true, force: true }); }
+  }
+  const replay = fixture();
+  try {
+    mutate(replay, "x86_64", p => { p.projectCommit = "0".repeat(40); });
+    const result = run(replay);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /provenance x86_64 projectCommit mismatch/);
+  } finally { rmSync(replay.root, { recursive: true, force: true }); }
+  const malformedCli = run(fx, COMMIT.toUpperCase());
+  assert.equal(malformedCli.status, 1);
+  assert.match(malformedCli.stderr, /expected project commit/);
+}));
 test("rejects artifact tampering", () => withFixture((fx) => {
   writeFileSync(join(fx.artifacts, "arm64-v8a", "libclash-arm64-v8a.so"), "tampered");
   const result = run(fx);

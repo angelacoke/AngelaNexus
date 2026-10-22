@@ -245,6 +245,7 @@ jobs:
       - name: Generate native build provenance evidence
         shell: bash
         env:
+          PROJECT_COMMIT: ${{ github.sha }}
           MIHOMO_COMMIT: "88dcbf7f1614a67c3b36b848ee3592dfa92ada36"
           MIHOMO_VERSION: "1.19.32"
           NDK_VERSION: "28.0.13004108"
@@ -300,6 +301,7 @@ jobs:
           COMPILER_VERSION="$("$CC_PATH" --version | head -n 1 | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
           SOURCE_HEAD="$(git -C "$RUNNER_TEMP/mihomo" rev-parse HEAD)"
           test "$SOURCE_HEAD" = "$MIHOMO_COMMIT"
+          test "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)" = "$PROJECT_COMMIT"
           python3 - <<PY
           import ast
           import hashlib
@@ -333,6 +335,7 @@ jobs:
           data = {
               "version": 1,
               "kernel": "mihomo",
+              "projectCommit": "$PROJECT_COMMIT",
               "kernelVersion": "$MIHOMO_VERSION",
               "source": {"repository": "https://github.com/MetaCubeX/mihomo", "commit": "$SOURCE_HEAD"},
               "platform": "android",

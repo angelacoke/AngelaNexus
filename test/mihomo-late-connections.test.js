@@ -116,8 +116,11 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
     const hash = path => createHash("sha256").update(readFileSync(path)).digest("hex");
     try {
       const bin = join(root, "bin");
+      const projectCommit = "0123456789abcdef0123456789abcdef01234567";
+      const stepEnv = Object.fromEntries(Object.entries(step.env).map(([key, value]) =>
+        [key, value.replaceAll("${{ github.sha }}", projectCommit)]));
       put(join(bin, "go"), "#!/bin/sh\nprintf 'go version go1.24.8 linux/amd64\\n'\n", 0o755);
-      put(join(bin, "git"), `#!/bin/sh\nprintf '${step.env.MIHOMO_COMMIT}\\n'\n`, 0o755);
+      put(join(bin, "git"), `#!/bin/sh\nif [ "$1" = "-C" ] && [ "$3" = "rev-parse" ] && [ "$4" = "HEAD" ]; then\n  if [ "$2" = "$GITHUB_WORKSPACE" ]; then\n    printf '${projectCommit}\\n'\n  elif [ "$2" = "$RUNNER_TEMP/mihomo" ]; then\n    printf '${step.env.MIHOMO_COMMIT}\\n'\n  else\n    exit 1\n  fi\nelse\n  exit 1\nfi\n`, 0o755);
       const ndk = join(root, "ndk");
       put(join(ndk, "toolchains/llvm/prebuilt/linux-x86_64/bin", matrix.cc), "#!/bin/sh\nprintf 'Android clang version fixture\\n'\n", 0o755);
       const artifact = join(root, `libclash-${matrix.abi}.so`);
@@ -164,10 +167,12 @@ for (const matrix of workflow.jobs.build.strategy.matrix.include) {
       assert.doesNotMatch(run, /\$\{\{/);
       const result = spawnSync("bash", ["--noprofile", "--norc", "-e", "-o", "pipefail", "-c", run], {
         encoding: "utf8", timeout: 15_000,
-        env: { ...process.env, ...step.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: root, ANDROID_NDK_ROOT: ndk, GITHUB_WORKSPACE: process.cwd() },
+        env: { ...process.env, ...stepEnv, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: root, ANDROID_NDK_ROOT: ndk, GITHUB_WORKSPACE: process.cwd() },
       });
       assert.equal(result.status, 0, result.stderr || result.error?.message);
       const evidence = JSON.parse(readFileSync(join(root, `mihomo-provenance-${matrix.abi}.json`), "utf8"));
+      assert.equal(evidence.projectCommit, projectCommit);
+      assert.equal(evidence.source.commit, step.env.MIHOMO_COMMIT);
       for (const name of ["mixedListener", "mixedListenerRegistry", "mixedUDPListener", "mixedUDPRegistry", "namedMixedListener", "namedMixedRegistry", "inboundListener"]) {
         assert.deepEqual(evidence[name], { path: sources[name], sha256: hash(join(root, "mihomo", sources[name])) });
       }

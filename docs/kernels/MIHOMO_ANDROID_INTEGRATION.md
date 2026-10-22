@@ -6,9 +6,9 @@ Status: native build and lifecycle regression coverage exist; current bridge pac
 
 - Mihomo version: v1.19.32
 - Upstream revision pinned by CI: `88dcbf7f1614a67c3b36b848ee3592dfa92ada36`
-- Historical arm64-v8a `libclash.so` SHA-256: `667c94964d0a60f86cdcc130b2cdf3b385b02d9f2c5d3b324b3ed7a6b7326007`
-- Historical armeabi-v7a `libclash.so` SHA-256: `3ae94d7defb1778cd611eceffcff6884407893d28c42a4350af2b49108ac9a09`
-- Historical x86_64 `libclash.so` SHA-256: `da7bcdbf165cc1e3457d3560b51e703cb3a478dd83f0c1cfe42ccf676d6c1f42`
+- Historical arm64-v8a `libclash.so` SHA-256: `b1153849d99633a439d4d96d03d16b722c93ee1e009e27a0b3361fbc173463f7`
+- Historical armeabi-v7a `libclash.so` SHA-256: `17077edf5f9acf6ed8f0cabc3a5f3d1d072d4e15153c64d82503cf44f839e805`
+- Historical x86_64 `libclash.so` SHA-256: `69e5c9c20925392cef960ff1bbb1d7006e5c195b568097623c04a0418013c98b`
 
 These values remain pinned in the Kotlin runtime manifest and compliance record. They are not evidence that the latest bridge sources have been packaged. Changing bridge/lifecycle code requires a new native build, review of its exact artifacts and an explicit update of the pinned contract before those artifacts can be loaded. CI must not silently rewrite runtime hashes to accept whatever it downloaded.
 

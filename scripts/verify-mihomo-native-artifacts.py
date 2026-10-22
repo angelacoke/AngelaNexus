@@ -20,6 +20,7 @@ EXPECTED_VERSION_LDFLAG = "github.com/metacubex/mihomo/constant.Version=v1.19.32
 EXPECTED_TOOLCHAIN = {"goos": "android", "androidNdk": "28.0.13004108", "cgoEnabled": True}
 EXPECTED_GOARCH = {"arm64-v8a": "arm64", "armeabi-v7a": "arm", "x86_64": "amd64"}
 HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
+PROJECT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 ADAPTER_PATH = "native/android/mihomo-bridge/prepare-upstream.py"
 AUTH_STATE_PATCH_PATH = "native/android/mihomo-bridge/auth-state.patch"
 PATCHED_SOURCE_PATH = "listener/sing_tun/server.go"
@@ -234,7 +235,9 @@ def manifest_values(repo: Path) -> tuple[str, str, str, dict[str, str]]:
     return version.group(1), commit.group(1), source_hash.group(1).lower(), hashes
 
 
-def verify(artifacts_root: Path, repo: Path) -> None:
+def verify(artifacts_root: Path, repo: Path, expected_project_commit: str) -> None:
+    if not isinstance(expected_project_commit, str) or not PROJECT_COMMIT.fullmatch(expected_project_commit):
+        fail("expected project commit must be exactly 40 lowercase hexadecimal characters")
     version, commit, manifest_tproxy_hash, manifest_hashes = manifest_values(repo)
     adapter_hash, patched_source_hash, dns_resolver_hash, dns_server_hash, dns_doh_hash, dns_client_hash, dns_tls_hash, dns_dhcp_hash, dns_util_hash, provider_fetcher_hash, statistics_patch_hash, patched_statistics_hash, late_patch_hash, late_manager_hash, tracker_hash, tunnel_hash, nat_table_hash, connection_hash, quic_sniffer_hash, tproxy_packet_hash, log_hash, provider_healthcheck_hash, proxy_provider_hash, dhcp_discovery_hash, ntp_service_hash, socks5_hash, dns_outbound_hash, mixed_hash, mixed_registry_hash, mixed_udp_hash, mixed_udp_registry_hash, listener_hash, mixed_patch_hash, named_mixed_hash, named_mixed_registry_hash, named_listener_hash, named_patch_hash = adapter_values(repo)
     auth_patch_hash, auth_inputs, auth_outputs = auth_state_values(repo)
@@ -302,6 +305,13 @@ def verify(artifacts_root: Path, repo: Path) -> None:
             fail(f"provenance {abi} platform mismatch")
         if require(record, "abi", f"provenance {abi}") != abi:
             fail(f"provenance ABI mismatch: expected {abi}")
+        project_commit = require(record, "projectCommit", f"provenance {abi}")
+        if not isinstance(project_commit, str):
+            fail(f"provenance {abi} projectCommit must be a string")
+        if not PROJECT_COMMIT.fullmatch(project_commit):
+            fail(f"provenance {abi} projectCommit must be 40 lowercase hexadecimal characters")
+        if project_commit != expected_project_commit:
+            fail(f"provenance {abi} projectCommit mismatch")
         psource = require_object(record, "source", f"provenance {abi}")
         if require(psource, "repository", f"provenance.source {abi}") != REPOSITORY:
             fail(f"provenance {abi} source repository mismatch")
@@ -453,9 +463,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifacts-root", required=True, type=Path)
     parser.add_argument("--repo-root", required=True, type=Path)
+    parser.add_argument("--expected-project-commit", required=True)
     args = parser.parse_args()
     try:
-        verify(args.artifacts_root.resolve(), args.repo_root.resolve())
+        verify(args.artifacts_root.resolve(), args.repo_root.resolve(), args.expected_project_commit)
     except VerificationError as exc:
         print(f"Mihomo artifact verification FAILED: {exc}", file=sys.stderr)
         return 1

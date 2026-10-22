@@ -127,7 +127,7 @@ function verifierFixture() {
     const goarch = abi === "arm64-v8a" ? "arm64" : abi === "armeabi-v7a" ? "arm" : "amd64";
     const evidence = name => ({ path: `${bridgeDir}/${name}`, sha256: digest(readFileSync(join(sourceDir, name))) });
     const provenance = {
-      version: 1, kernel: "mihomo", kernelVersion: "1.19.32", platform: "android", abi,
+      version: 1, kernel: "mihomo", kernelVersion: "1.19.32", platform: "android", abi, projectCommit: commit,
       source: { repository: "https://github.com/MetaCubeX/mihomo", commit },
       artifact: { name: artifact, sha256: digest(artifactBytes) },
       toolchain: { go: "go version go1.24.8 linux/amd64", androidNdk: "28.0.13004108", compiler: "Android clang", goos: "android", goarch, goarm: abi === "armeabi-v7a" ? "7" : null, cgoEnabled: true },
@@ -190,8 +190,8 @@ function verifierFixture() {
   return { fixture, repo, artifacts };
 }
 
-function runVerifier(fixture) {
-  return spawnSync("python3", ["scripts/verify-mihomo-native-artifacts.py", "--artifacts-root", fixture.artifacts, "--repo-root", fixture.repo], { cwd: root, encoding: "utf8" });
+function runVerifier(fixture, expectedProjectCommit = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36") {
+  return spawnSync("python3", ["scripts/verify-mihomo-native-artifacts.py", "--artifacts-root", fixture.artifacts, "--repo-root", fixture.repo, "--expected-project-commit", expectedProjectCommit], { cwd: root, encoding: "utf8" });
 }
 
 test("library.go is a minimal standalone Go entry without flag, os, or CLI imports", () => {
@@ -240,6 +240,30 @@ test("provenance records the dedicated package and library entry digest", () => 
   assert.match(provenance.run, /"namedMixedListener": \{"path": "listener\/inbound\/mixed\.go", "sha256": "\$PATCHED_NAMED_MIXED_SHA256"\}/);
   assert.match(provenance.run, /"namedMixedRegistry": \{"path": "listener\/inbound\/mixed_lifecycle\.go", "sha256": "\$PATCHED_NAMED_MIXED_REGISTRY_SHA256"\}/);
   assert.match(provenance.run, /"inboundListener": \{"path": "listener\/listener\.go", "sha256": "\$PATCHED_NAMED_LISTENER_SHA256"\}/);
+});
+
+test("verifier binds every ABI provenance projectCommit to the trusted expected commit", () => {
+  const fixture = verifierFixture();
+  try {
+    assert.equal(runVerifier(fixture).status, 0, runVerifier(fixture).stderr);
+    const provenancePath = join(fixture.artifacts, "armeabi-v7a", "mihomo-provenance-armeabi-v7a.json");
+    const provenance = JSON.parse(readFileSync(provenancePath, "utf8"));
+    delete provenance.projectCommit;
+    writeFileSync(provenancePath, JSON.stringify(provenance));
+    const missing = runVerifier(fixture);
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /projectCommit/);
+    provenance.projectCommit = 123;
+    writeFileSync(provenancePath, JSON.stringify(provenance));
+    const wrongType = runVerifier(fixture);
+    assert.equal(wrongType.status, 1);
+    assert.match(wrongType.stderr, /projectCommit/);
+    provenance.projectCommit = "0".repeat(40);
+    writeFileSync(provenancePath, JSON.stringify(provenance));
+    const mismatch = runVerifier(fixture);
+    assert.equal(mismatch.status, 1);
+    assert.match(mismatch.stderr, /projectCommit mismatch/);
+  } finally { rmSync(fixture.fixture, { recursive: true, force: true }); }
 });
 
 test("verifier validates build.package and libraryEntry instead of merely preserving them", () => {
