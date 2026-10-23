@@ -104,6 +104,56 @@ See [Release Policy](docs/RELEASE_POLICY.md).
 - Android root/transparent networking: capability and guarded-runtime foundations are present; production claims require real-device/kernel verification.
 - Mihomo / sing-box / Xray runtime embedding: not yet claimed as production-ready.
 
+## Local development and verification
+
+Use Node.js 20 or newer; CI uses Node.js 24.
+
+```sh
+npm ci
+npm run verify               # JS / JSON / YAML syntax and full automated tests
+npm run core:android:bundle  # Regenerate the embedded Android Core
+npm run benchmark:smoke      # Small functional benchmark, not device performance evidence
+```
+
+`npm run core:server` starts the development import endpoint at
+`POST http://127.0.0.1:18181/v1/runtime/import`. This HTTP service has no
+authentication: do not expose it directly to the Internet or untrusted networks.
+Use `ANGELANEXUS_CORE_PORT` and `ANGELANEXUS_CORE_HOST` to change its address.
+
+`importSource(source, { kernel, prepareRuntimeHandoff: true })` prepares a
+runtime handoff for text, local file content, URLs and structured configurations;
+compilation does not start a kernel. Share links need an explicit compatible
+kernel binding before a runtime handoff can be produced.
+
+URL subscription downloads default to 5 MiB and a 30-second deadline covering
+redirects and body reads, with strict UTF-8 decoding. Both `importSource` and
+`importConfigurationAsync` accept explicit `maxBytes`, `timeoutMs` and
+`signal: abortController.signal` options to bound or cancel a download.
+
+Run `npm run kernel:traffic:test` with `NEXUS_MIHOMO_BIN`, `NEXUS_SING_BOX_BIN`
+and `NEXUS_XRAY_BIN` set to verified executables for real loopback HTTP/SOCKS
+forwarding and upstream-refusal checks. It does not change system networking
+or prove physical-device TUN, DNS/IPv6 leakage protection or encrypted protocol
+interoperability. Trusted text-only custom fetchers are checked after materializing
+their text and must enforce their own allocation and cancellation bounds.
+
+Full Android builds also require the Android SDK, Gradle 8.10.2 and the pinned
+native AARs/libraries prepared by CI. There is currently no Gradle Wrapper in
+the repository, so `./gradlew` is not an available entry point. See the
+[Android build workflow](.github/workflows/android-build.yml) for native
+dependency preparation, unit tests, APK packaging and emulator verification.
+Core or emulator test success is not physical-device TUN, leak or battery evidence.
+
+With a booted, unlocked test device, run
+`ADB=/path/to/adb APK=/path/to/app.apk node scripts/android-runtime-smoke.mjs`.
+This installs/replaces the test package and force-stops its existing process;
+use a dedicated test device. It requires explicit installation/launch success,
+the same process alive for 30 seconds and a resumed MainActivity. Failures exit
+nonzero rather than accepting an old package or a background activity record.
+The build retains the debug APK, JUnit XML and available emulator/logcat/activity
+diagnostics. The standalone GMS-less smoke workflow also retains diagnostics and
+fails its check when verification fails.
+
 ## Documentation
 
 - [English documentation](docs/README.md)

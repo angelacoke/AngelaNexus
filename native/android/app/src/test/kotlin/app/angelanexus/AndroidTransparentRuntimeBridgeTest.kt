@@ -53,6 +53,70 @@ class AndroidTransparentRuntimeBridgeTest {
     }
 
     @Test
+    fun failedVerificationCleansUpRuntimeBeforeReleasingHandle() {
+        val executor = RecordingExecutor()
+        val inspector = MutableTransparentInspector()
+        val adapter = AndroidRootTransparentAdapter(
+            context = null,
+            backend = object : AndroidRootTransparentAdapter.Backend {
+                override fun inspect() = readyCapabilities()
+                override fun createTransaction(config: RootTransparentConfig) =
+                    RootTransparentRuleTransaction(
+                        executor,
+                        AndroidRootTransparentRules.build(config),
+                    )
+                override fun createRuntime() = AndroidRootTransparentRuntime(inspector)
+            },
+        )
+        val bridge = AndroidTransparentRuntimeBridge(adapter)
+
+        assertTrue(bridge.prepare(testConfig()).ok)
+        inspector.active = true
+        assertTrue(bridge.apply().ok)
+        val callsAfterApply = executor.calls.size
+
+        inspector.active = false
+        val failed = bridge.verify()
+
+        assertFalse(failed.ok)
+        assertEquals("verification-failed", failed.reason)
+        assertTrue(executor.calls.size > callsAfterApply)
+        assertEquals("idle", bridge.rollback().state)
+        assertEquals("noop", bridge.rollback().reason)
+    }
+
+    @Test
+    fun failedCleanupKeepsHandleForRollbackRetry() {
+        val executor = FailingOnceExecutor()
+        val inspector = MutableTransparentInspector()
+        val adapter = AndroidRootTransparentAdapter(
+            context = null,
+            backend = object : AndroidRootTransparentAdapter.Backend {
+                override fun inspect() = readyCapabilities()
+                override fun createTransaction(config: RootTransparentConfig) =
+                    RootTransparentRuleTransaction(executor, AndroidRootTransparentRules.build(config))
+                override fun createRuntime() = AndroidRootTransparentRuntime(inspector)
+            },
+        )
+        val bridge = AndroidTransparentRuntimeBridge(adapter)
+
+        assertTrue(bridge.prepare(testConfig()).ok)
+        inspector.active = true
+        assertTrue(bridge.apply().ok)
+        inspector.active = false
+        executor.failNext = true
+
+        val verification = bridge.verify()
+        assertFalse(verification.ok)
+        assertEquals("failed", verification.state)
+        val retry = bridge.rollback()
+
+        assertTrue(retry.ok)
+        assertEquals("rolled-back", retry.state)
+        assertEquals("noop", bridge.rollback().reason)
+    }
+
+    @Test
     fun applyRequiresPreparation() {
         val bridge = AndroidTransparentRuntimeBridge(adapterWithCapabilities(ready = true))
 
@@ -104,6 +168,16 @@ class AndroidTransparentRuntimeBridgeTest {
         val calls = mutableListOf<String>()
         override fun execute(command: String) {
             calls += command
+        }
+    }
+
+    private class FailingOnceExecutor : RootCommandExecutor {
+        var failNext = false
+        override fun execute(command: String) {
+            if (failNext) {
+                failNext = false
+                throw IllegalStateException("injected cleanup failure")
+            }
         }
     }
 

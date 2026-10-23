@@ -44,10 +44,10 @@ export function inspectImport(input, { kernel = null } = {}) {
   return { detection: detected, binding: { kernel: selected, mode: explicit ? "explicit" : "automatic", candidates: detected.candidates.slice(), requiresConfirmation: prompt.required, prompt, decision: { ...decision, requiresUserChoice: prompt.required } } };
 }
 
-export async function importSource(input, { kernel = null, maxNodes = null, fetcher = globalThis.fetch, trafficAcceptance = null } = {}) {
+export async function importSource(input, { kernel = null, maxNodes = null, fetcher = globalThis.fetch, maxBytes = 5 * 1024 * 1024, timeoutMs = 30000, signal, prepareRuntimeHandoff = false, trafficAcceptance = null } = {}) {
   const source = classifyImportSource(input);
-  const options = { kernel, maxNodes, trafficAcceptance };
-  if (source.type === "url") return importConfig(await fetchSubscription(source.url, { fetcher }), options);
+  const options = { kernel, maxNodes, prepareRuntimeHandoff, trafficAcceptance };
+  if (source.type === "url") return importConfig(await fetchSubscription(source.url, { fetcher, maxBytes, timeoutMs, signal }), options);
   if (source.type === "file" || source.type === "text") return importConfig(source.content, options);
   return importConfig(source.value, options);
 }

@@ -41,6 +41,12 @@ test("sniff share link resolves all verified native runtimes for the protocol", 
   assert.equal(result.confidence, "protocol-multi-runtime");
 });
 
+test("sniff finds a share link after surrounding text", () => {
+  const result = sniff("订阅内容：\nvless://example");
+  assert.equal(result.kind, "share-link");
+  assert.deepEqual(result.candidates, ["mihomo", "sing-box", "xray"]);
+});
+
 test("binds Clash YAML to Mihomo", () => {
   const result = sniff("proxies:\n  - name: us\n    type: vless");
   assert.equal(result.kernel, "mihomo");

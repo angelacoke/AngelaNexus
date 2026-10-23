@@ -5,20 +5,32 @@ import { build } from "esbuild";
 const root = resolve(import.meta.dirname, "..");
 const outfile = resolve(root, "native/android/app/src/main/assets/angelanexus-core.bundle.js");
 
-const bufferShim = String.raw`const __AngelaNexusBuffer = {
-  from(value, encoding) {
-    if (value instanceof Uint8Array) return new Uint8Array(value);
+const bufferShim = String.raw`class __AngelaNexusBytes extends Uint8Array {
+  toString(encoding = "utf8") {
+    if (encoding === "utf8" || encoding === "utf-8") return new TextDecoder().decode(this);
     if (encoding === "base64") {
-      const binary = atob(String(value).replace(/\\s+/g, ""));
-      const bytes = new Uint8Array(binary.length);
+      let binary = "";
+      for (const byte of this) binary += String.fromCharCode(byte);
+      return btoa(binary);
+    }
+    throw new TypeError("Unsupported Core buffer encoding: " + encoding);
+  }
+}
+const __AngelaNexusBuffer = {
+  from(value, encoding) {
+    if (value instanceof Uint8Array) return new __AngelaNexusBytes(value);
+    if (value instanceof ArrayBuffer) return new __AngelaNexusBytes(new Uint8Array(value));
+    if (encoding === "base64") {
+      const binary = atob(String(value).replace(/\s+/g, ""));
+      const bytes = new __AngelaNexusBytes(binary.length);
       for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
       return bytes;
     }
-    return new TextEncoder().encode(String(value));
+    return new __AngelaNexusBytes(new TextEncoder().encode(String(value)));
   },
   concat(values) {
     const total = values.reduce((sum, value) => sum + value.byteLength, 0);
-    const result = new Uint8Array(total);
+    const result = new __AngelaNexusBytes(total);
     let offset = 0;
     for (const value of values) {
       result.set(value, offset);

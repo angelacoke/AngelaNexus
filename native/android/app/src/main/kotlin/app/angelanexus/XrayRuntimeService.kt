@@ -40,32 +40,34 @@ class XrayRuntimeService : Service() {
             }
             val pfd = intent.parcelable<ParcelFileDescriptor>(XrayRuntimeProtocol.EXTRA_TUN)
                 ?: error("Xray TUN descriptor is missing")
-            val config = intent.getStringExtra(XrayRuntimeProtocol.EXTRA_CONFIG)
-                ?: error("Xray configuration is missing")
-            val dns = intent.getStringExtra(XrayRuntimeProtocol.EXTRA_DNS)
-                ?: error("Xray DNS endpoint is missing")
-            val protectorBinder = intent.getBundleExtra(XrayRuntimeProtocol.EXTRA_PROTECTOR)
-                ?.getBinder("binder")
-                ?: error("Xray VPN protector is missing")
+            // use preserves the startup error if descriptor cleanup also fails.
+            XrayDescriptorHandoff(pfd).use { handoff ->
+                val config = intent.getStringExtra(XrayRuntimeProtocol.EXTRA_CONFIG)
+                    ?: error("Xray configuration is missing")
+                val dns = intent.getStringExtra(XrayRuntimeProtocol.EXTRA_DNS)
+                    ?: error("Xray DNS endpoint is missing")
+                val protectorBinder = intent.getBundleExtra(XrayRuntimeProtocol.EXTRA_PROTECTOR)
+                    ?.getBinder("binder")
+                    ?: error("Xray VPN protector is missing")
 
-            val protector = object : XrayVpnProtector {
-                override fun protect(fd: Int): Boolean =
-                    XrayVpnProtectorBinderRemote(protectorBinder).protect(fd)
+                val protector = object : XrayVpnProtector {
+                    override fun protect(fd: Int): Boolean =
+                        XrayVpnProtectorBinderRemote(protectorBinder).protect(fd)
+                }
+
+                val api = XrayLibXrayApi()
+                api.registerControllers(protector)
+                val effectiveConfig = injectTun(config, pfd.fd)
+                api.setDns(protector, dns)
+                val result = api.run(effectiveConfig)
+                check(result.success) {
+                    "libXray runXray failed: " + result.error
+                }
+
+                tun = handoff.transfer()
+                running = true
+                receiver?.send(XrayRuntimeProtocol.RESULT_OK, Bundle())
             }
-
-            val api = XrayLibXrayApi()
-            api.registerControllers(protector)
-            val effectiveConfig = injectTun(config, pfd.fd)
-            api.setDns(protector, dns)
-            val result = api.run(effectiveConfig)
-            if (!result.success) {
-                pfd.close()
-                error("libXray runXray failed: " + result.error)
-            }
-
-            tun = pfd
-            running = true
-            receiver?.send(XrayRuntimeProtocol.RESULT_OK, Bundle())
         }.onFailure { failure ->
             receiver?.send(
                 XrayRuntimeProtocol.RESULT_FAILED,
@@ -94,7 +96,9 @@ class XrayRuntimeService : Service() {
     }
 
     private fun stopRuntime(): Throwable? {
-        if (!running && tun == null) return null
+        // A failed DNS reset is independent of native/descriptor ownership.
+        // Do not let the already-cleaned runtime short-circuit its retry.
+        if (!xrayRuntimeCleanupRequired(running, tun != null, dnsResetPending)) return null
 
         var failure: Throwable? = null
 

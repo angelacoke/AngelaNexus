@@ -69,3 +69,17 @@ test("linked pipeline keeps internal links loopback-only", () => {
   });
   assert.throws(() => compileLinkedPipeline(broken), /loopback/);
 });
+
+test("linked Mihomo downstream uses native SOCKS5 for its internal dialer", () => {
+  const value = spec();
+  const result = compileLinkedPipeline(createPipelineSpec({
+    ...value,
+    hops: [value.hops[0], { ...value.hops[1], kernel: "mihomo" }],
+  }));
+  const config = result.hops[1].config;
+  const link = config.proxies.find((proxy) => proxy.name === "Nexus-PipelineLink-middle");
+  assert.equal(link.type, "socks5");
+  assert.equal(link.server, "127.0.0.1");
+  assert.equal(link.port, 31001);
+  assert.equal(config.proxies.find((proxy) => proxy.name === "middle")["dialer-proxy"], link.name);
+});

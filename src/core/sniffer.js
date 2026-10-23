@@ -1,6 +1,7 @@
 import { KernelCapabilityManifest } from "./kernel-capability-manifest.js";
+import yaml from "js-yaml";
 
-const SHARE_PROTOCOLS = /^(vmess|vless|trojan|ss|hysteria2|hy2|tuic|anytls):\/\//i;
+const SHARE_PROTOCOLS = /(?:^|\s)(vmess|vless|trojan|ss|hysteria2|hy2|tuic|anytls):\/\/[^\s\\]+/i;
 
 function textOf(input) {
   return typeof input === "string" ? input.trim() : "";
@@ -14,6 +15,24 @@ function parseJson(text) {
   if (!text || !/^[\\[{]/.test(text)) return null;
   try {
     const value = JSON.parse(text);
+    return value && typeof value === "object" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function decodeBase64(value) {
+  const normalized = value.replace(/\s+/g, "").replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized + "=".repeat((4 - normalized.length % 4) % 4);
+  return Buffer.from(padded, "base64").toString("utf8");
+}
+
+function parseStructured(text) {
+  if (!text) return null;
+  const json = parseJson(text);
+  if (json) return json;
+  try {
+    const value = yaml.load(text);
     return value && typeof value === "object" ? value : null;
   } catch {
     return null;
@@ -87,11 +106,30 @@ function fromEvidence(items, kind) {
   };
 }
 
-export function sniff(input) {
-  const text = textOf(input);
+function unknownResult() {
+  return { kind: "unknown", kernel: null, candidates: [], confidence: "none", score: 0, evidence: [] };
+}
 
-  if (SHARE_PROTOCOLS.test(text)) {
-    const protocol = text.match(SHARE_PROTOCOLS)[1].toLowerCase();
+function sniffText(text, allowBase64) {
+  const structured = parseStructured(text);
+  if (structured !== null && Array.isArray(structured.proxies) && looksLikeYaml(text, "proxies")) {
+    return {
+      kind: "clash-yaml",
+      kernel: "mihomo",
+      candidates: ["mihomo"],
+      confidence: "schema",
+      score: 100,
+      evidence: [evidence("mihomo", "proxies", "top-level proxies field identifies a Clash/Mihomo-style YAML configuration", 100)]
+    };
+  }
+
+  if (structured !== null) {
+    return fromEvidence(schemaEvidence(structured), parseJson(text) ? "json" : "structured");
+  }
+
+  const shareMatch = text.match(SHARE_PROTOCOLS);
+  if (shareMatch) {
+    const protocol = shareMatch[1].toLowerCase();
     const candidates = protocolCandidates(protocol);
     return {
       kind: "share-link",
@@ -109,31 +147,22 @@ export function sniff(input) {
     };
   }
 
+  if (allowBase64) {
+    let decoded = "";
+    try { decoded = decodeBase64(text).trim(); } catch {}
+    if (decoded && decoded !== text) {
+      const result = sniffText(decoded, false);
+      if (result.kind !== "unknown") return result;
+    }
+  }
+
+  return unknownResult();
+}
+
+export function sniff(input) {
   if (input && typeof input === "object" && !Array.isArray(input)) {
     const result = fromEvidence(schemaEvidence(input), "structured");
-    if (result.kernel || result.candidates.length) return result;
+    return result.kernel || result.candidates.length ? result : unknownResult();
   }
-
-  if (text && looksLikeYaml(text, "proxies")) {
-    return {
-      kind: "clash-yaml",
-      kernel: "mihomo",
-      candidates: ["mihomo"],
-      confidence: "schema",
-      score: 100,
-      evidence: [evidence("mihomo", "proxies", "top-level proxies field identifies a Clash/Mihomo-style YAML configuration", 100)]
-    };
-  }
-
-  const json = parseJson(text);
-  if (json) return fromEvidence(schemaEvidence(json), "json");
-
-  return {
-    kind: "unknown",
-    kernel: null,
-    candidates: [],
-    confidence: "none",
-    score: 0,
-    evidence: []
-  };
+  return sniffText(textOf(input), true);
 }

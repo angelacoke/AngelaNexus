@@ -19,289 +19,604 @@ static int angelanexusProtectFd(int fd) {
 import "C"
 
 import (
-    "errors"
-    "encoding/json"
-    "net"
-    "net/netip"
-    "os"
-    "runtime"
-    "strings"
-    "sync"
-    "sync/atomic"
-    "syscall"
-    "unsafe"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net"
+	"net/netip"
+	"os"
+	"runtime"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+	"unsafe"
 
-    "github.com/metacubex/mihomo/component/dialer"
-    "github.com/metacubex/mihomo/config"
-    "github.com/metacubex/mihomo/constant"
-    "github.com/metacubex/mihomo/hub/executor"
-    LC "github.com/metacubex/mihomo/listener/config"
-    "github.com/metacubex/mihomo/listener/sing_tun"
-    "github.com/metacubex/mihomo/tunnel"
+	"github.com/metacubex/mihomo/component/dialer"
+	"github.com/metacubex/mihomo/component/resolver"
+	"github.com/metacubex/mihomo/config"
+	"github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/dns"
+	"github.com/metacubex/mihomo/hub/executor"
+	LC "github.com/metacubex/mihomo/listener/config"
+	namedinbound "github.com/metacubex/mihomo/listener/inbound"
+	"github.com/metacubex/mihomo/listener/mixed"
+	"github.com/metacubex/mihomo/listener/sing_tun"
+	"github.com/metacubex/mihomo/listener/socks"
+	"github.com/metacubex/mihomo/ntp/ntp"
+	"github.com/metacubex/mihomo/tunnel"
+	"github.com/metacubex/mihomo/tunnel/statistic"
+	"golang.org/x/sys/unix"
 )
 
 var (
-    androidTunMu sync.Mutex
-    androidTun   *sing_tun.Listener
-    vpnProtectionRequired atomic.Bool
-
-    configMu       sync.Mutex
-    lastConfigJSON []byte
+	androidTunMu   sync.Mutex
+	androidRuntime androidTunLifecycle
+	lastConfigJSON []byte
 )
 
 func cString(s *C.char) string {
-    if s == nil {
-        return ""
-    }
-    return C.GoString(s)
+	if s == nil {
+		return ""
+	}
+	return C.GoString(s)
 }
 
 func resultString(err error) *C.char {
-    if err == nil {
-        return C.CString("")
-    }
-    return C.CString(err.Error())
+	if err == nil {
+		return C.CString("")
+	}
+	return C.CString(err.Error())
 }
 
 func tunStackValue(value string) constant.TUNStack {
-    stack, ok := constant.StackTypeMapping[strings.ToLower(strings.TrimSpace(value))]
-    if !ok {
-        return constant.TunSystem
-    }
-    return stack
+	stack, ok := constant.StackTypeMapping[strings.ToLower(strings.TrimSpace(value))]
+	if !ok {
+		return constant.TunSystem
+	}
+	return stack
 }
 
 func parsePrefix(value string) (netip.Prefix, bool) {
-    prefix, err := netip.ParsePrefix(value)
-    return prefix, err == nil
+	prefix, err := netip.ParsePrefix(value)
+	return prefix, err == nil
 }
 
 func parseDNS(value string) ([]string, error) {
-    var result []string
-    for _, item := range strings.Split(value, ",") {
-        item = strings.TrimSpace(item)
-        if item == "" {
-            continue
-        }
-        addr, err := netip.ParseAddr(item)
-        if err != nil {
-            return nil, err
-        }
-        result = append(result, net.JoinHostPort(addr.String(), "53"))
-    }
-    return result, nil
+	var result []string
+	for _, item := range strings.Split(value, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		addr, err := netip.ParseAddr(item)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, net.JoinHostPort(addr.String(), "53"))
+	}
+	return result, nil
 }
 
 func protectSocket(fd int) bool {
-    return C.angelanexusProtectFd(C.int(fd)) != 0
+	return C.angelanexusProtectFd(C.int(fd)) != 0
 }
 
 func init() {
-    dialer.DefaultSocketHook = func(network, address string, conn syscall.RawConn) error {
-        if !vpnProtectionRequired.Load() {
-            return nil
-        }
-        var protectErr error
-        if err := conn.Control(func(fd uintptr) {
-            if !protectSocket(int(fd)) {
-                protectErr = errors.New("Android VpnService.protect refused the core socket")
-            }
-        }); err != nil {
-            return err
-        }
-        return protectErr
-    }
+	tunnel.OnSuspend()
+	// Reject ordinary tunnel trackers until an attachment commits. Epochs live
+	// in the upstream manager and are never reset with androidRuntime.
+	statistic.DefaultManager.StopRegistrations()
+	// Upstream starts a process-wide sampler during package initialization.
+	// An unattached library must not retain that ticker worker.
+	statistic.DefaultManager.StopStatistics()
+	dialer.DefaultSocketHook = func(network, address string, conn syscall.RawConn) error {
+		return androidRuntime.socketHook(conn, protectSocket)
+	}
+}
+
+func applyAndroidConfiguration(cfg *config.Config) {
+	// Own every generation, not just tunnel.Providers(), before initialization.
+	// Retired configurations remain owned until explicit stop; this does not
+	// claim synchronous provider retirement on configuration reload.
+	for name, provider := range cfg.Providers {
+		if closer, ok := provider.(io.Closer); ok {
+			androidRuntime.ownProvider("proxy/"+name, closer)
+		}
+	}
+	for name, provider := range cfg.RuleProviders {
+		if closer, ok := provider.(io.Closer); ok {
+			androidRuntime.ownProvider("rule/"+name, closer)
+		}
+	}
+	// ApplyConfig internally resumes the tunnel, even before a TUN is attached.
+	// Keep stopped/failed-start runtimes suspended, including panic paths.
+	defer func() {
+		if !androidRuntime.ready() {
+			tunnel.OnSuspend()
+		}
+	}()
+	// Capture the installed roots even on a later ApplyConfig panic. Keep old
+	// generations across reload/disable: upstream globals expose only the latest.
+	defer func() {
+		if generation, ok := resolver.DefaultResolver.(dns.Resolvers); ok {
+			androidRuntime.ownResolvers(generation)
+		}
+	}()
+	androidRuntime.applyConfiguration(func() { executor.ApplyConfig(cfg, true) })
+	androidRuntime.providersStopped = false
+	androidRuntime.resolversStopped = false
 }
 
 //export angelaInit
 func angelaInit(homeDir *C.char) *C.char {
-    dir := strings.TrimSpace(cString(homeDir))
-    if dir == "" {
-        return C.CString("homeDir is required")
-    }
-    if err := os.MkdirAll(dir, 0700); err != nil {
-        return resultString(err)
-    }
-    constant.SetHomeDir(dir)
-    return C.CString("")
+	return resultString(initializeAndroid(cString(homeDir)))
+}
+
+func initializeAndroid(homeDir string) error {
+	androidTunMu.Lock()
+	defer androidTunMu.Unlock()
+	dir := strings.TrimSpace(homeDir)
+	if dir == "" {
+		return errors.New("homeDir is required")
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	constant.SetHomeDir(dir)
+	return nil
 }
 
 //export angelaApplyConfig
 func angelaApplyConfig(configJSON *C.char) *C.char {
-    data := []byte(cString(configJSON))
-    if len(data) == 0 {
-        return C.CString("config is empty")
-    }
+	return resultString(applyAndroidConfigJSON([]byte(cString(configJSON))))
+}
 
-    cfg, err := config.Parse(data)
-    if err != nil {
-        return resultString(err)
-    }
+func applyAndroidConfigJSON(data []byte) error {
+	generation := androidRuntime.stopGeneration.Load()
+	if err := androidRuntime.checkConfigurationGeneration(generation); err != nil {
+		return err
+	}
+	return applyAndroidConfigJSONAtGeneration(data, generation)
+}
 
-    configMu.Lock()
-    defer configMu.Unlock()
-    executor.ApplyConfig(cfg, true)
-    lastConfigJSON = append(lastConfigJSON[:0], data...)
-    return C.CString("")
+// The captured generation belongs to the request, not to lock acquisition.
+func applyAndroidConfigJSONAtGeneration(data []byte, generation uint64) error {
+	// config.Parse temporarily changes upstream globals and rolls them back.
+	// Serialize parsing with apply, DNS updates, home changes and stop/start;
+	// locking only ApplyConfig lets a late parse rollback undo another apply.
+	androidTunMu.Lock()
+	defer androidTunMu.Unlock()
+	if err := androidRuntime.checkConfigurationGeneration(generation); err != nil {
+		return err
+	}
+	if androidRuntime.providersStopped && len(androidRuntime.providers) != 0 {
+		return errAndroidProviderCleanupPending
+	}
+	if androidRuntime.dnsCleanupPending {
+		return errAndroidDNSCleanupPending
+	}
+	if androidRuntime.ntpCleanupPending {
+		return errAndroidNTPCleanupPending
+	}
+	if androidRuntime.mixedCleanupPending {
+		return errAndroidMixedCleanupPending
+	}
+	if androidRuntime.namedCleanupPending {
+		return errAndroidNamedCleanupPending
+	}
+	if androidRuntime.resourceCleanupPending {
+		return errAndroidResourceCleanupPending
+	}
+	if len(data) == 0 {
+		return errors.New("config is empty")
+	}
+
+	cfg, err := config.Parse(data)
+	if err != nil {
+		return err
+	}
+
+	applyAndroidConfiguration(cfg)
+	lastConfigJSON = append(lastConfigJSON[:0], data...)
+	return nil
 }
 
 //export updateDns
 func updateDns(dns *C.char) *C.char {
-    servers, err := parseDNS(cString(dns))
-    if err != nil {
-        return resultString(err)
-    }
+	return resultString(updateAndroidDNS(cString(dns)))
+}
 
-    configMu.Lock()
-    defer configMu.Unlock()
+func updateAndroidDNS(dns string) error {
+	generation := androidRuntime.stopGeneration.Load()
+	if err := androidRuntime.checkConfigurationGeneration(generation); err != nil {
+		return err
+	}
+	return updateAndroidDNSAtGeneration(dns, generation)
+}
 
-    if len(lastConfigJSON) == 0 {
-        return C.CString("no configuration has been applied")
-    }
+// The captured generation belongs to the request, not to lock acquisition.
+func updateAndroidDNSAtGeneration(dns string, generation uint64) error {
+	servers, err := parseDNS(dns)
+	if err != nil {
+		return err
+	}
 
-    var document map[string]any
-    if err := json.Unmarshal(lastConfigJSON, &document); err != nil {
-        return resultString(err)
-    }
-    dnsSection, ok := document["dns"].(map[string]any)
-    if !ok {
-        dnsSection = map[string]any{}
-        document["dns"] = dnsSection
-    }
-    dnsSection["enable"] = true
-    dnsSection["nameserver"] = servers
+	androidTunMu.Lock()
+	defer androidTunMu.Unlock()
+	if err := androidRuntime.checkConfigurationGeneration(generation); err != nil {
+		return err
+	}
 
-    updated, err := json.Marshal(document)
-    if err != nil {
-        return resultString(err)
-    }
-    cfg, err := config.Parse(updated)
-    if err != nil {
-        return resultString(err)
-    }
-    executor.ApplyConfig(cfg, true)
-    lastConfigJSON = append(lastConfigJSON[:0], updated...)
-    return C.CString("")
+	if androidRuntime.providersStopped && len(androidRuntime.providers) != 0 {
+		return errAndroidProviderCleanupPending
+	}
+	if androidRuntime.dnsCleanupPending {
+		return errAndroidDNSCleanupPending
+	}
+	if androidRuntime.ntpCleanupPending {
+		return errAndroidNTPCleanupPending
+	}
+	if androidRuntime.mixedCleanupPending {
+		return errAndroidMixedCleanupPending
+	}
+	if androidRuntime.namedCleanupPending {
+		return errAndroidNamedCleanupPending
+	}
+	if androidRuntime.resourceCleanupPending {
+		return errAndroidResourceCleanupPending
+	}
+	if len(lastConfigJSON) == 0 {
+		return errors.New("no configuration has been applied")
+	}
+
+	var document map[string]any
+	if err := json.Unmarshal(lastConfigJSON, &document); err != nil {
+		return err
+	}
+	dnsSection, ok := document["dns"].(map[string]any)
+	if !ok {
+		dnsSection = map[string]any{}
+		document["dns"] = dnsSection
+	}
+	dnsSection["enable"] = true
+	dnsSection["nameserver"] = servers
+
+	updated, err := json.Marshal(document)
+	if err != nil {
+		return err
+	}
+	cfg, err := config.Parse(updated)
+	if err != nil {
+		return err
+	}
+	applyAndroidConfiguration(cfg)
+	lastConfigJSON = append(lastConfigJSON[:0], updated...)
+	return nil
 }
 
 //export startTUN
 func startTUN(fd C.int, stack, address, dns *C.char) C.uchar {
-    androidTunMu.Lock()
-    defer androidTunMu.Unlock()
+	generation := androidRuntime.stopGeneration.Load()
+	if err := androidRuntime.checkConfigurationGeneration(generation); err != nil {
+		return 0
+	}
+	if startAndroidTUNAtGeneration(int(fd), cString(stack), cString(address), cString(dns), generation) {
+		return 1
+	}
+	return 0
+}
 
-    if androidTun != nil {
-        _ = androidTun.Close()
-        androidTun = nil
-    }
-    vpnProtectionRequired.Store(false)
-    if fd < 0 {
-        return 0
-    }
+// Keep the request token across the control-lock wait, just like config/DNS.
+// Rejection retains the caller's descriptor and does not clean up a newer TUN.
+func startAndroidTUNAtGeneration(fd int, stack, address, dns string, generation uint64) bool {
+	return startAndroidTUNWithConstructor(fd, stack, address, dns, generation, func(options LC.Tun) (io.Closer, error) {
+		return sing_tun.NewWithOwnedFD(options, tunnel.Tunnel)
+	})
+}
 
-    var prefix4 []netip.Prefix
-    var prefix6 []netip.Prefix
-    for _, value := range strings.Split(cString(address), ",") {
-        value = strings.TrimSpace(value)
-        if value == "" {
-            continue
-        }
-        prefix, ok := parsePrefix(value)
-        if !ok {
-            // The caller retains ownership until this function succeeds.
-            return 0
-        }
-        if prefix.Addr().Is4() {
-            prefix4 = append(prefix4, prefix)
-        } else {
-            prefix6 = append(prefix6, prefix)
-        }
-    }
+// The per-call constructor keeps host regressions on the actual startup path
+// without mutating a global factory or pretending to attach an Android TUN.
+// It must consume the supplied duplicate on every return: retain it in the
+// successful listener, or close it on failure. Never close its number here once
+// handed off: upstream cleanup may already have closed and recycled that number.
+func startAndroidTUNWithConstructor(fd int, stack, address, dns string, generation uint64, construct func(LC.Tun) (io.Closer, error)) bool {
+	androidTunMu.Lock()
+	defer androidTunMu.Unlock()
+	// Reject before touching current ownership: a newer start may have won
+	// the control lock after the superseding stop completed.
+	if err := androidRuntime.checkConfigurationGeneration(generation); err != nil {
+		return false
+	}
 
-    dnsHijack, err := parseDNS(cString(dns))
-    if err != nil {
-        // The caller retains ownership until this function succeeds.
-        return 0
-    }
+	// Fetcher.Close is irreversible. A fresh apply/DNS reparse must construct
+	// new providers before attaching again; never reopen a stopped generation.
+	if androidRuntime.providersStopped || androidRuntime.resolversStopped || androidRuntime.dnsCleanupPending || androidRuntime.ntpCleanupPending || androidRuntime.namedCleanupPending || androidRuntime.resourceCleanupPending || androidRuntime.mixedCleanupPending {
+		return false
+	}
+	tunnel.OnSuspend()
+	if err := closeAndroidResources(); err != nil {
+		// Keep failed cleanup ownership and the caller's descriptor on failure.
+		return false
+	}
+	if fd < 0 || androidRuntime.pendingStops.Load() != 0 {
+		return false
+	}
 
-    dupFd, err := syscall.Dup(int(fd))
-    if err != nil {
-        // The caller retains ownership until this function succeeds.
-        return 0
-    }
+	var prefix4 []netip.Prefix
+	var prefix6 []netip.Prefix
+	for _, value := range strings.Split(address, ",") {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		prefix, ok := parsePrefix(value)
+		if !ok {
+			// The caller retains ownership until this function succeeds.
+			return false
+		}
+		if prefix.Addr().Is4() {
+			prefix4 = append(prefix4, prefix)
+		} else {
+			prefix6 = append(prefix6, prefix)
+		}
+	}
 
-    vpnProtectionRequired.Store(true)
+	dnsHijack, err := parseDNS(dns)
+	if err != nil {
+		// The caller retains ownership until this function succeeds.
+		return false
+	}
 
-    options := LC.Tun{
-        Enable:                true,
-        Stack:                 tunStackValue(cString(stack)),
-        Device:                "AngelaNexus",
-        DNSHijack:             dnsHijack,
-        AutoRoute:             false,
-        AutoDetectInterface:   false,
-        MTU:                   9000,
-        FileDescriptor:        dupFd,
-        Inet4Address:          prefix4,
-        Inet6Address:          prefix6,
-    }
+	// Cleanup and argument parsing may have overlapped a newly announced stop.
+	// Avoid starting a constructor at all when this request is already stale.
+	if err := androidRuntime.checkConfigurationGeneration(generation); err != nil {
+		return false
+	}
+	// Upstream uses fd==0 as the sentinel for creating its own TUN. Dup may
+	// return 0 when stdin is closed; reserve all standard descriptors instead.
+	// Set CLOEXEC atomically so concurrent process launches cannot inherit it.
+	dupFd, err := unix.FcntlInt(uintptr(fd), unix.F_DUPFD_CLOEXEC, 3)
+	if err != nil {
+		// The caller retains ownership until this function succeeds.
+		return false
+	}
 
-    listener, err := sing_tun.New(options, tunnel.Tunnel)
-    if err != nil {
-        vpnProtectionRequired.Store(false)
-        _ = syscall.Close(dupFd)
-        return 0
-    }
+	options := LC.Tun{
+		Enable:              true,
+		Stack:               tunStackValue(stack),
+		Device:              "AngelaNexus",
+		DNSHijack:           dnsHijack,
+		AutoRoute:           false,
+		AutoDetectInterface: false,
+		MTU:                 9000,
+		FileDescriptor:      dupFd,
+		Inet4Address:        prefix4,
+		Inet6Address:        prefix6,
+	}
 
-    // The listener owns the duplicated descriptor. The caller's descriptor
-    // is released only after successful construction so failure remains
-    // unambiguous at the JNI/service boundary.
-    _ = syscall.Close(int(fd))
-    androidTun = listener
-    return 1
+	listener, err := construct(options)
+	if err != nil {
+		return false
+	}
+
+	// Construction may finish after stop was announced. First retain the new
+	// listener, including its duplicate fd, so a failed close remains retryable.
+	// Reject before consuming the caller fd, clearing pause or restoring admission.
+	androidRuntime.listener = listener
+	if err := androidRuntime.checkConfigurationGeneration(generation); err != nil {
+		_ = closeAndroidResources()
+		return false
+	}
+
+	// The listener owns the duplicated descriptor. The caller's descriptor
+	// is released only after successful construction so failure remains
+	// unambiguous at the JNI/service boundary.
+	_ = syscall.Close(fd)
+	// A newly attached runtime starts unpaused; failed starts never clear pause.
+	androidRuntime.setSuspended(false)
+	androidRuntime.restoreAdmission(true)
+	// Cleanup invalidated the old generation before construction. Opening only
+	// the new generation cannot admit a late result from the replaced runtime.
+	statistic.DefaultManager.StartRegistrations()
+	// The sampler belongs to the attached runtime, including explicit pauses.
+	// A queued stop owns subsequent synchronous cleanup under androidTunMu.
+	statistic.DefaultManager.StartStatistics()
+	// A stop announced after the commit check owns queued cleanup. Do not resume
+	// tunnel admission before it gets the lock; this is not construction cancellation.
+	if androidRuntime.ready() {
+		tunnel.OnRunning()
+	}
+	return true
+}
+
+// Caller holds androidTunMu and suspends tunnel admission. Closing registration
+// first invalidates ordinary tunnel TCP/UDP setup tokens before taking a snapshot.
+// Join only admitted dial/retry/early-handshake work, not pre-dial metadata,
+// relays, NAT, DNS or providers. A timeout preserves setup debt for the next stop
+// and prevents a replacement attachment from committing through failed cleanup.
+func closeAndroidResources() error {
+	statistic.DefaultManager.StopRegistrations()
+	listenerErr := androidRuntime.closeTun()
+	// Join even if listener cleanup failed. This stops only the statistics
+	// sampler, not provider, dial, DNS or UDP/NAT background work.
+	statistic.DefaultManager.StopStatistics()
+	connections := make(map[string]io.Closer)
+	statistic.DefaultManager.Range(func(connection statistic.Tracker) bool {
+		connections[connection.ID()] = connection
+		return true
+	})
+	// Do not short-circuit on a listener failure: still attempt every connection.
+	connectionErr := androidRuntime.closeConnections(connections)
+	setupErr := waitAndroidSetups(androidSetupDrainTimeout)
+	// A rejected late result can fail Close after the snapshot above. Its manager
+	// registration is the retry owner. Do not report successful stop or reopen
+	// admission while that newly retained connection still awaits cleanup.
+	var lateErr error
+	statistic.DefaultManager.Range(func(connection statistic.Tracker) bool {
+		if _, captured := connections[connection.ID()]; !captured {
+			lateErr = errAndroidLateSetupConnections
+			return false
+		}
+		return true
+	})
+	return errors.Join(listenerErr, connectionErr, setupErr, lateErr)
+}
+
+const androidSetupDrainTimeout = 2 * time.Second
+
+var errAndroidLateSetupConnections = errors.New("late setup connections await cleanup retry")
+var errAndroidProviderCleanupPending = errors.New("provider cleanup pending; retry stop before applying configuration")
+var errAndroidDNSCleanupPending = errors.New("DNS listener/resolver cleanup pending; retry stop before applying configuration")
+
+var errAndroidNTPCleanupPending = errors.New("NTP cleanup pending; retry stop before applying configuration")
+
+var errAndroidResourceCleanupPending = errors.New("TUN/connection/setup cleanup pending; retry stop before applying configuration")
+
+const androidNTPDrainTimeout = 2 * time.Second
+const androidProviderDrainTimeout = 2 * time.Second
+const androidDNSDrainTimeout = 2 * time.Second
+const androidMixedDrainTimeout = 2 * time.Second
+
+var errAndroidMixedCleanupPending = errors.New("mixed TCP/UDP listener/packet cleanup pending; retry stop before applying configuration")
+
+// Caller holds androidTunMu. Cancel every owned resolver generation before
+// joining listeners and resolver workers under one deadline. This does not close
+// resolver transports or establish complete kernel shutdown.
+func stopAndroidDNS(timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	androidRuntime.cancelResolvers()
+	listenerErr := dns.StopServer(ctx)
+	resolverErr := androidRuntime.waitResolvers(ctx)
+	err := errors.Join(listenerErr, resolverErr)
+	androidRuntime.dnsCleanupPending = err != nil
+	return err
+}
+
+// Exclusive to explicit stop, not attachment replacement after apply.
+func stopAndroidNTP(timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	err := ntp.StopNTPService(ctx)
+	androidRuntime.ntpCleanupPending = err != nil
+	return err
+}
+func waitAndroidSetups(timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return statistic.DefaultManager.WaitSetups(ctx)
+}
+
+// Only default mixed-port TCP/UDP generations are owned here, including
+// synchronous ingress handlers and admitted UDP packets until actual Drop.
+// Not other tunnel work, named inbounds, other protocols, or complete shutdown.
+// Attachment cleanup follows apply and must not stop its fresh listener.
+func stopAndroidMixed(timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	err := mixed.StopListeners(ctx)
+	err = errors.Join(err, socks.StopMixedUDP(ctx))
+	androidRuntime.mixedCleanupPending = err != nil
+	return err
+}
+
+const androidNamedDrainTimeout = 2 * time.Second
+
+var errAndroidNamedCleanupPending = errors.New("named mixed inbound cleanup pending; retry stop before applying configuration")
+
+// Exclusive to explicit stop: attachment replacement follows apply and must not
+// cancel newly applied named ingress. This joins named mixed TCP accept and
+// synchronous ingress handlers, not all inbound protocols or complete shutdown.
+func stopAndroidNamed(timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	err := namedinbound.StopNamedMixed(ctx)
+	androidRuntime.namedCleanupPending = err != nil
+	return err
+}
+
+func stopTunError() error {
+	// Reject and drain socket hooks even if config.Parse/ApplyConfig currently
+	// holds the control mutex. This does not cancel parsing or completed hooks.
+	androidRuntime.beginStop()
+	defer androidRuntime.endStop()
+	androidTunMu.Lock()
+	defer androidTunMu.Unlock()
+	tunnel.OnSuspend()
+	// Provider cancellation is exclusive to explicit stop, NOT attachment
+	// cleanup: Kotlin applies a config before startTUN replaces the listener.
+	ctx, cancel := context.WithTimeout(context.Background(), androidProviderDrainTimeout)
+	defer cancel()
+	providerErr := androidRuntime.closeProviders(ctx)
+	// Keep this exclusive to explicit stop: attachment replacement follows apply
+	// and must not destroy the DNS listeners just created by that configuration.
+	dnsErr := stopAndroidDNS(androidDNSDrainTimeout)
+	ntpErr := stopAndroidNTP(androidNTPDrainTimeout)
+	mixedErr := stopAndroidMixed(androidMixedDrainTimeout)
+	namedErr := stopAndroidNamed(androidNamedDrainTimeout)
+	resourceErr := closeAndroidResources()
+	// Other components may already be clean. Preserve this independent debt even
+	// after pendingStops becomes zero; only explicit stop retries acknowledge it.
+	androidRuntime.resourceCleanupPending = resourceErr != nil
+	return errors.Join(providerErr, dnsErr, ntpErr, mixedErr, namedErr, resourceErr)
+}
+
+//export angelaStopTun
+func angelaStopTun() *C.char {
+	return resultString(stopTunError())
 }
 
 //export stopTun
 func stopTun() {
-    androidTunMu.Lock()
-    defer androidTunMu.Unlock()
-    if androidTun != nil {
-        _ = androidTun.Close()
-        androidTun = nil
-    }
-    // No TUN listener remains after stop. Prevent future core sockets from
-    // entering the Android VpnService protector path while the platform
-    // service is being detached or the next runtime is being prepared.
-    vpnProtectionRequired.Store(false)
+	// Kept for older consumers. New callers must use angelaStopTun so a close
+	// error reaches the existing Kotlin failure/retry path.
+	_ = stopTunError()
 }
 
 //export suspend
 func suspend(suspended C.uchar) {
-    if suspended != 0 {
-        tunnel.OnSuspend()
-    } else {
-        tunnel.OnRunning()
-    }
+	if suspended != 0 {
+		// Parsing/apply can hold androidTunMu for an unbounded time. Gate hooks
+		// now, not only once that operation eventually releases the mutex.
+		androidRuntime.beginSuspend()
+	}
+	androidTunMu.Lock()
+	defer androidTunMu.Unlock()
+	if suspended != 0 {
+		// Retire this request before unlocking: a following resume must not see
+		// an already-completed pause and leave tunnel status falsely suspended.
+		defer androidRuntime.endSuspend()
+	}
+	androidRuntime.setSuspended(suspended != 0)
+	if suspended != 0 || !androidRuntime.ready() {
+		tunnel.OnSuspend()
+	} else {
+		tunnel.OnRunning()
+	}
 }
 
 //export forceGC
 func forceGC() {
-    runtime.GC()
+	runtime.GC()
 }
 
 //export getTraffic
 func getTraffic(onlyStatisticsProxy C.uchar) *C.char {
-    _ = onlyStatisticsProxy
-    return C.CString("{\"up\":0,\"down\":0}")
+	_ = onlyStatisticsProxy
+	return C.CString("{\"up\":0,\"down\":0}")
 }
 
 //export getTotalTraffic
 func getTotalTraffic(onlyStatisticsProxy C.uchar) *C.char {
-    _ = onlyStatisticsProxy
-    return C.CString("{\"upTotal\":0,\"downTotal\":0}")
+	_ = onlyStatisticsProxy
+	return C.CString("{\"upTotal\":0,\"downTotal\":0}")
 }
 
 //export freeCString
 func freeCString(value *C.char) {
-    if value != nil {
-        C.free(unsafe.Pointer(value))
-    }
+	if value != nil {
+		C.free(unsafe.Pointer(value))
+	}
 }

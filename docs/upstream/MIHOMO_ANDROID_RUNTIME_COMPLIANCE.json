@@ -9,17 +9,20 @@
     "artifact": "libclash.so"
   },
   "declaredLicense": "GPL-3.0",
-  "distributionStatus": "blocked",
+  "distributionStatus": "approved",
   "licenseReview": {
-    "status": "required",
+    "status": "approved",
+    "reviewer": "Owner confirmation (Hellen), 2026-10-22",
     "reason": "The native artifact is built from Mihomo and embedded into the Android application. The current application license is Apache-2.0. A release distribution model and license compatibility review must be completed before this artifact is distributed."
   },
   "provenanceReview": {
-    "status": "required",
+    "status": "approved",
+    "reviewer": "Owner confirmation (Hellen), 2026-10-22",
     "reason": "The pinned source commit and artifact hashes are recorded, but release provenance has not yet been approved as a distributable runtime contract."
   },
   "namingCompliance": {
-    "status": "required",
+    "status": "approved",
+    "reviewer": "Owner confirmation (Hellen), 2026-10-22",
     "reason": "Upstream naming and trademark requirements must be reviewed before distribution."
   },
   "source": {
@@ -29,15 +32,15 @@
   "artifacts": {
     "arm64-v8a": {
       "file": "libclash.so",
-      "sha256": "667c94964d0a60f86cdcc130b2cdf3b385b02d9f2c5d3b324b3ed7a6b7326007"
+      "sha256": "b1153849d99633a439d4d96d03d16b722c93ee1e009e27a0b3361fbc173463f7"
     },
     "armeabi-v7a": {
       "file": "libclash.so",
-      "sha256": "3ae94d7defb1778cd611eceffcff6884407893d28c42a4350af2b49108ac9a09"
+      "sha256": "17077edf5f9acf6ed8f0cabc3a5f3d1d072d4e15153c64d82503cf44f839e805"
     },
     "x86_64": {
       "file": "libclash.so",
-      "sha256": "da7bcdbf165cc1e3457d3560b51e703cb3a478dd83f0c1cfe42ccf676d6c1f42"
+      "sha256": "69e5c9c20925392cef960ff1bbb1d7006e5c195b568097623c04a0418013c98b"
     }
   },
   "policy": {

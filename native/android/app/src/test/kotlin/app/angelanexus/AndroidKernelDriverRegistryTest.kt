@@ -73,6 +73,34 @@ class AndroidKernelDriverRegistryTest {
     }
 
     @Test
+    fun mihomoStopRetryClearsProtectorOnlyAfterNativeCleanupSucceeds() {
+        val runtime = FakeMihomoNativeHost(stopFailuresRemaining = 1)
+        val driver = MihomoAndroidKernelDriver(runtime)
+        driver.initialize("/tmp/angelanexus-test")
+        driver.attachTun(100, AndroidVpnRuntimePolicy.default())
+        driver.start()
+
+        assertThrows(IllegalStateException::class.java) { driver.stop() }
+        assertEquals(1, runtime.stopCalls)
+        assertEquals(0, runtime.clearProtectorCalls)
+        assertTrue(driver.status().running)
+        assertEquals("TUN attached", driver.status().detail)
+
+        driver.stop()
+        assertEquals(2, runtime.stopCalls)
+        assertEquals(1, runtime.clearProtectorCalls)
+        assertFalse(driver.status().running)
+        assertEquals("idle", driver.status().detail)
+
+        driver.attachTun(101, AndroidVpnRuntimePolicy.default())
+        driver.start()
+        assertTrue(driver.status().running)
+        driver.stop()
+        assertEquals(3, runtime.stopCalls)
+        assertEquals(2, runtime.clearProtectorCalls)
+    }
+
+    @Test
     fun mihomoFailedNativeTunAttachDoesNotEnterAttachedState() {
         val driver = MihomoAndroidKernelDriver(FakeMihomoNativeHost(startTunResult = false))
         driver.initialize("/tmp/angelanexus-test")
@@ -91,15 +119,24 @@ class AndroidKernelDriverRegistryTest {
         private val startTunResult: Boolean = true,
         private val stopTunFailure: Boolean = false,
         private val trafficSnapshot: String = "{}",
+        private var stopFailuresRemaining: Int = 0,
     ) : MihomoNativeHost {
+        var stopCalls = 0
+            private set
+        var clearProtectorCalls = 0
+            private set
         override fun initialize(homeDir: String) = Unit
         override fun setVpnService(service: android.net.VpnService) = Unit
-        override fun clearVpnService() = Unit
+        override fun clearVpnService() { clearProtectorCalls++ }
         override fun hasVpnProtector(): Boolean = true
         override fun applyConfig(configJson: String): String? = null
         override fun startTun(tunFd: Int, stack: String, address: String, dns: String): Boolean = startTunResult
         override fun stopTun() {
-            if (stopTunFailure) throw IllegalStateException("native stop failed")
+            stopCalls++
+            if (stopTunFailure || stopFailuresRemaining > 0) {
+                if (stopFailuresRemaining > 0) stopFailuresRemaining--
+                throw IllegalStateException("native stop failed")
+            }
         }
         override fun updateDns(dns: String) = Unit
         override fun setSuspended(suspended: Boolean) = Unit

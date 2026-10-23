@@ -402,3 +402,37 @@ test("integrates platform rule packages into the unified compilation pipeline", 
   assert.ok(xray.config.routing.rules.some((rule) => rule.domain?.includes("domain:tracker.example") && rule.outboundTag === "Nexus-Blackhole"));
   assert.ok(xray.config.routing.rules.some((rule) => rule.domain?.includes("full:service.example") && rule.outboundTag === "Proxy"));
 });
+
+test("Mihomo maps canonical SOCKS and Shadowsocks to native proxy types", () => {
+  for (const [protocol, expectedType] of [["socks", "socks5"], ["socks5", "socks5"], ["shadowsocks", "ss"], ["ss", "ss"]]) {
+    const result = compileUnifiedConfig({ kernel: Kernels.MIHOMO, nodes: [{
+      id: "proxy", name: "proxy", protocol, server: "127.0.0.1", port: 1080,
+      password: "fixture-password", method: "aes-128-gcm",
+    }] });
+    assert.equal(result.config.proxies[0].type, expectedType);
+    assert.equal(result.config.proxies[0].password, "fixture-password");
+    assert.equal(result.validation.ok, true);
+  }
+});
+
+test("Mihomo native validation rejects canonical-only type names", () => {
+  for (const type of ["socks", "shadowsocks"]) {
+    const result = validateCompiledConfig({
+      proxies: [{ name: "proxy", type, server: "127.0.0.1", port: 1080, cipher: "aes-128-gcm", password: "fixture-password" }],
+      rules: ["MATCH,REJECT"],
+    }, Kernels.MIHOMO);
+    assert.equal(result.ok, false);
+    assert.match(result.errors.join("\n"), /unsupported proxy type/);
+  }
+});
+
+test("Mihomo native Shadowsocks requires both cipher and password", () => {
+  for (const extra of [{ cipher: "aes-128-gcm" }, { password: "fixture-password" }]) {
+    const result = validateCompiledConfig({
+      proxies: [{ name: "proxy", type: "ss", server: "127.0.0.1", port: 1080, ...extra }],
+      rules: ["MATCH,REJECT"],
+    }, Kernels.MIHOMO);
+    assert.equal(result.ok, false);
+    assert.match(result.errors.join("\n"), /requires cipher and password/);
+  }
+});

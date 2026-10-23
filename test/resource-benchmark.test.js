@@ -70,8 +70,10 @@ test("calibration boosts iterations for fast workloads without reducing slow one
 
 test("comparison passes when current is within the regression threshold", () => {
   const baseline = smokeReport();
-  const current = smokeReport();
-  const result = compareBenchmarks(baseline, current, 5.0);
+  // Exercise comparison math, not two noisy, five-iteration wall-clock samples.
+  const current = structuredClone(baseline);
+  for (const workload of current.workloads) workload.nsPerOp *= 1.1;
+  const result = compareBenchmarks(baseline, current, 0.2);
   assert.equal(result.ok, true);
   assert.deepEqual(result.regressions, []);
   assert.equal(result.comparisons.length, 5);
