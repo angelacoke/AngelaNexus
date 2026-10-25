@@ -51,7 +51,7 @@ jobs:
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/28.0.13004108
-          SINGBOX_REF: "v1.14.0-beta.4"
+          SINGBOX_REF: "v1.14.3"
         run: |
           set -euo pipefail
           go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
@@ -109,6 +109,28 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Install Android NDK required by Gradle
+        shell: bash
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort | tail -n 1)"
+          test -x "$SDKMANAGER"
+          NDK_VERSION="27.0.12077973"
+          for attempt in 1 2 3; do
+            if "$SDKMANAGER" "ndk;$NDK_VERSION" && test -s "$ANDROID_HOME/ndk/$NDK_VERSION/source.properties"; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "ERROR: unable to install and verify Android NDK $NDK_VERSION after $attempt attempts"
+              exit 1
+            fi
+            echo "NDK installation attempt $attempt failed; retrying after cleanup"
+            rm -rf "$ANDROID_HOME/ndk/$NDK_VERSION"
+            sleep $((attempt * 5))
+          done
+          grep -F "Pkg.Revision = $NDK_VERSION" "$ANDROID_HOME/ndk/$NDK_VERSION/source.properties"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'

@@ -32,7 +32,7 @@ AngelaNexus distinguishes:
 
 ## sing-box Android finding
 
-Official sing-box v1.14.2 provides experimental/libbox for Android embedding. The Android platform interface opens the Android VpnService TUN and supplies the descriptor to sing-box.
+Official sing-box v1.14.3 provides experimental/libbox for Android embedding. The Android build pins its generated libbox AAR to the same `v1.14.3` tag used by the stable kernel registry; Android API compatibility and runtime behavior still require separate validation. The Android platform interface opens the Android VpnService TUN and supplies the descriptor to sing-box.
 
 Therefore AngelaNexus must not fake native sing-box capability or claim command-line execution is equivalent to the Android native TUN integration.
 
