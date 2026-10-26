@@ -83,6 +83,91 @@ jobs:
         with:
           gradle-version: "8.10.2"
 
+      - name: Resolve matching Android kernel artifact for source commit
+        id: android-kernel-artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid source commit SHA: $SOURCE_SHA" >&2
+            exit 1
+          fi
+
+          deadline=$((SECONDS + 900))
+          while (( SECONDS < deadline )); do
+            runs="$(gh api "repos/${REPOSITORY}/actions/workflows/android-build.yml/runs?branch=main&head_sha=${SOURCE_SHA}&per_page=100")"
+            latest="$(jq -c --arg sha "$SOURCE_SHA" '
+              [.workflow_runs[]?
+                | select(.head_sha == $sha and .event == "push" and .head_branch == "main")]
+              | sort_by(.run_number)
+              | last // empty
+            ' <<< "$runs")"
+
+            if [[ -n "$latest" ]]; then
+              status="$(jq -r '.status' <<< "$latest")"
+              conclusion="$(jq -r '.conclusion // ""' <<< "$latest")"
+              run_id="$(jq -r '.id' <<< "$latest")"
+              if [[ "$status" == "completed" && "$conclusion" != "success" ]]; then
+                echo "Matching android-build run $run_id did not succeed (conclusion=$conclusion)." >&2
+                exit 1
+              fi
+              if [[ "$status" == "completed" && "$conclusion" == "success" ]]; then
+                artifacts="$(gh api "repos/${REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100")"
+                artifact_id="$(jq -r --arg name "angelanexus-android-native-kernel-aars" '
+                  [.artifacts[]?
+                    | select(.name == $name and .expired == false and .size_in_bytes > 0)]
+                  | first
+                  | .id // empty
+                ' <<< "$artifacts")"
+                if [[ -n "$artifact_id" ]]; then
+                  printf 'run_id=%s\n' "$run_id" >> "$GITHUB_OUTPUT"
+                  echo "Using matching android-build run $run_id (artifact $artifact_id)."
+                  exit 0
+                fi
+                echo "Matching android-build run $run_id succeeded but its AAR artifact is unavailable; waiting for artifact visibility."
+              fi
+            fi
+
+            sleep 20
+          done
+
+          echo "Timed out waiting for a successful android-build AAR artifact for $SOURCE_SHA." >&2
+          exit 1
+
+      - name: Download exact-commit Android kernel AARs
+        uses: actions/download-artifact@v5
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: native/android/app/libs
+          run-id: ${{ steps.android-kernel-artifact.outputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify exact-commit Android kernel AARs
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          LIBS=native/android/app/libs
+          test -s "$LIBS/libXray.aar"
+          test -s "$LIBS/libxray-provenance.json"
+          test -s "$LIBS/libbox.aar"
+          test -s "$LIBS/libbox-legacy.aar"
+          unzip -t "$LIBS/libXray.aar" >/dev/null
+          unzip -t "$LIBS/libbox.aar" >/dev/null
+          unzip -t "$LIBS/libbox-legacy.aar" >/dev/null
+          GITHUB_SHA="$SOURCE_SHA" python3 native/android/xray-bridge/verify-artifact.py \
+            "$LIBS/libXray.aar" --provenance "$LIBS/libxray-provenance.json"
+          unzip -p "$LIBS/libXray.aar" classes.jar > "$RUNNER_TEMP/libXray-classes.jar"
+          unzip -p "$LIBS/libbox.aar" classes.jar > "$RUNNER_TEMP/libbox-classes.jar"
+          ! jar tf "$RUNNER_TEMP/libXray-classes.jar" | grep -q "^go/"
+          jar tf "$RUNNER_TEMP/libbox-classes.jar" | grep -q "^go/Seq.class$"
+          echo "Exact-commit Android AAR inputs and provenance verified"
+
       - name: Download verified Mihomo arm64-v8a
         uses: actions/download-artifact@v5
         with:
