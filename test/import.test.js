@@ -36,3 +36,9 @@ test("does not copy source content into import metadata", () => {
   assert.equal(result.config.metadata.sourceName, "private-config");
   assert.equal(Object.prototype.hasOwnProperty.call(result.config.metadata, "content"), false);
 });
+
+test("ignores invalid node limits instead of using Array.slice semantics", () => {
+  const input = "proxies:\n  - name: US-1\n    type: socks5\n    server: us.example\n    port: 1080\n  - name: JP-1\n    type: socks5\n    server: jp.example\n    port: 1080";
+  assert.equal(importConfiguration(input, { maxNodes: -1 }).config.nodes.length, 2);
+  assert.equal(importConfiguration(input, { maxNodes: Number.NaN }).config.nodes.length, 2);
+});

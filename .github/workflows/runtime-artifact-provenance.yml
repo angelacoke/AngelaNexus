@@ -59,9 +59,39 @@ jobs:
           print("distributionStatus:", d["distributionStatus"])
           PY
 
-      - name: Ensure blocked native distribution remains blocked
+      - name: Enforce approved native distribution gate (fail closed)
         shell: bash
         run: |
           set -euo pipefail
-          grep -q '"distributionStatus": "blocked"' docs/upstream/MIHOMO_ANDROID_RUNTIME_COMPLIANCE.json
-          grep -q '"status": "required"' docs/upstream/MIHOMO_ANDROID_RUNTIME_COMPLIANCE.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          p = Path("docs/upstream/MIHOMO_ANDROID_RUNTIME_COMPLIANCE.json")
+          d = json.loads(p.read_text(encoding="utf-8"))
+          policy = d["policy"]
+          contract = policy["runtimeContract"]
+          required_contract = (
+              "requiresDistributionApproval",
+              "requiresLicenseReviewApproval",
+              "requiresProvenanceApproval",
+              "requiresNamingComplianceApproval",
+          )
+          gates = {
+              "distributionStatus": d["distributionStatus"] == "approved",
+              "licenseReview": d["licenseReview"]["status"] == "approved",
+              "provenanceReview": d["provenanceReview"]["status"] == "approved",
+              "namingCompliance": d["namingCompliance"]["status"] == "approved",
+          }
+          fail_closed = (
+              policy["failClosed"] is True
+              and policy["noSilentFallback"] is True
+              and all(contract.get(key) is True for key in required_contract)
+              and all(gates.values())
+          )
+          for name, approved in gates.items():
+              print(f"{name}: {'approved' if approved else 'blocked'}")
+          if not fail_closed:
+              raise SystemExit("Mihomo Android distribution gate is blocked")
+          print("Mihomo Android distribution gate: approved; fail-closed policy is active")
+          PY

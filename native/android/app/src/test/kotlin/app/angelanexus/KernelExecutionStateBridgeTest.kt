@@ -41,6 +41,29 @@ class KernelExecutionStateBridgeTest {
     }
 
     @Test
+    fun resolvedImportMakesFirstServiceStartLegal() {
+        val bridge = KernelExecutionStateBridge()
+
+        bridge.markImportResolved(" mihomo ")
+        assertEquals(KernelExecutionPhase.READY, bridge.state().phase)
+        assertEquals("mihomo", bridge.state().kernelId)
+
+        bridge.beginStart()
+        assertEquals(KernelExecutionPhase.STARTING, bridge.state().phase)
+    }
+
+    @Test
+    fun readyImportCanReplaceConfigBeforeStarting() {
+        val bridge = KernelExecutionStateBridge()
+        bridge.markImportResolved("mihomo")
+
+        bridge.markImportResolved("sing-box")
+
+        assertEquals(KernelExecutionPhase.READY, bridge.state().phase)
+        assertEquals("sing-box", bridge.state().kernelId)
+    }
+
+    @Test
     fun failureCannotBypassLifecycleGuardFromStopped() {
         val bridge = KernelExecutionStateBridge()
         bridge.markImportReceived()

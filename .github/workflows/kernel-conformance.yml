@@ -76,5 +76,12 @@ jobs:
           NEXUS_SING_BOX_BIN: /tmp/sing-box
           NEXUS_XRAY_BIN: /tmp/xray-bin/xray
         run: npm run kernel:conformance -- --require-binaries
+      - name: Verify real loopback proxy traffic and upstream failure isolation
+        timeout-minutes: 3
+        env:
+          NEXUS_MIHOMO_BIN: /tmp/mihomo
+          NEXUS_SING_BOX_BIN: /tmp/sing-box
+          NEXUS_XRAY_BIN: /tmp/xray-bin/xray
+        run: npm run kernel:traffic:test
 
 # Runtime capability probe verification trigger.

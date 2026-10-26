@@ -103,6 +103,50 @@ CI 全绿、APK/AAB 已签名或开发版本能够运行，都不能单独证明
 - Android Root / 透明网络：能力与受控运行时基础已经建立；正式能力必须经过真实设备和真实内核验证。
 - Mihomo / sing-box / Xray 实际运行时嵌入：尚不宣称达到生产就绪。
 
+## 本地开发与验证
+
+需要 Node.js 20 或更新版本；CI 使用 Node.js 24。
+
+```sh
+npm ci
+npm run verify               # JS / JSON / YAML 语法与完整自动化测试
+npm run core:android:bundle  # 重新生成 Android 内嵌 Core
+npm run benchmark:smoke      # 小规模功能基准，不代表真机性能
+```
+
+本地 Core 导入服务通过 `npm run core:server` 启动，默认监听
+`127.0.0.1:18181`，接口为 `POST /v1/runtime/import`。
+这是开发用的无认证 HTTP 接口，不要直接暴露到公网或不可信网络。
+端口和监听地址可通过 `ANGELANEXUS_CORE_PORT`、`ANGELANEXUS_CORE_HOST` 设置。
+
+`importSource(source, { kernel, prepareRuntimeHandoff: true })` 可为文本、
+本地文件内容、URL 和结构化配置准备运行时交接数据；编译不等于启动内核。
+分享链接需要明确可兼容的内核绑定后才能生成交接配置。
+
+URL 订阅下载默认限制为 5 MiB、30 秒（覆盖重定向和响应体），严格校验 UTF-8。
+`importSource` 与 `importConfigurationAsync` 均可接收 `maxBytes`、`timeoutMs`
+及 `signal: abortController.signal`，以显式限制或取消下载。
+
+三内核真实流量验收使用 `npm run kernel:traffic:test`，需显式设置
+`NEXUS_MIHOMO_BIN`、`NEXUS_SING_BOX_BIN`、`NEXUS_XRAY_BIN` 为已验证的可执行文件。
+测试覆盖本地 HTTP/SOCKS 转发和上游拒绝时不得直连；不修改系统网络，也不等于真机
+TUN、DNS/IPv6 防泄漏或加密协议互通验证。自定义 text-only fetcher 的字节检查发生在
+文本读取之后；此类受信任适配器需自行限制内存并响应取消。
+
+Android 完整构建还需要 Android SDK、Gradle 8.10.2，以及 CI 固定版本的原生
+AAR / 库。仓库当前没有 Gradle Wrapper，不能直接运行 `./gradlew`。
+原生依赖准备、单元测试、APK 打包和模拟器验证步骤见
+[Android 构建工作流](.github/workflows/android-build.yml)。
+通过 Core 测试或模拟器测试，不代表已完成真机 TUN、泄漏防护或电池验证。
+
+已启动并解锁的测试设备可运行
+`ADB=/path/to/adb APK=/path/to/app.apk node scripts/android-runtime-smoke.mjs`。
+此命令会安装/替换测试包并强制停止现有进程；仅在专用测试设备执行。
+验收要求安装与启动明确成功、同一进程持续存活 30 秒且 MainActivity 位于前台；
+失败时返回非零退出码，不以旧包仍在运行或后台 Activity 记录作为成功证据。
+构建流程保留调试 APK、JUnit XML 和可用的模拟器/logcat/Activity 日志，
+独立无 GMS 冒烟流程也会在失败时保留诊断并将检查标红。
+
 ## 文档
 
 - [English README](README.md)

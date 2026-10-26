@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+"""Host-only c-shared smoke: no Android TUN, VpnService or full-core exit claim."""
+import ctypes
+import json
+import sys
+import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+
+def main() -> None:
+    if len(sys.argv) < 2:
+        raise SystemExit("usage: smoke-mihomo-library.py LIBRARY [foreign host flags...]")
+    # Extra arguments deliberately belong to the host, not Mihomo's CLI. Loading
+    # the shared library must not parse them or terminate the embedding process.
+    library = ctypes.CDLL(str(Path(sys.argv[1]).resolve()))
+    library.freeCString.argtypes = [ctypes.c_void_p]
+    library.freeCString.restype = None
+    for name, args in (
+        ("angelaInit", [ctypes.c_char_p]),
+        ("angelaApplyConfig", [ctypes.c_char_p]),
+        ("updateDns", [ctypes.c_char_p]),
+        ("angelaStopTun", []),
+    ):
+        function = getattr(library, name)
+        function.argtypes = args
+        function.restype = ctypes.c_void_p
+    library.startTUN.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p]
+    library.startTUN.restype = ctypes.c_ubyte
+    resume = getattr(library, "suspend")
+    resume.argtypes = [ctypes.c_ubyte]
+    resume.restype = None
+
+    def call(name, *args, expect_error=False, allow_stopped=False):
+        pointer = getattr(library, name)(*args)
+        if not pointer:
+            raise AssertionError(f"{name} returned a null result")
+        try:
+            error = ctypes.string_at(pointer).decode("utf-8")
+        finally:
+            library.freeCString(pointer)
+        if (allow_stopped and name in ("angelaApplyConfig", "updateDns")
+                and error == "Android configuration request rejected by stop; retry after stop completes"):
+            return
+        if bool(error) != expect_error:
+            raise AssertionError(f"{name}: unexpected result {error!r}")
+
+    with tempfile.TemporaryDirectory(prefix="mihomo-library-") as home:
+        call("angelaInit", home.encode())
+        call("angelaApplyConfig", b"{invalid", expect_error=True)
+        config = json.dumps({
+            "mode": "rule", "log-level": "silent", "geo-auto-update": False,
+            "rules": ["MATCH,DIRECT"], "dns": {"enable": False},
+            "tun": {"enable": False}, "ntp": {"enable": False},
+        }).encode()
+        call("angelaApplyConfig", config)
+        if library.startTUN(-1, b"system", b"", b"") != 0:
+            raise AssertionError("invalid TUN descriptor was accepted")
+        resume(0)
+        call("angelaStopTun")
+        call("angelaStopTun")
+        # Reconfiguration/retry after stop must remain callable through the ABI.
+        call("angelaApplyConfig", config)
+        call("angelaStopTun")
+
+        # ctypes releases the GIL during CDLL calls: exercise the real exported
+        # entry points from concurrent host threads, not just Go test helpers.
+        # No TUN, network reachability, or complete shutdown is asserted here.
+        def concurrent_calls(worker):
+            for _ in range(4):
+                if worker == 0:
+                    call("angelaApplyConfig", config, allow_stopped=True)
+                elif worker == 1:
+                    call("updateDns", b"127.0.0.1", allow_stopped=True)
+                elif worker == 2:
+                    call("angelaInit", home.encode())
+                elif worker == 3:
+                    call("angelaStopTun")
+                elif worker == 4:
+                    resume(1)
+                    resume(0)
+                else:
+                    if library.startTUN(-1, b"system", b"", b"") != 0:
+                        raise AssertionError("concurrent invalid TUN start was accepted")
+
+        with ThreadPoolExecutor(max_workers=6) as workers:
+            list(workers.map(concurrent_calls, range(6)))
+        # Only concurrent requests may be superseded; fresh retries must succeed.
+        call("angelaApplyConfig", config)
+        call("updateDns", b"127.0.0.1")
+        if library.startTUN(-1, b"system", b"", b"") != 0:
+            raise AssertionError("fresh invalid TUN start was accepted")
+        call("angelaStopTun")
+    print("Host c-shared load/exports/config/invalid-start/repeated-stop smoke passed", flush=True)
+
+
+if __name__ == "__main__":
+    main()

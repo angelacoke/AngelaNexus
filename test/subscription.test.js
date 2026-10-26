@@ -80,3 +80,14 @@ test("validates every subscription redirect and rejects embedded redirect creden
     /subscription URL must not contain embedded credentials/
   );
 });
+
+test("rejects invalid subscription size limits", async () => {
+  await assert.rejects(
+    fetchSubscription("https://source.example/config", { maxBytes: Number.NaN }),
+    /maxBytes must be a non-negative safe integer/
+  );
+  await assert.rejects(
+    fetchSubscription("https://source.example/config", { maxBytes: -1 }),
+    /maxBytes must be a non-negative safe integer/
+  );
+});

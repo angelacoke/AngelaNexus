@@ -1,0 +1,86 @@
+--- tunnel/statistic/manager.go	2026-10-20 09:19:48.167016954 -0700
++++ tunnel/statistic/manager.go	2026-10-20 09:47:08.883246097 -0700
+@@ -2,6 +2,7 @@
+ 
+ import (
+ 	"os"
++	"sync"
+ 	"time"
+ 
+ 	"github.com/metacubex/mihomo/common/atomic"
+@@ -22,7 +23,7 @@
+ 		pid:           int32(os.Getpid()),
+ 	}
+ 
+-	go DefaultManager.handle()
++	DefaultManager.StartStatistics()
+ }
+ 
+ type Manager struct {
+@@ -35,6 +36,10 @@
+ 	downloadTotal atomic.Int64
+ 	pid           int32
+ 	memory        uint64
++	lifecycleMu   sync.Mutex
++	stop          chan struct{}
++	done          chan struct{}
++	running       bool
+ }
+ 
+ func (m *Manager) Join(c Tracker) {
+@@ -112,12 +117,51 @@
+ 	m.downloadTotal.Store(0)
+ }
+ 
+-func (m *Manager) handle() {
++// StartStatistics starts the periodic statistics sampler. It is safe to call
++// repeatedly; at most one sampler is active at a time.
++func (m *Manager) StartStatistics() {
++	m.lifecycleMu.Lock()
++	defer m.lifecycleMu.Unlock()
++	if m.running {
++		return
++	}
++	m.stop = make(chan struct{})
++	m.done = make(chan struct{})
++	m.running = true
++	go m.handle(m.stop, m.done)
++}
++
++// StopStatistics synchronously stops the sampler. Pending temp counters are
++// retained for a later start, while blip is cleared after the worker joins.
++func (m *Manager) StopStatistics() {
++	m.lifecycleMu.Lock()
++	if !m.running {
++		m.lifecycleMu.Unlock()
++		return
++	}
++	close(m.stop)
++	<-m.done
++	m.running = false
++	m.stop = nil
++	m.done = nil
++	m.uploadBlip.Store(0)
++	m.downloadBlip.Store(0)
++	m.lifecycleMu.Unlock()
++}
++
++func (m *Manager) handle(stop, done chan struct{}) {
+ 	ticker := time.NewTicker(time.Second)
++	defer close(done)
++	defer ticker.Stop()
+ 
+-	for range ticker.C {
+-		m.uploadBlip.Store(m.uploadTemp.Swap(0))
+-		m.downloadBlip.Store(m.downloadTemp.Swap(0))
++	for {
++		select {
++		case <-ticker.C:
++			m.uploadBlip.Store(m.uploadTemp.Swap(0))
++			m.downloadBlip.Store(m.downloadTemp.Swap(0))
++		case <-stop:
++			return
++		}
+ 	}
+ }
+ 

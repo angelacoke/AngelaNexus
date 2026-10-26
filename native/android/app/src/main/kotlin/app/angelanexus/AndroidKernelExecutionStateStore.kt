@@ -22,6 +22,7 @@ object AndroidKernelExecutionStateStore {
 
     fun markImportReceived() = bridge.markImportReceived()
     fun beginResolution() = bridge.beginResolution()
+    fun markImportResolved(kernelId: String) = bridge.markImportResolved(kernelId)
     fun markReady(kernelId: String) = bridge.markReady(kernelId)
     fun beginStart(kernelId: String?) = bridge.beginStart(kernelId)
     fun markRunning(kernelId: String?) = bridge.markRunning(kernelId)

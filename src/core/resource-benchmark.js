@@ -70,7 +70,7 @@ function makeCompiledConfigs(nodeCount) {
   const outbounds = [];
   const xrayOutbounds = [];
   for (let i = 0; i < nodeCount; i++) {
-    proxies.push({ name: "node-" + i, type: "socks", server: "us.example.com", port: 1080 + (i % 100) });
+    proxies.push({ name: "node-" + i, type: "socks5", server: "us.example.com", port: 1080 + (i % 100) });
     outbounds.push({ tag: "node-" + i, type: "socks", server: "us.example.com", server_port: 1080 + (i % 100) });
     xrayOutbounds.push({ tag: "node-" + i, protocol: "socks", settings: { address: "us.example.com", port: 1080 + (i % 100) } });
   }

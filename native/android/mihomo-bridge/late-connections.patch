@@ -1,0 +1,3363 @@
+--- tunnel/statistic/manager.go
++++ tunnel/statistic/manager.go
+@@ -1,6 +1,9 @@
+ package statistic
+ 
+ import (
++	"context"
++	"errors"
++	"net"
+ 	"os"
+ 	"sync"
+ 	"time"
+@@ -14,32 +17,191 @@
+ 
+ func init() {
+ 	DefaultManager = &Manager{
+-		uploadTemp:    atomic.NewInt64(0),
+-		downloadTemp:  atomic.NewInt64(0),
+-		uploadBlip:    atomic.NewInt64(0),
+-		downloadBlip:  atomic.NewInt64(0),
+-		uploadTotal:   atomic.NewInt64(0),
+-		downloadTotal: atomic.NewInt64(0),
+-		pid:           int32(os.Getpid()),
++		uploadTemp:       atomic.NewInt64(0),
++		downloadTemp:     atomic.NewInt64(0),
++		uploadBlip:       atomic.NewInt64(0),
++		downloadBlip:     atomic.NewInt64(0),
++		uploadTotal:      atomic.NewInt64(0),
++		downloadTotal:    atomic.NewInt64(0),
++		pid:              int32(os.Getpid()),
++		registrationOpen: true,
+ 	}
+ 
+ 	DefaultManager.StartStatistics()
+ }
+ 
++type registrationGeneration struct {
++	epoch  uint64
++	ctx    context.Context
++	cancel context.CancelFunc
++}
++
+ type Manager struct {
+-	connections   xsync.Map[string, Tracker]
+-	uploadTemp    atomic.Int64
+-	downloadTemp  atomic.Int64
+-	uploadBlip    atomic.Int64
+-	downloadBlip  atomic.Int64
+-	uploadTotal   atomic.Int64
+-	downloadTotal atomic.Int64
+-	pid           int32
+-	memory        uint64
+-	lifecycleMu   sync.Mutex
+-	stop          chan struct{}
+-	done          chan struct{}
+-	running       bool
++	registrationMu    sync.Mutex
++	registrationOpen  bool
++	registrationEpoch uint64
++	registrationGen   *registrationGeneration
++	setupCount        uint64
++	setupDrain        chan struct{}
++	connections       xsync.Map[string, Tracker]
++	uploadTemp        atomic.Int64
++	downloadTemp      atomic.Int64
++	uploadBlip        atomic.Int64
++	downloadBlip      atomic.Int64
++	uploadTotal       atomic.Int64
++	downloadTotal     atomic.Int64
++	pid               int32
++	memory            uint64
++	lifecycleMu       sync.Mutex
++	stop              chan struct{}
++	done              chan struct{}
++	running           bool
++}
++
++// Registration returns the setup generation and a context canceled by
++// StopRegistrations. The shared context owns no per-handler registration.
++func (m *Manager) Registration() (uint64, context.Context) {
++	m.registrationMu.Lock()
++	if m.registrationGen == nil {
++		ctx, cancel := context.WithCancel(context.Background())
++		if !m.registrationOpen {
++			cancel()
++		}
++		m.registrationGen = &registrationGeneration{epoch: m.registrationEpoch, ctx: ctx, cancel: cancel}
++	}
++	gen := m.registrationGen
++	m.registrationMu.Unlock()
++	return gen.epoch, gen.ctx
++}
++
++// RegistrationEpoch is retained for callers that only need an admission token.
++func (m *Manager) RegistrationEpoch() uint64 {
++	epoch, _ := m.Registration()
++	return epoch
++}
++
++// StopRegistrations invalidates old setup tokens and cancels their context.
++// Cancellation is deliberately invoked after releasing registrationMu because
++// context cancellation runs arbitrary waiting callbacks synchronously.
++func (m *Manager) StopRegistrations() {
++	m.registrationMu.Lock()
++	m.registrationEpoch++
++	m.registrationOpen = false
++	gen := m.registrationGen
++	m.registrationGen = nil
++	m.registrationMu.Unlock()
++	if gen != nil {
++		gen.cancel()
++	}
++}
++
++func (m *Manager) StartRegistrations() {
++	m.registrationMu.Lock()
++	if m.registrationOpen {
++		m.registrationMu.Unlock()
++		return
++	}
++	// Tokens observed while stopped must never become valid after reopening.
++	// Keep an already-open Start idempotent, but give each reopening its own epoch.
++	m.registrationEpoch++
++	m.registrationOpen = true
++	ctx, cancel := context.WithCancel(context.Background())
++	m.registrationGen = &registrationGeneration{epoch: m.registrationEpoch, ctx: ctx, cancel: cancel}
++	m.registrationMu.Unlock()
++}
++
++var errRegistrationStopped = errors.New("statistics registration epoch closed")
++
++// BeginSetup admits one ordinary dial/retry/early-handshake operation in the
++// current registration generation. Its release is safe to call repeatedly.
++func (m *Manager) BeginSetup(epoch uint64) (func(), error) {
++	m.registrationMu.Lock()
++	if !m.registrationOpen || epoch != m.registrationEpoch {
++		m.registrationMu.Unlock()
++		return nil, errRegistrationStopped
++	}
++	if m.setupCount == 0 {
++		m.setupDrain = make(chan struct{})
++	}
++	m.setupCount++
++	drain := m.setupDrain
++	m.registrationMu.Unlock()
++	var once sync.Once
++	return func() {
++		once.Do(func() {
++			m.registrationMu.Lock()
++			if m.setupCount > 0 {
++				m.setupCount--
++				if m.setupCount == 0 && m.setupDrain == drain {
++					close(drain)
++					m.setupDrain = nil
++				}
++			}
++			m.registrationMu.Unlock()
++		})
++	}, nil
++}
++
++// WaitSetups waits for all admitted setup operations after registration closes.
++// The channel snapshot and context select are deliberately outside the mutex.
++func (m *Manager) WaitSetups(ctx context.Context) error {
++	m.registrationMu.Lock()
++	if m.registrationOpen {
++		m.registrationMu.Unlock()
++		return errors.New("statistics registrations are still open")
++	}
++	drain := m.setupDrain
++	m.registrationMu.Unlock()
++	if drain == nil {
++		return nil
++	}
++	select {
++	case <-drain:
++		return nil
++	case <-ctx.Done():
++		return ctx.Err()
++	}
++}
++
++// JoinAtEpoch transfers ownership even on rejection. A rejected result is
++// closed outside the gate lock; genuine failures remain visible to Range for
++// the bridge's next cleanup. ID and Close can re-enter upstream code.
++func (m *Manager) JoinAtEpoch(epoch uint64, c Tracker) error {
++	id := c.ID()
++	m.registrationMu.Lock()
++	if m.registrationOpen && epoch == m.registrationEpoch {
++		m.connections.Store(id, c)
++		m.registrationMu.Unlock()
++		return nil
++	}
++	m.registrationMu.Unlock()
++	if err := c.Close(); err != nil && !registrationClosedOnly(err) {
++		m.connections.Store(id, c)
++		return errors.Join(errRegistrationStopped, err)
++	}
++	return errRegistrationStopped
++}
++
++func registrationClosedOnly(err error) bool {
++	if err == net.ErrClosed {
++		return true
++	}
++	if many, ok := err.(interface{ Unwrap() []error }); ok {
++		children := many.Unwrap()
++		if len(children) == 0 {
++			return false
++		}
++		for _, child := range children {
++			if !registrationClosedOnly(child) {
++				return false
++			}
++		}
++		return true
++	}
++	if one, ok := err.(interface{ Unwrap() error }); ok {
++		return registrationClosedOnly(one.Unwrap())
++	}
++	return false
+ }
+ 
+ func (m *Manager) Join(c Tracker) {
+--- tunnel/statistic/tracker.go
++++ tunnel/statistic/tracker.go
+@@ -108,15 +108,18 @@
+ }
+ 
+ func (tt *tcpTracker) Close() error {
+-	tt.manager.Leave(tt)
+-	return tt.Conn.Close()
++	err := tt.Conn.Close()
++	if err == nil || registrationClosedOnly(err) {
++		tt.manager.Leave(tt)
++	}
++	return err
+ }
+ 
+ func (tt *tcpTracker) Upstream() any {
+ 	return tt.Conn
+ }
+ 
+-func NewTCPTracker(conn C.Conn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool) *tcpTracker {
++func newTCPTracker(conn C.Conn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool, epoch *uint64) (*tcpTracker, error) {
+ 	metadata.RemoteDst = conn.RemoteDestination()
+ 
+ 	t := &tcpTracker{
+@@ -135,6 +138,16 @@
+ 		pushToManager: pushToManager,
+ 	}
+ 
++	if rule != nil {
++		t.TrackerInfo.Rule = rule.RuleType().String()
++		t.TrackerInfo.RulePayload = rule.Payload()
++	}
++
++	if epoch == nil {
++		manager.Join(t)
++	} else if err := manager.JoinAtEpoch(*epoch, t); err != nil {
++		return nil, err
++	}
+ 	if pushToManager {
+ 		if uploadTotal > 0 {
+ 			manager.PushUploaded(uploadTotal)
+@@ -143,14 +156,15 @@
+ 			manager.PushDownloaded(downloadTotal)
+ 		}
+ 	}
+-
+-	if rule != nil {
+-		t.TrackerInfo.Rule = rule.RuleType().String()
+-		t.TrackerInfo.RulePayload = rule.Payload()
+-	}
+-
+-	manager.Join(t)
++	return t, nil
++}
++
++func NewTCPTracker(conn C.Conn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool) *tcpTracker {
++	t, _ := newTCPTracker(conn, manager, metadata, rule, uploadTotal, downloadTotal, pushToManager, nil)
+ 	return t
++}
++func NewTCPTrackerAtEpoch(conn C.Conn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool, epoch uint64) (*tcpTracker, error) {
++	return newTCPTracker(conn, manager, metadata, rule, uploadTotal, downloadTotal, pushToManager, &epoch)
+ }
+ 
+ type udpTracker struct {
+@@ -200,15 +214,18 @@
+ }
+ 
+ func (ut *udpTracker) Close() error {
+-	ut.manager.Leave(ut)
+-	return ut.PacketConn.Close()
++	err := ut.PacketConn.Close()
++	if err == nil || registrationClosedOnly(err) {
++		ut.manager.Leave(ut)
++	}
++	return err
+ }
+ 
+ func (ut *udpTracker) Upstream() any {
+ 	return ut.PacketConn
+ }
+ 
+-func NewUDPTracker(conn C.PacketConn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool) *udpTracker {
++func newUDPTracker(conn C.PacketConn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool, epoch *uint64) (*udpTracker, error) {
+ 	metadata.RemoteDst = conn.RemoteDestination()
+ 
+ 	ut := &udpTracker{
+@@ -227,6 +244,16 @@
+ 		pushToManager: pushToManager,
+ 	}
+ 
++	if rule != nil {
++		ut.TrackerInfo.Rule = rule.RuleType().String()
++		ut.TrackerInfo.RulePayload = rule.Payload()
++	}
++
++	if epoch == nil {
++		manager.Join(ut)
++	} else if err := manager.JoinAtEpoch(*epoch, ut); err != nil {
++		return nil, err
++	}
+ 	if pushToManager {
+ 		if uploadTotal > 0 {
+ 			manager.PushUploaded(uploadTotal)
+@@ -235,12 +262,13 @@
+ 			manager.PushDownloaded(downloadTotal)
+ 		}
+ 	}
+-
+-	if rule != nil {
+-		ut.TrackerInfo.Rule = rule.RuleType().String()
+-		ut.TrackerInfo.RulePayload = rule.Payload()
+-	}
+-
+-	manager.Join(ut)
+-	return ut
+-}
++	return ut, nil
++}
++
++func NewUDPTracker(conn C.PacketConn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool) *udpTracker {
++	t, _ := newUDPTracker(conn, manager, metadata, rule, uploadTotal, downloadTotal, pushToManager, nil)
++	return t
++}
++func NewUDPTrackerAtEpoch(conn C.PacketConn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool, epoch uint64) (*udpTracker, error) {
++	return newUDPTracker(conn, manager, metadata, rule, uploadTotal, downloadTotal, pushToManager, &epoch)
++}
+--- tunnel/tunnel.go
++++ tunnel/tunnel.go
+@@ -418,6 +418,7 @@
+ }
+ 
+ func handleUDPConn(packet C.PacketAdapter) {
++	registrationEpoch, registrationCtx := statistic.DefaultManager.Registration()
+ 	if !isHandle(packet.Metadata().Type) {
+ 		packet.Drop()
+ 		return
+@@ -438,8 +439,13 @@
+ 	}
+ 
+ 	key := packet.Key()
++	// TUN write-back does not use the local-address keyed TProxy socket map.
++	// Other inbound types must retain their existing bare-key contract.
++	if metadata.Type == C.TUN {
++		key = fmt.Sprintf("%d:%s", registrationEpoch, key)
++	}
+ 	sender, loaded := natTable.GetOrCreate(key, func() C.PacketSender {
+-		sender := newPacketSender()
++		sender := newPacketSenderWithContext(registrationCtx)
+ 		if sniffingEnable && snifferDispatcher.Enable() {
+ 			return snifferDispatcher.UDPSniff(packet, sender)
+ 		}
+@@ -450,7 +456,7 @@
+ 			originMetadata := metadata  // save origin metadata
+ 			metadata = metadata.Clone() // don't modify PacketAdapter's metadata
+ 
+-			if err := sender.DoSniff(metadata); err != nil {
++			if err := sniffUDPWithContext(registrationCtx, sender, metadata); err != nil {
+ 				log.Warnln("[UDP] DoSniff error: %s", err.Error())
+ 				return nil, nil, err
+ 			}
+@@ -464,7 +470,7 @@
+ 			}
+ 
+ 			dialMetadata := metadata.Pure()
+-			ctx, cancel := context.WithTimeout(context.Background(), C.DefaultUDPTimeout)
++			ctx, cancel := context.WithTimeout(registrationCtx, C.DefaultUDPTimeout)
+ 			defer cancel()
+ 			rawPc, err := retry(ctx, func(ctx context.Context) (C.PacketConn, error) {
+ 				return proxy.ListenPacketContext(ctx, dialMetadata)
+@@ -476,23 +482,38 @@
+ 			}
+ 			logMetadata(metadata, rule, rawPc)
+ 
+-			pc := statistic.NewUDPTracker(rawPc, statistic.DefaultManager, metadata, rule, 0, 0, true)
++			pc, err := statistic.NewUDPTrackerAtEpoch(rawPc, statistic.DefaultManager, metadata, rule, 0, 0, true, registrationEpoch)
++			if err != nil {
++				return nil, nil, err
++			}
+ 
+ 			sender.AddMapping(originMetadata, dialMetadata)
+ 			oAddrPort := dialMetadata.AddrPort()
+ 			writeBackProxy := nat.NewWriteBackProxy(packet)
+ 
+-			go handleUDPToLocal(writeBackProxy, pc, sender, key, oAddrPort)
++			go handleUDPToLocal(registrationCtx, writeBackProxy, pc, sender, key, oAddrPort)
+ 			return pc, writeBackProxy, nil
+ 		}
+ 
+ 		go func() {
++			releaseSetup, setupErr := statistic.DefaultManager.BeginSetup(registrationEpoch)
++			if setupErr != nil {
++				sender.Close()
++				natTable.DeleteIf(key, sender)
++				return
++			}
++			defer releaseSetup()
+ 			pc, proxy, err := dial()
+ 			if err != nil {
+ 				sender.Close()
+-				natTable.Delete(key)
++				natTable.DeleteIf(key, sender)
+ 				return
+ 			}
++			// Process may exit on generation cancellation while the reverse reader
++			// is still blocked. Retire only this sender's NAT/local-socket entry
++			// after forwarding returns, without waiting for that reader to finish.
++			defer closeAllLocalCoon(key, sender)
++			releaseSetup()
+ 			sender.Process(pc, proxy)
+ 		}()
+ 	}
+@@ -500,6 +521,7 @@
+ }
+ 
+ func handleTCPConn(connCtx C.ConnContext) {
++	registrationEpoch, registrationCtx := statistic.DefaultManager.Registration()
+ 	if !isHandle(connCtx.Metadata().Type) {
+ 		_ = connCtx.Conn().Close()
+ 		return
+@@ -523,11 +545,26 @@
+ 	}
+ 
+ 	conn := connCtx.Conn()
++	if registrationCtx.Err() != nil {
++		return
++	}
+ 	conn.ResetPeeked() // reset before sniffer
+ 	if sniffingEnable && snifferDispatcher.Enable() {
+ 		// Try to sniff a domain when `preHandleMetadata` failed, this is usually
+ 		// caused by a "Fake DNS record missing" error when enhanced-mode is fake-ip.
+-		if snifferDispatcher.TCPSniff(conn, metadata) {
++		// Sniffing precedes the ordinary setup lease. Wake a blocked read by
++		// closing the inbound connection when its registration generation ends.
++		// The callback runs without a handler/manager lock and is not joined;
++		// an already-entered Close or sniffer callback can finish after stop.
++		stopSniffClose := context.AfterFunc(registrationCtx, func() { _ = conn.Close() })
++		sniffed := snifferDispatcher.TCPSniff(conn, metadata)
++		stopSniffClose()
++		// Closed readers may still return buffered data and apparent success.
++		// Never continue metadata resolution or dial setup for that generation.
++		if registrationCtx.Err() != nil {
++			return
++		}
++		if sniffed {
+ 			// we now have a domain name
+ 			preHandleFailed = false
+ 		}
+@@ -569,13 +606,29 @@
+ 	}
+ 
+ 	var peekBytes []byte
+-	var peekLen int
+-
+-	ctx, cancel := context.WithTimeout(context.Background(), C.DefaultTCPTimeout)
++	releaseSetup, err := statistic.DefaultManager.BeginSetup(registrationEpoch)
++	if err != nil {
++		return
++	}
++	defer releaseSetup()
++	ctx, cancel := context.WithTimeout(registrationCtx, C.DefaultTCPTimeout)
+ 	defer cancel()
++	// The background peek can still hold peekMutex when an early handshake
++	// begins. Wake that inbound read on setup cancellation, including timeout.
++	// Like the sniff callback, this is unregistered, not joined: Close may re-enter.
++	stopSetupClose := context.AfterFunc(ctx, func() { _ = conn.Close() })
++	defer stopSetupClose()
+ 	remoteConn, err := retry(ctx, func(ctx context.Context) (remoteConn C.Conn, err error) {
+ 		remoteConn, err = proxy.DialContext(ctx, dialMetadata)
+ 		if err != nil {
++			return
++		}
++
++		// Admit each dial result before any early-data handshake can write.
++		// A rejected tracker owns closure (and retains failed closes for retry).
++		remoteConn, err = statistic.NewTCPTrackerAtEpoch(remoteConn, statistic.DefaultManager, metadata, rule, 0, 0, true, registrationEpoch)
++		if err != nil {
++			cancel() // do not redial a generation that can no longer be admitted
+ 			return
+ 		}
+ 
+@@ -594,12 +647,24 @@
+ 			}()
+ 			peekMutex.Lock()
+ 			defer peekMutex.Unlock()
++			if err = ctx.Err(); err != nil {
++				return
++			}
+ 			peekBytes, _ = conn.Peek(conn.Buffered())
++			// Closed readers can return valid buffered data after cancellation.
++			if err = ctx.Err(); err != nil {
++				return
++			}
+ 			_, err = remoteConn.Write(peekBytes)
+ 			if err != nil {
+ 				return
+ 			}
+-			if peekLen = len(peekBytes); peekLen > 0 {
++			// An already-entered write is not joined by cancellation. Do not
++			// consume inbound bytes or proceed into relay if it returns late.
++			if err = ctx.Err(); err != nil {
++				return
++			}
++			if peekLen := len(peekBytes); peekLen > 0 {
+ 				_, _ = conn.Discard(peekLen)
+ 			}
+ 		}
+@@ -610,9 +675,16 @@
+ 	if err != nil {
+ 		return
+ 	}
++	if ctx.Err() != nil {
++		_ = remoteConn.Close()
++		return
++	}
++	// Successful setup transfers to relay ownership. Later generation
++	// cancellation must not retain this setup-only inbound close callback.
++	stopSetupClose()
++	releaseSetup()
+ 	logMetadata(metadata, rule, remoteConn)
+ 
+-	remoteConn = statistic.NewTCPTracker(remoteConn, statistic.DefaultManager, metadata, rule, int64(peekLen), 0, true)
+ 	defer func(remoteConn C.Conn) {
+ 		_ = remoteConn.Close()
+ 	}(remoteConn)
+@@ -739,6 +811,9 @@
+ func retry[T any](ctx context.Context, ft func(context.Context) (T, error), fe func(err error)) (t T, err error) {
+ 	s := slowdown.New()
+ 	for i := 0; i < 10; i++ {
++		if err = ctx.Err(); err != nil {
++			return
++		}
+ 		t, err = ft(ctx)
+ 		if err != nil {
+ 			if fe != nil {
+--- component/nat/table.go
++++ component/nat/table.go
+@@ -12,7 +12,18 @@
+ 	mapping xsync.Map[string, *entry]
+ }
+ 
++type localConnCreation struct {
++	done chan struct{}
++	conn *net.UDPConn
++	err  error
++}
++
+ type entry struct {
++	// localMu protects publication against retirement, never socket creation.
++	localMu         sync.Mutex
++	retired         bool
++	retiredDone     chan struct{}
++	creating        map[string]*localConnCreation
+ 	PacketSender    C.PacketSender
+ 	LocalUDPConnMap xsync.Map[string, *net.UDPConn]
+ 	LocalLockMap    xsync.Map[string, *sync.Cond]
+@@ -22,13 +33,153 @@
+ 	item, loaded := t.mapping.LoadOrStoreFn(key, func() *entry {
+ 		return &entry{
+ 			PacketSender: maker(),
++			retiredDone:  make(chan struct{}),
+ 		}
+ 	})
+ 	return item.PacketSender, loaded
+ }
+ 
+ func (t *Table) Delete(key string) {
+-	t.mapping.Delete(key)
++	var detached *entry
++	t.mapping.Compute(key, func(current *entry, loaded bool) (*entry, xsync.ComputeOp) {
++		if !loaded {
++			return current, xsync.CancelOp
++		}
++		detached = current
++		return nil, xsync.DeleteOp
++	})
++	if detached != nil {
++		closeLocalConns(detached.retire())
++	}
++}
++
++// detachIf compares ownership and removes a single key under the same bucket
++// lock. Only the detached entry can be cleaned, never a later replacement.
++func (t *Table) detachIf(key string, sender C.PacketSender) *entry {
++	var detached *entry
++	t.mapping.Compute(key, func(current *entry, loaded bool) (*entry, xsync.ComputeOp) {
++		if loaded && current.PacketSender == sender {
++			detached = current
++			return nil, xsync.DeleteOp
++		}
++		return current, xsync.CancelOp
++	})
++	return detached
++}
++
++// DeleteIf removes key only when it still belongs to sender.
++func (t *Table) DeleteIf(key string, sender C.PacketSender) bool {
++	item := t.detachIf(key, sender)
++	if item == nil {
++		return false
++	}
++	closeLocalConns(item.retire())
++	return true
++}
++
++// DetachLocalConnsIf retires the sender-owned entry without joining creators.
++// Already-running creators close their own late results. Waiters wake immediately.
++// Socket closes and maker callbacks always run outside table/entry locks.
++func (t *Table) DetachLocalConnsIf(key string, sender C.PacketSender) []*net.UDPConn {
++	item := t.detachIf(key, sender)
++	if item == nil {
++		return nil
++	}
++	return item.retire()
++}
++
++// All removal APIs retire entries so failure cleanup also owns late makers.
++func (item *entry) retire() []*net.UDPConn {
++	item.localMu.Lock()
++	item.retired = true
++	close(item.retiredDone)
++	var conns []*net.UDPConn
++	item.LocalUDPConnMap.Range(func(remote string, conn *net.UDPConn) bool {
++		conns = append(conns, conn)
++		return true
++	})
++	item.LocalUDPConnMap.Clear()
++	item.localMu.Unlock()
++	return conns
++}
++
++func closeLocalConns(conns []*net.UDPConn) {
++	for _, conn := range conns {
++		_ = conn.Close()
++	}
++}
++
++// GetOrCreateLocalConn binds creation to the entry captured before maker starts.
++// A late result cannot publish into a replacement entry with the same address.
++// Retirement wakes followers but does not wait for an uncooperative maker.
++func (t *Table) GetOrCreateLocalConn(local, remote string, maker func() (*net.UDPConn, error)) (*net.UDPConn, error) {
++	item, ok := t.getEntry(local)
++	if !ok {
++		return nil, net.ErrClosed
++	}
++	item.localMu.Lock()
++	if item.retired {
++		item.localMu.Unlock()
++		return nil, net.ErrClosed
++	}
++	if conn, ok := item.LocalUDPConnMap.Load(remote); ok {
++		item.localMu.Unlock()
++		return conn, nil
++	}
++	if pending, ok := item.creating[remote]; ok {
++		item.localMu.Unlock()
++		return item.waitLocalConn(pending)
++	}
++	if item.creating == nil {
++		item.creating = make(map[string]*localConnCreation)
++	}
++	pending := &localConnCreation{done: make(chan struct{})}
++	item.creating[remote] = pending
++	item.localMu.Unlock()
++	conn, err := maker()
++	// Failed makers must not transfer an ambiguous socket to callers.
++	if err != nil && conn != nil {
++		_ = conn.Close()
++		conn = nil
++	}
++	if err == nil && conn == nil {
++		err = net.ErrClosed
++	}
++	item.localMu.Lock()
++	retired := item.retired
++	if retired {
++		err = net.ErrClosed
++	}
++	if err == nil {
++		item.LocalUDPConnMap.Store(remote, conn)
++	}
++	pending.conn, pending.err = conn, err
++	if err != nil {
++		pending.conn = nil
++	}
++	delete(item.creating, remote)
++	close(pending.done)
++	item.localMu.Unlock()
++	if retired && conn != nil {
++		_ = conn.Close()
++	}
++	return pending.conn, pending.err
++}
++
++// waitLocalConn never waits for the maker once this entry is retired.
++func (item *entry) waitLocalConn(pending *localConnCreation) (*net.UDPConn, error) {
++	select {
++	case <-item.retiredDone:
++		return nil, net.ErrClosed
++	case <-pending.done:
++		item.localMu.Lock()
++		retired := item.retired
++		item.localMu.Unlock()
++		if retired {
++			return nil, net.ErrClosed
++		}
++		return pending.conn, pending.err
++	}
+ }
+ 
+ func (t *Table) GetForLocalConn(lAddr, rAddr string) *net.UDPConn {
+@@ -43,9 +194,16 @@
+ 	return item
+ }
+ 
++// AddForLocalConn is the legacy success-only ownership transfer. On false,
++// the caller still owns conn. TProxy creation uses GetOrCreateLocalConn instead.
+ func (t *Table) AddForLocalConn(lAddr, rAddr string, conn *net.UDPConn) bool {
+ 	entry, exist := t.getEntry(lAddr)
+ 	if !exist {
++		return false
++	}
++	entry.localMu.Lock()
++	defer entry.localMu.Unlock()
++	if entry.retired {
+ 		return false
+ 	}
+ 	entry.LocalUDPConnMap.Store(rAddr, conn)
+--- tunnel/connection.go
++++ tunnel/connection.go
+@@ -17,6 +17,8 @@
+ 	ctx    context.Context
+ 	cancel context.CancelFunc
+ 	ch     chan C.PacketAdapter
++	// Serialize queue admission with cancellation; Drop callbacks run unlocked.
++	queueMu sync.Mutex
+ 
+ 	// destination NAT mapping
+ 	originToTarget map[string]netip.Addr
+@@ -27,7 +29,13 @@
+ // newPacketSender return a chan based C.PacketSender
+ // It ensures that packets can be sent sequentially and without blocking
+ func newPacketSender() C.PacketSender {
+-	ctx, cancel := context.WithCancel(context.Background())
++	return newPacketSenderWithContext(context.Background())
++}
++
++// newPacketSenderWithContext makes forwarding checkpoints observe generation
++// cancellation independently of the reverse reader's cleanup progress.
++func newPacketSenderWithContext(parent context.Context) C.PacketSender {
++	ctx, cancel := context.WithCancel(parent)
+ 	ch := make(chan C.PacketAdapter, senderCapacity)
+ 	return &packetSender{
+ 		ctx:    ctx,
+@@ -64,6 +72,9 @@
+ 
+ func (s *packetSender) processPacket(pc C.PacketConn, packet C.PacketAdapter) {
+ 	defer packet.Drop()
++	if s.ctx.Err() != nil {
++		return
++	}
+ 	metadata := packet.Metadata()
+ 
+ 	var addr *net.UDPAddr
+@@ -95,18 +106,31 @@
+ 			log.Warnln("[UDP] Destination ip not valid: %#v", metadata)
+ 			return
+ 		}
++		if s.ctx.Err() != nil {
++			return
++		}
+ 		s.AddMapping(originMetadata, metadata)
+ 		addr = metadata.UDPAddr()
+ 	}
+-	_ = handleUDPToRemote(packet, pc, addr)
++	_ = handleUDPToRemote(s.ctx, packet, pc, addr)
+ }
+ 
+ func (s *packetSender) Process(pc C.PacketConn, proxy C.WriteBackProxy) {
++	// Parent cancellation can end Process before the reverse reader returns.
++	// Close serializes the final queue drain with Send and drops outside locks.
++	// This is not a join of callbacks or writes already in flight.
++	defer s.Close()
+ 	for {
+ 		select {
+ 		case <-s.ctx.Done():
+ 			return // sender closed
+ 		case packet := <-s.ch:
++			// A ready queue can win select even after cancellation. Own and drop
++			// this packet, but do not start write-back or forwarding callbacks.
++			if s.ctx.Err() != nil {
++				packet.Drop()
++				return
++			}
+ 			if proxy != nil {
+ 				proxy.UpdateWriteBack(packet)
+ 			}
+@@ -127,36 +151,74 @@
+ }
+ 
+ func (s *packetSender) Send(packet C.PacketAdapter) {
++	// A context select alone can enqueue after Close has drained the queue:
++	// when canceled and writable are both ready, select chooses randomly.
++	s.queueMu.Lock()
+ 	select {
+ 	case <-s.ctx.Done():
+-		packet.Drop() // sender closed before Send()
++		s.queueMu.Unlock()
++		packet.Drop()
+ 		return
+ 	default:
+ 	}
+-
+ 	select {
+ 	case s.ch <- packet:
+-		// put ok, so don't drop packet, will process by other side of chan
+-	case <-s.ctx.Done():
+-		packet.Drop() // sender closed when putting data to chan
++		s.queueMu.Unlock()
++		return
+ 	default:
+-		packet.Drop() // chan is full
++		s.queueMu.Unlock()
++		packet.Drop()
+ 	}
+ }
+ 
+ func (s *packetSender) Close() {
++	// After cancellation commits under queueMu no Send can enqueue again.
++	// Never hold this lock while dropping packets: callbacks may re-enter.
++	s.queueMu.Lock()
+ 	s.cancel()
++	s.queueMu.Unlock()
+ 	s.dropAll()
+ }
+ 
+ func (s *packetSender) DoSniff(metadata *C.Metadata) error { return nil }
+ 
+-func handleUDPToRemote(packet C.UDPPacket, pc C.PacketConn, addr *net.UDPAddr) error {
++// sniffUDPWithContext wakes multi-packet sniffers through their existing Close
++// contract. The callback exists only during setup sniffing, not the active flow.
++// It is not a join: already-entered callbacks may outlive cancellation.
++func sniffUDPWithContext(ctx context.Context, sender C.PacketSender, metadata *C.Metadata) error {
++	if err := ctx.Err(); err != nil {
++		return err
++	}
++	stopClose := context.AfterFunc(ctx, sender.Close)
++	defer stopClose()
++	err := sender.DoSniff(metadata)
++	// A closed sniffer may report success; never continue setup after cancellation
++	// is visible, including when done and cancellation become ready together.
++	if canceled := ctx.Err(); canceled != nil {
++		return canceled
++	}
++	return err
++}
++
++func handleUDPToRemote(ctx context.Context, packet C.UDPPacket, pc C.PacketConn, addr *net.UDPAddr) error {
+ 	if addr == nil {
+ 		return errors.New("udp addr invalid")
+ 	}
+ 
+-	if _, err := pc.WriteTo(packet.Data(), addr); err != nil {
++	if err := ctx.Err(); err != nil {
++		return err
++	}
++	data := packet.Data()
++	// Callbacks and resolvers may return after (or re-enter) Close. Recheck
++	// immediately before WriteTo without holding a lock across external code.
++	// A write already admitted here is not joined by sender.Close.
++	if err := ctx.Err(); err != nil {
++		return err
++	}
++	if _, err := pc.WriteTo(data, addr); err != nil {
++		return err
++	}
++	if err := ctx.Err(); err != nil {
+ 		return err
+ 	}
+ 	// reset timeout
+@@ -165,18 +227,28 @@
+ 	return nil
+ }
+ 
+-func handleUDPToLocal(writeBack C.WriteBack, pc C.PacketConn, sender C.PacketSender, key string, oAddrPort netip.AddrPort) {
++func handleUDPToLocal(ctx context.Context, writeBack C.WriteBack, pc C.PacketConn, sender C.PacketSender, key string, oAddrPort netip.AddrPort) {
+ 	defer func() {
+ 		sender.Close()
+ 		_ = pc.Close()
+-		closeAllLocalCoon(key)
+-		natTable.Delete(key)
++		closeAllLocalCoon(key, sender)
+ 	}()
+ 
+ 	for {
++		if ctx.Err() != nil {
++			return
++		}
+ 		_ = pc.SetReadDeadline(time.Now().Add(udpTimeout))
++		if ctx.Err() != nil {
++			return
++		}
+ 		data, put, from, err := pc.WaitReadFrom()
+-		if err != nil {
++		// A reader may ignore Close/cancellation and return a successful buffer
++		// from the stopped generation. Release ownership without writing it back.
++		if err != nil || ctx.Err() != nil {
++			if put != nil {
++				put()
++			}
+ 			return
+ 		}
+ 
+@@ -196,7 +268,14 @@
+ 		fromAddr = sender.RestoreReadFrom(fromAddr).Unmap()
+ 
+ 		fromAddrPort = netip.AddrPortFrom(fromAddr, fromAddrPort.Port())
+-
++		// RestoreReadFrom can re-enter stop. Do not hold a lock over callbacks.
++		// This checkpoint is not a join: an admitted WriteBack may still finish.
++		if ctx.Err() != nil {
++			if put != nil {
++				put()
++			}
++			return
++		}
+ 		_, err = writeBack.WriteBack(data, net.UDPAddrFromAddrPort(fromAddrPort))
+ 		if put != nil {
+ 			put()
+@@ -207,16 +286,12 @@
+ 	}
+ }
+ 
+-func closeAllLocalCoon(lAddr string) {
+-	natTable.RangeForLocalConn(lAddr, func(key string, value *net.UDPConn) bool {
+-		conn := value
+-
+-		conn.Close()
+-		log.Debugln("Closing TProxy local conn... lAddr=%s rAddr=%s", lAddr, key)
+-		return true
+-	})
+-}
+-
++func closeAllLocalCoon(lAddr string, sender C.PacketSender) {
++	for _, conn := range natTable.DetachLocalConnsIf(lAddr, sender) {
++		_ = conn.Close()
++		log.Debugln("Closing TProxy local conn... lAddr=%s", lAddr)
++	}
++}
+ func handleSocket(inbound, outbound net.Conn) {
+ 	N.Relay(inbound, outbound)
+ }
+--- component/sniffer/quic_sniffer.go
++++ component/sniffer/quic_sniffer.go
+@@ -185,10 +185,11 @@
+ 	select {
+ 	case <-q.done:
+ 		q.lock.RLock()
+-		if r := q.result; r != "" {
++		r := q.result
++		q.lock.RUnlock()
++		if r != "" {
+ 			q.replaceDomain(metadata, r)
+ 		}
+-		q.lock.RUnlock()
+ 	case <-time.After(quicWaitConn):
+ 		q.close()
+ 	}
+--- listener/tproxy/packet.go
++++ listener/tproxy/packet.go
+@@ -2,7 +2,6 @@
+ 
+ import (
+ 	"errors"
+-	"fmt"
+ 	"net"
+ 	"net/netip"
+ 
+@@ -56,37 +55,22 @@
+ 	remote := rAddr.String()
+ 	local := lAddr.String()
+ 	natTable := tunnel.NatTable()
+-	localConn := natTable.GetForLocalConn(local, remote)
+-	// localConn not exist
+-	if localConn == nil {
+-		cond, loaded := natTable.GetOrCreateLockForLocalConn(local, remote)
+-		if loaded {
+-			cond.L.Lock()
+-			cond.Wait()
+-			// we should get localConn here
+-			localConn = natTable.GetForLocalConn(local, remote)
+-			if localConn == nil {
+-				return nil, fmt.Errorf("localConn is nil, nat entry not exist")
+-			}
+-			cond.L.Unlock()
+-		} else {
+-			if cond == nil {
+-				return nil, fmt.Errorf("cond is nil, nat entry not exist")
+-			}
+-			defer func() {
+-				natTable.DeleteLockForLocalConn(local, remote)
+-				cond.Broadcast()
+-			}()
+-			conn, err := listenLocalConn(rAddr, lAddr, tunnel, additions...)
+-			if err != nil {
+-				log.Errorln("listenLocalConn failed with error: %s, packet loss (rAddr[%T]=%s lAddr[%T]=%s)", err.Error(), rAddr, remote, lAddr, local)
+-				return nil, err
+-			}
+-			natTable.AddForLocalConn(local, remote, conn)
+-			localConn = conn
++	// The table captures ownership before opening the socket. Retirement wakes
++	// waiters and closes a late creator result instead of leaking it or attaching
++	// it to a replacement sender. No condition-variable lost wakeups.
++	owner, ok := natTable.(interface {
++		GetOrCreateLocalConn(string, string, func() (*net.UDPConn, error)) (*net.UDPConn, error)
++	})
++	if !ok {
++		return nil, net.ErrClosed
++	}
++	return owner.GetOrCreateLocalConn(local, remote, func() (*net.UDPConn, error) {
++		conn, err := listenLocalConn(rAddr, lAddr, tunnel, additions...)
++		if err != nil {
++			log.Errorln("listenLocalConn failed with error: %s, packet loss (rAddr[%T]=%s lAddr[%T]=%s)", err.Error(), rAddr, remote, lAddr, local)
+ 		}
+-	}
+-	return localConn, nil
++		return conn, err
++	})
+ }
+ 
+ // this function listen at rAddr
+--- dns/resolver.go
++++ dns/resolver.go
+@@ -6,0 +7,2 @@
++	"reflect"
++	"sync"
+@@ -36,0 +39,153 @@
++}
++
++// A generation is irreversible. Every request/worker acquires ownership before
++// being scheduled; stop seals admission and cancellation, then Wait observes the
++// same completion channel on every retry (no per-wait goroutine can leak).
++type resolverGeneration struct {
++	mu      sync.Mutex
++	ctx     context.Context
++	cancel  context.CancelFunc
++	stopped bool
++	active  int
++	done    chan struct{}
++}
++
++type resolverGenerationKey struct{}
++
++var resolverGenerationInit sync.Mutex
++
++func newResolverGeneration() *resolverGeneration {
++	ctx, cancel := context.WithCancel(context.Background())
++	return &resolverGeneration{ctx: ctx, cancel: cancel, done: make(chan struct{})}
++}
++func (g *resolverGeneration) begin() error {
++	g.mu.Lock()
++	defer g.mu.Unlock()
++	if g.stopped {
++		return context.Canceled
++	}
++	g.active++
++	return nil
++}
++func (g *resolverGeneration) end() {
++	g.mu.Lock()
++	defer g.mu.Unlock()
++	g.active--
++	if g.stopped && g.active == 0 {
++		close(g.done)
++	}
++}
++func (g *resolverGeneration) stop() {
++	g.mu.Lock()
++	if g.stopped {
++		g.mu.Unlock()
++		return
++	}
++	g.stopped = true
++	if g.active == 0 {
++		close(g.done)
++	}
++	g.mu.Unlock()
++	g.cancel()
++}
++func (g *resolverGeneration) wait(ctx context.Context) error {
++	g.mu.Lock()
++	if g.active == 0 {
++		g.mu.Unlock()
++		return nil
++	}
++	done := g.done
++	g.mu.Unlock()
++	select {
++	case <-done:
++		return nil
++	case <-ctx.Done():
++		return ctx.Err()
++	}
++}
++func (g *resolverGeneration) put(c dnsCache, q D.Question, m *D.Msg) {
++	g.mu.Lock()
++	defer g.mu.Unlock()
++	if !g.stopped {
++		putMsgToCache(c, q, m)
++	}
++}
++func (r *Resolver) resolverGeneration() *resolverGeneration {
++	// Some upstream/package callers use Resolver literals, rather than constructors.
++	// All reads of this lazily initialized pointer use the same lock.
++	resolverGenerationInit.Lock()
++	defer resolverGenerationInit.Unlock()
++	if r.generation == nil {
++		r.generation = newResolverGeneration()
++	}
++	return r.generation
++}
++func beginResolverTask(ctx context.Context) (func(), bool) {
++	g, _ := ctx.Value(resolverGenerationKey{}).(*resolverGeneration)
++	if g == nil {
++		return func() {}, true
++	}
++	if g.begin() != nil {
++		return func() {}, false
++	}
++	return g.end, true
++}
++func startResolverTask(ctx context.Context, fn func(context.Context)) bool {
++	done, ok := beginResolverTask(ctx)
++	if !ok {
++		return false
++	}
++	go func() { defer done(); fn(ctx) }()
++	return true
++}
++func resolverTaskContext(ctx context.Context) context.Context {
++	if g, _ := ctx.Value(resolverGenerationKey{}).(*resolverGeneration); g != nil {
++		return context.WithValue(g.ctx, resolverGenerationKey{}, g)
++	}
++	return context.WithoutCancel(ctx)
++}
++func resolverRequestError(ctx context.Context) error {
++	if err := ctx.Err(); err != nil {
++		return err
++	}
++	if g, _ := ctx.Value(resolverGenerationKey{}).(*resolverGeneration); g != nil {
++		g.mu.Lock()
++		stopped := g.stopped
++		g.mu.Unlock()
++		if stopped {
++			return context.Canceled
++		}
++	}
++	return nil
++}
++
++// Publish only immutable/local transport state while holding the generation
++// retirement lock. The callback must not block or call generation APIs.
++func commitResolverTask(ctx context.Context, publish func()) bool {
++	g, _ := ctx.Value(resolverGenerationKey{}).(*resolverGeneration)
++	if g != nil {
++		g.mu.Lock()
++		defer g.mu.Unlock()
++		if g.stopped {
++			return false
++		}
++	}
++	if ctx.Err() != nil {
++		return false
++	}
++	publish()
++	return true
++}
++
++func (r *Resolver) beginResolverRequest(parent context.Context) (context.Context, func(), error) {
++	g := r.resolverGeneration()
++	if err := g.begin(); err != nil {
++		return nil, nil, err
++	}
++	ctx, cancel := context.WithCancel(parent)
++	stop := context.AfterFunc(g.ctx, cancel)
++	if g.ctx.Err() != nil {
++		cancel()
++	}
++	ctx = context.WithValue(ctx, resolverGenerationKey{}, g)
++	return ctx, func() { stop(); cancel(); g.end() }, nil
+@@ -50 +205,4 @@
+-	defaultResolver       *Resolver
++	// Immutable ownership inventory for clients reachable only through policies.
++	policyClients   []dnsClient
++	defaultResolver *Resolver
++	generation      *resolverGeneration
+@@ -53,0 +212,13 @@
++	var finish func()
++	ctx, finish, err = r.beginResolverRequest(ctx)
++	if err != nil {
++		return nil, err
++	}
++	defer finish()
++	defer func() {
++		if e := resolverRequestError(ctx); e != nil {
++			ips = nil
++			err = e
++		}
++	}()
++
+@@ -55 +226 @@
+-	go func() {
++	if !startResolverTask(ctx, func(ctx context.Context) {
+@@ -58,5 +229,6 @@
+-		if err != nil {
+-			return
+-		}
+-		ch <- ip
+-	}()
++		if err == nil {
++			ch <- ip
++		}
++	}) {
++		close(ch)
++	}
+@@ -77,0 +250,13 @@
++	var finish func()
++	ctx, finish, err = r.beginResolverRequest(ctx)
++	if err != nil {
++		return nil, err
++	}
++	defer finish()
++	defer func() {
++		if e := resolverRequestError(ctx); e != nil {
++			ips = nil
++			err = e
++		}
++	}()
++
+@@ -79 +264 @@
+-	go func() {
++	if !startResolverTask(ctx, func(ctx context.Context) {
+@@ -82,6 +267,6 @@
+-		if err != nil {
+-			return
+-		}
+-
+-		ch <- ip
+-	}()
++		if err == nil {
++			ch <- ip
++		}
++	}) {
++		close(ch)
++	}
+@@ -129 +314,13 @@
+-func (r *Resolver) ResolveECH(ctx context.Context, host string) ([]byte, error) {
++func (r *Resolver) ResolveECH(ctx context.Context, host string) (ech []byte, err error) {
++	var finish func()
++	ctx, finish, err = r.beginResolverRequest(ctx)
++	if err != nil {
++		return nil, err
++	}
++	defer finish()
++	defer func() {
++		if e := resolverRequestError(ctx); e != nil {
++			ech = nil
++			err = e
++		}
++	}()
+@@ -152,0 +350,13 @@
++	var finish func()
++	ctx, finish, err = r.beginResolverRequest(ctx)
++	if err != nil {
++		return nil, err
++	}
++	defer finish()
++	defer func() {
++		if e := resolverRequestError(ctx); e != nil {
++			msg = nil
++			err = e
++		}
++	}()
++
+@@ -159,2 +369,3 @@
+-			go func() {
+-				ctx, cancel := context.WithTimeout(context.Background(), resolver.DefaultDNSTimeout)
++			query := m.Copy()
++			startResolverTask(resolverTaskContext(ctx), func(ctx context.Context) {
++				ctx, cancel := context.WithTimeout(ctx, resolver.DefaultDNSTimeout)
+@@ -162,2 +373,2 @@
+-				_, _ = r.exchangeWithoutCache(ctx, m) // ignore result, just for putMsgToCache
+-			}()
++				_, _ = r.exchangeWithoutCache(ctx, query)
++			})
+@@ -187,0 +399,3 @@
++	g := r.resolverGeneration()
++	workerCtx := resolverTaskContext(ctx)
++	m = m.Copy() // A detached refresh/retry must not retain caller-owned message data.
+@@ -192 +406 @@
+-		ctx, cancel := context.WithTimeout(context.Background(), resolver.DefaultDNSTimeout) // reset timeout in singleflight
++		ctx, cancel := context.WithTimeout(workerCtx, resolver.DefaultDNSTimeout) // independent caller timeout, generation-owned
+@@ -205 +419 @@
+-				putMsgToCache(r.cache, q, result)
++				g.put(r.cache, q, result)
+@@ -223 +437,11 @@
+-	ch := r.group.DoChan(q.String(), fn)
++	run := func() <-chan singleflight.Result[*D.Msg] {
++		ch := make(chan singleflight.Result[*D.Msg], 1)
++		if !startResolverTask(workerCtx, func(context.Context) {
++			val, err, shared := r.group.Do(q.String(), fn)
++			ch <- singleflight.Result[*D.Msg]{Val: val, Err: err, Shared: shared}
++		}) {
++			ch <- singleflight.Result[*D.Msg]{Val: &D.Msg{}, Err: context.Canceled}
++		}
++		return ch
++	}
++	ch := run()
+@@ -235 +459 @@
+-			go func() { // start a retrying monitor in background
++			startResolverTask(workerCtx, func(context.Context) {
+@@ -238,2 +462,2 @@
+-				if err != nil && !shared && ret.Opcode < retryMax { // retry
+-					r.group.DoChan(q.String(), fn)
++				if err != nil && !shared && ret != nil && ret.Opcode < retryMax {
++					run() // run owns the retry even when its result is not consumed.
+@@ -241 +465 @@
+-			}()
++			})
+@@ -248 +472 @@
+-		r.group.DoChan(q.String(), fn)
++		run()
+@@ -345,0 +570,13 @@
++	var finish func()
++	ctx, finish, err = r.beginResolverRequest(ctx)
++	if err != nil {
++		return nil, err
++	}
++	defer finish()
++	defer func() {
++		if e := resolverRequestError(ctx); e != nil {
++			ips = nil
++			err = e
++		}
++	}()
++
+@@ -378 +615 @@
+-	go func() {
++	if !startResolverTask(ctx, func(ctx context.Context) {
+@@ -379,0 +617,3 @@
++		if e := resolverRequestError(ctx); e != nil {
++			res, err = nil, e
++		}
+@@ -381 +621,3 @@
+-	}()
++	}) {
++		ch <- &result{Error: context.Canceled}
++	}
+@@ -398,0 +641 @@
++// ResetConnection resets transports, not in-flight query or worker ownership.
+@@ -400,10 +643,54 @@
+-	if r != nil {
+-		for _, c := range r.main {
+-			c.ResetConnection()
+-		}
+-		for _, c := range r.fallback {
+-			c.ResetConnection()
+-		}
+-		if dr := r.defaultResolver; dr != nil {
+-			dr.ResetConnection()
+-		}
++	resetResolverConnections(r)
++}
++
++// Keep deduplication local to one reset. Policies may share a client with each
++// other, main/fallback or another resolver. Callbacks run without a global lock.
++func resetResolverConnections(roots ...*Resolver) {
++	seenResolvers := make(map[*Resolver]struct{})
++	seenClients := make(map[dnsClient]struct{})
++	var visit func(*Resolver)
++	reset := func(clients []dnsClient) {
++		for _, client := range clients {
++			// Query-only wrappers inherit ResetConnection unchanged. Reset the
++			// shared transport once, not once per wrapper parameter set.
++			for {
++				switch wrapper := client.(type) {
++				case clientWithDisableTypes:
++					client = wrapper.dnsClient
++				case clientWithEdns0Subnet:
++					client = wrapper.dnsClient
++				default:
++					goto unwrapped
++				}
++			}
++		unwrapped:
++			if client == nil {
++				continue
++			}
++			// A custom value client can contain slices or interface fields whose
++			// dynamic values are uncomparable. Such values remain safe to reset,
++			// but cannot be deduplicated by interface identity.
++			if reflect.ValueOf(client).Comparable() {
++				if _, seen := seenClients[client]; seen {
++					continue
++				}
++				seenClients[client] = struct{}{}
++			}
++			client.ResetConnection()
++		}
++	}
++	visit = func(r *Resolver) {
++		if r == nil {
++			return
++		}
++		if _, seen := seenResolvers[r]; seen {
++			return
++		}
++		seenResolvers[r] = struct{}{}
++		reset(r.main)
++		reset(r.fallback)
++		reset(r.policyClients)
++		visit(r.defaultResolver)
++	}
++	for _, root := range roots {
++		visit(root)
+@@ -505,0 +793,41 @@
++func (rs Resolvers) generations() []*resolverGeneration {
++	seenResolvers := map[*Resolver]bool{}
++	seenGenerations := map[*resolverGeneration]bool{}
++	var result []*resolverGeneration
++	var visit func(*Resolver)
++	visit = func(r *Resolver) {
++		if r == nil || seenResolvers[r] {
++			return
++		}
++		seenResolvers[r] = true
++		g := r.resolverGeneration()
++		if !seenGenerations[g] {
++			seenGenerations[g] = true
++			result = append(result, g)
++		}
++		visit(r.defaultResolver)
++	}
++	visit(rs.Resolver)
++	visit(rs.ProxyResolver)
++	visit(rs.DirectResolver)
++	return result
++}
++func (rs Resolvers) Cancel() {
++	for _, g := range rs.generations() {
++		g.stop()
++	}
++}
++
++// Wait is a retirement barrier only after Cancel; it does not prevent future
++// admission to a still-active generation. Timeout never discards its work debt.
++func (rs Resolvers) Wait(ctx context.Context) error {
++	var failures []error
++	for _, g := range rs.generations() {
++		if err := g.wait(ctx); err != nil {
++			failures = append(failures, err)
++		}
++	}
++	return errors.Join(failures...)
++}
++func (rs Resolvers) Stop(ctx context.Context) error { rs.Cancel(); return rs.Wait(ctx) }
++
+@@ -513,3 +841 @@
+-	rs.Resolver.ResetConnection()
+-	rs.ProxyResolver.ResetConnection()
+-	rs.DirectResolver.ResetConnection()
++	resetResolverConnections(rs.Resolver, rs.ProxyResolver, rs.DirectResolver)
+@@ -526,0 +853,11 @@
++	generation := newResolverGeneration()
++	defer func() {
++		for _, r := range []*Resolver{rs.Resolver, rs.ProxyResolver, rs.DirectResolver} {
++			if r != nil {
++				r.generation = generation
++				if r.defaultResolver != nil {
++					r.defaultResolver.generation = generation
++				}
++			}
++		}
++	}()
+@@ -568 +905,6 @@
+-	makePolicy := func(policies []Policy) (dnsPolicies []dnsPolicy) {
++	makePolicy := func(policies []Policy) (dnsPolicies []dnsPolicy, clients []dnsClient) {
++		policyTransform := func(servers []NameServer) []dnsClient {
++			transformed := cacheTransform(servers)
++			clients = append(clients, transformed...)
++			return transformed
++		}
+@@ -583 +925 @@
+-				insertPolicy(domainMatcherPolicy{matcher: policy.Matcher, dnsClients: cacheTransform(policy.NameServers)})
++				insertPolicy(domainMatcherPolicy{matcher: policy.Matcher, dnsClients: policyTransform(policy.NameServers)})
+@@ -588 +930 @@
+-				if err := triePolicy.Insert(policy.Domain, cacheTransform(policy.NameServers)); err != nil {
++				if err := triePolicy.Insert(policy.Domain, policyTransform(policy.NameServers)); err != nil {
+@@ -596,0 +939,2 @@
++	mainClients := cacheTransform(config.Main)
++	policies, policyClients := makePolicy(config.Policy)
+@@ -598,5 +942,6 @@
+-		ipv6:        config.IPv6,
+-		main:        cacheTransform(config.Main),
+-		cache:       config.newCache(),
+-		ipv6Timeout: time.Duration(config.IPv6Timeout) * time.Millisecond,
+-		policy:      makePolicy(config.Policy),
++		ipv6:          config.IPv6,
++		main:          mainClients,
++		cache:         config.newCache(),
++		ipv6Timeout:   time.Duration(config.IPv6Timeout) * time.Millisecond,
++		policy:        policies,
++		policyClients: policyClients,
+@@ -607,0 +953,2 @@
++		proxyMain := cacheTransform(config.ProxyServer)
++		proxyPolicies, proxyClients := makePolicy(config.ProxyServerPolicy)
+@@ -609,5 +956,6 @@
+-			ipv6:        config.IPv6,
+-			main:        cacheTransform(config.ProxyServer),
+-			cache:       config.newCache(),
+-			ipv6Timeout: time.Duration(config.IPv6Timeout) * time.Millisecond,
+-			policy:      makePolicy(config.ProxyServerPolicy),
++			ipv6:          config.IPv6,
++			main:          proxyMain,
++			cache:         config.newCache(),
++			ipv6Timeout:   time.Duration(config.IPv6Timeout) * time.Millisecond,
++			policy:        proxyPolicies,
++			policyClients: proxyClients,
+@@ -625,0 +974 @@
++			rs.DirectResolver.policyClients = r.policyClients
+--- dns/server.go
++++ dns/server.go
+@@ -4,0 +5,2 @@
++	"errors"
++	"io"
+@@ -5,0 +8 @@
++	"sync"
+@@ -11 +13,0 @@
+-
+@@ -16,4 +18,8 @@
+-	address string
+-	server  = &Server{}
+-
+-	dnsDefaultTTL uint32 = 600
++	address          string
++	server                  = &Server{}
++	dnsDefaultTTL    uint32 = 600
++	serverMu         sync.Mutex
++	activeGeneration *serverGeneration
++	// A generation is removed only after startup, serve, shutdown and every raw
++	// resource close have completed. Concurrent stops share this ownership set.
++	serverGenerations = make(map[*serverGeneration]struct{})
+@@ -22,0 +29 @@
++	mu        sync.RWMutex
+@@ -31,3 +38,3 @@
+-}
+-
+-// ServeDNS implement D.Handler ServeDNS
++	ctx   context.Context
++}
++
+@@ -35 +42,243 @@
+-	msg, err := s.service.ServeMsg(context.Background(), r)
++	s.mu.RLock()
++	service := s.service
++	s.mu.RUnlock()
++	var msg *D.Msg
++	var err error
++	if service != nil {
++		msg, err = service.ServeMsg(s.ctx, r)
++	}
++	if service == nil || err != nil || msg == nil {
++		msg = new(D.Msg)
++		msg.SetRcode(r, D.RcodeServerFailure)
++	}
++	if s.isUDP {
++		msg.Truncate(resolver.RequestUDPSize(r))
++	}
++	msg.Compress = true
++	_ = w.WriteMsg(msg)
++}
++func (s *Server) UDPHandler() D.Handler {
++	return serverHandler{Server: s, isUDP: true, ctx: context.Background()}
++}
++func (s *Server) TCPHandler() D.Handler { return serverHandler{Server: s, ctx: context.Background()} }
++func (s *Server) SetService(service resolver.Service) {
++	s.mu.Lock()
++	s.service = service
++	s.mu.Unlock()
++}
++
++// Close is external code and can fail or block. Keep exactly one in-flight
++// attempt per raw resource; a deadline never discards that attempt or its owner.
++type serverResource struct {
++	mu       sync.Mutex
++	raw      io.Closer
++	inflight chan struct{}
++	released bool
++	err      error
++}
++
++func (r *serverResource) install(raw io.Closer) { r.mu.Lock(); r.raw = raw; r.mu.Unlock() }
++func serverClosedOnly(err error) bool {
++	if err == net.ErrClosed {
++		return true
++	}
++	if joined, ok := err.(interface{ Unwrap() []error }); ok {
++		causes := joined.Unwrap()
++		if len(causes) == 0 {
++			return false
++		}
++		for _, cause := range causes {
++			if !serverClosedOnly(cause) {
++				return false
++			}
++		}
++		return true
++	}
++	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
++		return serverClosedOnly(wrapped.Unwrap())
++	}
++	return false
++}
++func (r *serverResource) close(ctx context.Context) error {
++	r.mu.Lock()
++	if r.raw == nil || r.released {
++		r.mu.Unlock()
++		return nil
++	}
++	done := r.inflight
++	if done == nil {
++		done = make(chan struct{})
++		r.inflight = done
++		raw := r.raw
++		go func() {
++			err := raw.Close()
++			if serverClosedOnly(err) {
++				err = nil
++			}
++			r.mu.Lock()
++			r.err = err
++			r.released = err == nil
++			r.inflight = nil
++			close(done)
++			r.mu.Unlock()
++		}()
++	}
++	r.mu.Unlock()
++	select {
++	case <-done:
++		r.mu.Lock()
++		err := r.err
++		r.mu.Unlock()
++		return err
++	case <-ctx.Done():
++		return ctx.Err()
++	}
++}
++func (r *serverResource) status() (bool, error) {
++	r.mu.Lock()
++	defer r.mu.Unlock()
++	return r.raw == nil || r.released, r.err
++}
++
++type serverTransport struct {
++	resource  serverResource
++	ready     chan struct{}
++	serveDone chan struct{}
++	srv       *D.Server // assigned before ready/serveDone; observers wait for either.
++}
++
++func newServerTransport() *serverTransport {
++	return &serverTransport{ready: make(chan struct{}), serveDone: make(chan struct{})}
++}
++
++type serverGeneration struct {
++	ctx      context.Context
++	cancel   context.CancelFunc
++	owner    *Server
++	tcp, udp *serverTransport
++	workers  sync.WaitGroup
++	done     chan struct{}
++	errMu    sync.Mutex
++	serveErr error
++}
++
++func serverShutdownOnly(err error) bool {
++	if err == net.ErrClosed || err == context.Canceled {
++		return true
++	}
++	if joined, ok := err.(interface{ Unwrap() []error }); ok {
++		causes := joined.Unwrap()
++		if len(causes) == 0 {
++			return false
++		}
++		for _, cause := range causes {
++			if !serverShutdownOnly(cause) {
++				return false
++			}
++		}
++		return true
++	}
++	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
++		return serverShutdownOnly(wrapped.Unwrap())
++	}
++	return false
++}
++func (g *serverGeneration) record(err error) {
++	if err == nil || (g.ctx.Err() != nil && serverShutdownOnly(err)) {
++		return
++	}
++	g.errMu.Lock()
++	g.serveErr = errors.Join(g.serveErr, err)
++	g.errMu.Unlock()
++}
++func (g *serverGeneration) err() error { g.errMu.Lock(); defer g.errMu.Unlock(); return g.serveErr }
++func (g *serverGeneration) complete() bool {
++	select {
++	case <-g.done:
++	default:
++		return false
++	}
++	tcp, _ := g.tcp.resource.status()
++	udp, _ := g.udp.resource.status()
++	return tcp && udp
++}
++func (g *serverGeneration) stop(ctx context.Context) error {
++	// Cancellation is announced for every generation before StopServer waits.
++	// Raw closes wake accept/read even when Shutdown's own Close attempt failed.
++	tcpErr := g.tcp.resource.close(ctx)
++	udpErr := g.udp.resource.close(ctx)
++	select {
++	case <-g.done:
++		_, tcpDebt := g.tcp.resource.status()
++		_, udpDebt := g.udp.resource.status()
++		return errors.Join(tcpErr, udpErr, tcpDebt, udpDebt, g.err())
++	case <-ctx.Done():
++		return errors.Join(tcpErr, udpErr, ctx.Err())
++	}
++}
++
++// StopServer joins only locally owned DNS listener generations, including their
++// admitted handlers. It does not close resolver transports/caches or the kernel.
++func StopServer(ctx context.Context) error {
++	serverMu.Lock()
++	gens := make([]*serverGeneration, 0, len(serverGenerations))
++	for g := range serverGenerations {
++		gens = append(gens, g)
++		g.cancel()
++	}
++	activeGeneration = nil
++	address = ""
++	server = &Server{}
++	serverMu.Unlock()
++	var result error
++	for _, g := range gens {
++		result = errors.Join(result, g.stop(ctx))
++	}
++	serverMu.Lock()
++	for _, g := range gens {
++		if g.complete() {
++			delete(serverGenerations, g)
++		}
++	}
++	serverMu.Unlock()
++	return result
++}
++
++func ReCreateServer(addr string, lc C.InboundListenConfig, service resolver.Service) {
++	serverMu.Lock()
++	defer serverMu.Unlock()
++	if activeGeneration != nil && addr == address && service != nil && lc != nil {
++		activeGeneration.owner.SetService(service)
++		return
++	}
++	if activeGeneration != nil {
++		activeGeneration.cancel()
++	}
++	activeGeneration = nil
++	address = ""
++	server = &Server{}
++	if addr == "" || lc == nil || service == nil {
++		return
++	}
++	_, port, err := net.SplitHostPort(addr)
++	if err != nil || port == "0" || port == "" {
++		return
++	}
++	ctx, cancel := context.WithCancel(context.Background())
++	g := &serverGeneration{ctx: ctx, cancel: cancel, owner: &Server{service: service}, tcp: newServerTransport(), udp: newServerTransport(), done: make(chan struct{})}
++	// Account for both startup/serve and both shutdown watchers before publishing.
++	g.workers.Add(4)
++	activeGeneration = g
++	serverGenerations[g] = struct{}{}
++	address, server = addr, g.owner
++	go g.listenTCP(lc, addr)
++	go g.listenUDP(lc, addr)
++	go g.watchTransport(g.tcp)
++	go g.watchTransport(g.udp)
++	go func() { g.workers.Wait(); close(g.done) }()
++}
++
++func (g *serverGeneration) listenTCP(lc C.InboundListenConfig, addr string) {
++	defer g.workers.Done()
++	defer close(g.tcp.serveDone)
++	l, err := lc.Listen(g.ctx, "tcp", addr)
+@@ -37,94 +286,47 @@
+-		m := new(D.Msg)
+-		m.SetRcode(r, D.RcodeServerFailure)
+-		// does not matter if this write fails
+-		w.WriteMsg(m)
+-		return
+-	}
+-	if s.isUDP {
+-		// RFC 6891: fit the reply into the client's advertised buffer size,
+-		// setting the TC bit if records must be dropped; 512 when no OPT present
+-		msg.Truncate(resolver.RequestUDPSize(r))
+-	}
+-	msg.Compress = true
+-	w.WriteMsg(msg)
+-}
+-
+-func (s *Server) UDPHandler() D.Handler {
+-	return serverHandler{Server: s, isUDP: true}
+-}
+-
+-func (s *Server) TCPHandler() D.Handler {
+-	return serverHandler{Server: s, isUDP: false}
+-}
+-
+-func (s *Server) SetService(service resolver.Service) {
+-	s.service = service
+-}
+-
+-func ReCreateServer(addr string, lc C.InboundListenConfig, service resolver.Service) {
+-	if addr == address && service != nil {
+-		server.SetService(service)
+-		return
+-	}
+-
+-	if server.tcpServer != nil {
+-		_ = server.tcpServer.Shutdown()
+-		server.tcpServer = nil
+-	}
+-
+-	if server.udpServer != nil {
+-		_ = server.udpServer.Shutdown()
+-		server.udpServer = nil
+-	}
+-
+-	server.service = nil
+-	address = ""
+-
+-	if addr == "" || lc == nil || service == nil {
+-		return
+-	}
+-
+-	var err error
+-	defer func() {
+-		if err != nil {
+-			log.Errorln("Start DNS server error: %s", err.Error())
+-		}
+-	}()
+-
+-	_, port, err := net.SplitHostPort(addr)
+-	if port == "0" || port == "" || err != nil {
+-		return
+-	}
+-
+-	address = addr
+-	server = &Server{service: service}
+-
+-	go func() {
+-		p, err := lc.ListenPacket(context.Background(), "udp", addr)
+-		if err != nil {
+-			log.Errorln("Start DNS server(UDP) error: %s", err.Error())
+-			return
+-		}
+-
+-		if err := sockopt.UDPReuseaddr(p); err != nil {
+-			log.Warnln("Failed to Reuse UDP Address: %s", err)
+-		}
+-
+-		log.Infoln("DNS server(UDP) listening at: %s", p.LocalAddr().String())
+-		server.udpServer = &D.Server{Addr: addr, PacketConn: p, Handler: server.UDPHandler()}
+-		_ = server.udpServer.ActivateAndServe()
+-	}()
+-
+-	go func() {
+-		l, err := lc.Listen(context.Background(), "tcp", addr)
+-		if err != nil {
+-			log.Errorln("Start DNS server(TCP) error: %s", err.Error())
+-			return
+-		}
+-
+-		log.Infoln("DNS server(TCP) listening at: %s", l.Addr().String())
+-		server.tcpServer = &D.Server{Addr: addr, Listener: l, Handler: server.TCPHandler()}
+-		_ = server.tcpServer.ActivateAndServe()
+-	}()
+-
+-}
++		g.record(err)
++		return
++	}
++	g.tcp.resource.install(l)
++	if g.ctx.Err() != nil {
++		return
++	}
++	g.tcp.srv = &D.Server{Addr: addr, Listener: l, Handler: serverHandler{Server: g.owner, ctx: g.ctx}, NotifyStartedFunc: func() { close(g.tcp.ready) }}
++	log.Infoln("DNS server(TCP) listening at: %s", l.Addr().String())
++	g.record(g.tcp.srv.ActivateAndServe())
++}
++func (g *serverGeneration) listenUDP(lc C.InboundListenConfig, addr string) {
++	defer g.workers.Done()
++	defer close(g.udp.serveDone)
++	p, err := lc.ListenPacket(g.ctx, "udp", addr)
++	if err != nil {
++		g.record(err)
++		return
++	}
++	g.udp.resource.install(p)
++	if g.ctx.Err() != nil {
++		return
++	}
++	if err := sockopt.UDPReuseaddr(p); err != nil {
++		log.Warnln("Failed to Reuse UDP Address: %s", err)
++	}
++	g.udp.srv = &D.Server{Addr: addr, PacketConn: p, Handler: serverHandler{Server: g.owner, isUDP: true, ctx: g.ctx}, NotifyStartedFunc: func() { close(g.udp.ready) }}
++	log.Infoln("DNS server(UDP) listening at: %s", p.LocalAddr().String())
++	g.record(g.udp.srv.ActivateAndServe())
++}
++func (g *serverGeneration) watchTransport(t *serverTransport) {
++	defer g.workers.Done()
++	select {
++	case <-g.ctx.Done():
++		// Shutdown before ActivateAndServe starts returns "not started" and can
++		// miss a late activation. Wait for that endpoint's actual startup or exit.
++		select {
++		case <-t.ready:
++			_ = t.srv.ShutdownContext(context.Background())
++		case <-t.serveDone:
++		}
++	case <-t.serveDone:
++	}
++	// A canceled late Listen is registered before serveDone. Failed close stays
++	// retryable even after this watcher exits; blocked close stays in-flight.
++	_ = t.resource.close(context.Background())
++}
+--- dns/doh.go
++++ dns/doh.go
+@@ -39,3 +39,3 @@
+-	dialTimeout        = 10 * time.Second
+-
+-	maxElapsedTime  = time.Second * 30
++	dialTimeout = 10 * time.Second
++
++	maxElapsedTime = time.Second * 30
+@@ -53,0 +54,5 @@
++
++	// clientMu owns both the published client and every failed retirement.
++	// Reset is reusable; Close is terminal. Neither operation joins requests.
++	closed  bool
++	retired map[*http.Client]struct{}
+@@ -160,2 +165,4 @@
+-// Close implements the Upstream interface for *dnsOverHTTPS.
+-func (doh *dnsOverHTTPS) Close() (err error) {
++// Close seals client publication and retries every owned transport. A failed
++// close remains owned, even when it also reports net.ErrClosed. Callers must
++// retry Close; this does not cancel/join in-flight requests or resolver workers.
++func (doh *dnsOverHTTPS) Close() error {
+@@ -164,8 +171,6 @@
+-
+-	runtime.SetFinalizer(doh, nil)
+-
+-	if doh.client == nil {
+-		return nil
+-	}
+-
+-	return doh.closeClient(doh.client)
++	doh.closed = true
++	err := doh.retireClientLocked()
++	if err == nil {
++		runtime.SetFinalizer(doh, nil)
++	}
++	return err
+@@ -177,7 +182,54 @@
+-
+-	if doh.client == nil {
+-		return
+-	}
+-
+-	_ = doh.closeClient(doh.client)
+-	doh.client = nil
++	// The interface cannot return errors. Retain failed owners and let the
++	// next reset, acquisition or explicit Close retry them before publication.
++	if err := doh.retireClientLocked(); err != nil {
++		log.Warnln("failed to retire DoH transport (retained for retry): %v", err)
++	}
++}
++
++// Caller holds clientMu. Detach before invoking callbacks, but do not relinquish
++// ownership until Close succeeded. Each distinct client is attempted once/pass.
++func (doh *dnsOverHTTPS) retireClientLocked() error {
++	if doh.client != nil {
++		if doh.retired == nil {
++			doh.retired = make(map[*http.Client]struct{})
++		}
++		doh.retired[doh.client] = struct{}{}
++		doh.client = nil
++	}
++	return doh.closeRetiredLocked()
++}
++
++func (doh *dnsOverHTTPS) closeRetiredLocked() error {
++	var errs []error
++	for client := range doh.retired {
++		if err := doh.closeClient(client); !dohClosedOnly(err) {
++			errs = append(errs, err)
++			continue
++		}
++		delete(doh.retired, client)
++	}
++	return errors.Join(errs...)
++}
++
++// errors.Is alone would erase errors.Join(net.ErrClosed, realCloseFailure).
++func dohClosedOnly(err error) bool {
++	if err == nil || err == net.ErrClosed {
++		return true
++	}
++	if joined, ok := err.(interface{ Unwrap() []error }); ok {
++		children := joined.Unwrap()
++		if len(children) == 0 {
++			return false
++		}
++		for _, child := range children {
++			if !dohClosedOnly(child) {
++				return false
++			}
++		}
++		return true
++	}
++	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
++		child := wrapped.Unwrap()
++		return child != nil && dohClosedOnly(child)
++	}
++	return false
+@@ -194,2 +246,2 @@
+-	if isHTTP3(client) { // HTTP/3 may leak due to keep-alive connections.
+-		return client.Transport.(io.Closer).Close()
++	if closer, ok := client.Transport.(io.Closer); ok { // HTTP/3 owns live connections too.
++		return closer.Close()
+@@ -295,0 +348,6 @@
++	if doh.closed {
++		return nil, net.ErrClosed
++	}
++	if err := doh.retireClientLocked(); err != nil {
++		return nil, fmt.Errorf("retiring old DoH client: %w", err)
++	}
+@@ -299,8 +356,0 @@
+-	}
+-
+-	oldClient := doh.client
+-	if oldClient != nil {
+-		closeErr := doh.closeClient(oldClient)
+-		if closeErr != nil {
+-			log.Warnln("warning: failed to close the old http client: %v", closeErr)
+-		}
+@@ -340,0 +391,6 @@
++	if doh.closed {
++		return nil, false, net.ErrClosed
++	}
++	if err := doh.closeRetiredLocked(); err != nil {
++		return nil, false, fmt.Errorf("retiring old DoH client: %w", err)
++	}
+@@ -610,2 +666,10 @@
+-	go doh.probeQUIC(ctx, addr, probeTLSCfg, chQuic)
+-	go doh.probeTLS(ctx, probeTLSCfg, chTLS)
++	if !startResolverTask(ctx, func(ctx context.Context) {
++		doh.probeQUIC(ctx, addr, probeTLSCfg, chQuic)
++	}) {
++		chQuic <- context.Canceled
++	}
++	if !startResolverTask(ctx, func(ctx context.Context) {
++		doh.probeTLS(ctx, probeTLSCfg, chTLS)
++	}) {
++		chTLS <- context.Canceled
++	}
+--- component/resource/fetcher.go
++++ component/resource/fetcher.go
+@@ -4,0 +5 @@
++	"errors"
+@@ -35,0 +37,8 @@
++	lifecycleMu  sync.Mutex
++	started      bool
++	closed       bool
++	wg           sync.WaitGroup
++	waitStarted  bool
++	waitDone     chan struct{}
++	watcherErr   error
++	metadataMu   sync.RWMutex
+@@ -52,0 +62,2 @@
++	f.metadataMu.RLock()
++	defer f.metadataMu.RUnlock()
+@@ -55,0 +67,14 @@
++func (f *Fetcher[V]) begin() error {
++	f.lifecycleMu.Lock()
++	defer f.lifecycleMu.Unlock()
++	if f.closed {
++		return context.Canceled
++	}
++	if err := f.ctx.Err(); err != nil {
++		return err
++	}
++	f.wg.Add(1)
++	return nil
++}
++func (f *Fetcher[V]) end() { f.wg.Done() }
++
+@@ -56,0 +82,4 @@
++	if err := f.begin(); err != nil {
++		return lo.Empty[V](), err
++	}
++	defer f.end()
+@@ -62 +91,3 @@
+-		f.updatedAt = modTime // reset updatedAt to file's modTime
++		f.metadataMu.Lock()
++		f.updatedAt = modTime
++		f.metadataMu.Unlock() // reset updatedAt to file's modTime
+@@ -84 +115,3 @@
+-			f.updatedAt = modTime // reset updatedAt to file's modTime
++			f.metadataMu.Lock()
++			f.updatedAt = modTime
++			f.metadataMu.Unlock() // reset updatedAt to file's modTime
+@@ -117 +150,8 @@
+-	buf, hash, err := f.vehicle.Read(f.ctx, f.hash)
++	if err := f.begin(); err != nil {
++		return lo.Empty[V](), false, err
++	}
++	defer f.end()
++	f.metadataMu.RLock()
++	oldHash := f.hash
++	f.metadataMu.RUnlock()
++	buf, hash, err := f.vehicle.Read(f.ctx, oldHash)
+@@ -119 +159,3 @@
+-		f.backoff.AddAttempt() // add a failed attempt to backoff
++		f.loadBufMutex.Lock()
++		f.backoff.AddAttempt()
++		f.loadBufMutex.Unlock() // add a failed attempt to backoff
+@@ -125,0 +168,4 @@
++	if err := f.begin(); err != nil {
++		return lo.Empty[V](), false, err
++	}
++	defer f.end()
+@@ -132 +178,3 @@
+-
++	if err := f.ctx.Err(); err != nil {
++		return lo.Empty[V](), false, err
++	}
+@@ -134 +182,4 @@
+-	if f.hash.Equal(hash) {
++	f.metadataMu.RLock()
++	same := f.hash.Equal(hash)
++	f.metadataMu.RUnlock()
++	if same {
+@@ -137,0 +189 @@
++		f.metadataMu.Lock()
+@@ -138,0 +191 @@
++		f.metadataMu.Unlock()
+@@ -149 +202,4 @@
+-		f.backoff.AddAttempt() // add a failed attempt to backoff
++		f.backoff.AddAttempt() // loadBufMutex is already held
++		return lo.Empty[V](), false, err
++	}
++	if err := f.ctx.Err(); err != nil {
+@@ -158,0 +215,4 @@
++	if err := f.ctx.Err(); err != nil {
++		return lo.Empty[V](), false, err
++	}
++	f.metadataMu.Lock()
+@@ -160,0 +221 @@
++	f.metadataMu.Unlock()
+@@ -169,0 +231,2 @@
++	f.lifecycleMu.Lock()
++	f.closed = true
+@@ -171,4 +234,40 @@
+-	if f.watcher != nil {
+-		_ = f.watcher.Close()
+-	}
+-	return nil
++	watcher := f.watcher
++	if watcher != nil {
++		if err := watcher.Close(); err != nil {
++			f.watcherErr = err
++		} else {
++			f.watcherErr = nil
++			f.watcher = nil
++		}
++	}
++	if !f.waitStarted {
++		f.waitStarted = true
++		f.waitDone = make(chan struct{})
++		done := f.waitDone
++		go func() { f.wg.Wait(); close(done) }()
++	}
++	err := f.watcherErr
++	f.lifecycleMu.Unlock()
++	return err
++}
++
++func (f *Fetcher[V]) WaitClosed(ctx context.Context) error {
++	f.lifecycleMu.Lock()
++	if !f.closed {
++		f.lifecycleMu.Unlock()
++		return errors.New("fetcher is not closed")
++	}
++	done := f.waitDone
++	f.lifecycleMu.Unlock()
++	// A completed drain wins over an already-expired retry context.
++	select {
++	case <-done:
++		return nil
++	default:
++	}
++	select {
++	case <-done:
++		return nil
++	case <-ctx.Done():
++		return ctx.Err()
++	}
+@@ -178 +277,2 @@
+-	initialInterval := f.interval - time.Since(f.updatedAt)
++	defer f.end()
++	initialInterval := f.interval - time.Since(f.UpdatedAt())
+@@ -187,2 +287,8 @@
+-	if attempt := f.backoff.Attempt(); attempt > 0 { // f.Update() was failed, decrease the interval from backoff to achieve fast retry
+-		if duration := f.backoff.ForAttempt(attempt); duration < initialInterval {
++	f.loadBufMutex.Lock()
++	attempt := f.backoff.Attempt()
++	f.loadBufMutex.Unlock()
++	if attempt > 0 { // f.Update() was failed, decrease the interval from backoff to achieve fast retry
++		f.loadBufMutex.Lock()
++		duration := f.backoff.ForAttempt(attempt)
++		f.loadBufMutex.Unlock()
++		if duration < initialInterval {
+@@ -200,4 +306,9 @@
+-			if attempt := f.backoff.Attempt(); attempt > 0 { // f.Update() was failed, decrease the interval from backoff to achieve fast retry
+-				if duration := f.backoff.ForAttempt(attempt); duration < interval {
+-					interval = duration
+-				}
++			f.loadBufMutex.Lock()
++			attempt := f.backoff.Attempt()
++			duration := time.Duration(0)
++			if attempt > 0 {
++				duration = f.backoff.ForAttempt(attempt)
++			}
++			f.loadBufMutex.Unlock()
++			if attempt > 0 && duration < interval {
++				interval = duration
+@@ -212,0 +324,12 @@
++	f.lifecycleMu.Lock()
++	defer f.lifecycleMu.Unlock()
++	if f.closed {
++		return context.Canceled
++	}
++	if err := f.ctx.Err(); err != nil {
++		return err
++	}
++	if f.started {
++		return nil
++	}
++
+@@ -215 +338 @@
+-		f.watcher, err = fswatch.NewWatcher(fswatch.Options{
++		watcher, err := fswatch.NewWatcher(fswatch.Options{
+@@ -222 +345 @@
+-		err = f.watcher.Start()
++		err = watcher.Start()
+@@ -225,0 +349 @@
++		f.watcher = watcher
+@@ -226,0 +351 @@
++		f.wg.Add(1)
+@@ -228,0 +354 @@
++	f.started = true
+@@ -233 +359,4 @@
+-	f.updateWithLog()
++	if err := f.begin(); err == nil {
++		defer f.end()
++		f.updateWithLog()
++	}
+@@ -260,0 +390 @@
++		waitDone:   make(chan struct{}),
+--- log/log.go
++++ log/log.go
+@@ -5,0 +6 @@
++	"sync"
+@@ -13,3 +14,4 @@
+-	logCh  = make(chan Event)
+-	source = observable.NewObservable[Event](logCh)
+-	level  = INFO
++	logCh   = make(chan Event)
++	source  = observable.NewObservable[Event](logCh)
++	level   = INFO
++	levelMu sync.RWMutex
+@@ -74,0 +77,2 @@
++	levelMu.RLock()
++	defer levelMu.RUnlock()
+@@ -78,0 +83 @@
++	levelMu.Lock()
+@@ -79,0 +85 @@
++	levelMu.Unlock()
+@@ -83 +89,3 @@
+-	if data.LogLevel < level {
++	// Sample under the same lock as SetLevel; never hold it while logging,
++	// which can invoke user hooks or run from a proxy finalizer.
++	if data.LogLevel < Level() {
+--- adapter/provider/healthcheck.go
++++ adapter/provider/healthcheck.go
+@@ -4,0 +5 @@
++	"errors"
+@@ -29,0 +31,7 @@
++	// mu also serializes admission, startup, snapshots and close. No proxy or
++	// external callback runs under it. Close cancels; waitClosed is the barrier.
++	closed  bool
++	started bool
++	active  int
++	drained chan struct{}
++
+@@ -44,3 +52,23 @@
+-func (hc *HealthCheck) process() {
+-	ticker := time.NewTicker(hc.interval)
+-	go hc.check()
++// start registers the loop before spawning it, so Close cannot miss a queued
++// goroutine. Repeated Initial calls must not create duplicate ticker owners.
++func (hc *HealthCheck) start() error {
++	hc.mu.Lock()
++	defer hc.mu.Unlock()
++	if hc.closed {
++		return context.Canceled
++	}
++	if hc.started || hc.interval == 0 {
++		return nil
++	}
++	hc.started = true
++	hc.active++
++	interval := hc.interval
++	go hc.process(interval)
++	return nil
++}
++
++func (hc *HealthCheck) process(interval time.Duration) {
++	defer hc.endWork()
++	ticker := time.NewTicker(interval)
++	defer ticker.Stop()
++	hc.startCheck()
+@@ -48,0 +77,2 @@
++		case <-hc.ctx.Done():
++			return
+@@ -50,3 +80 @@
+-			lastTouch := hc.lastTouch.Load()
+-			since := time.Since(lastTouch)
+-			if !hc.lazy || since < hc.interval {
++			if !hc.lazy || time.Since(hc.lastTouch.Load()) < interval {
+@@ -57,5 +85,29 @@
+-		case <-hc.ctx.Done():
+-			ticker.Stop()
+-			return
+-		}
+-	}
++		}
++	}
++}
++
++func (hc *HealthCheck) beginWork() bool {
++	hc.mu.Lock()
++	defer hc.mu.Unlock()
++	if hc.closed {
++		return false
++	}
++	hc.active++
++	return true
++}
++
++func (hc *HealthCheck) endWork() {
++	hc.mu.Lock()
++	defer hc.mu.Unlock()
++	hc.active--
++	if hc.closed && hc.active == 0 {
++		close(hc.drained)
++	}
++}
++
++// Admit asynchronous updates before spawning, not from inside the goroutine.
++func (hc *HealthCheck) startCheck() {
++	if !hc.beginWork() {
++		return
++	}
++	go func() { defer hc.endWork(); hc.checkWork() }()
+@@ -65 +117,5 @@
+-	hc.proxies = proxies
++	hc.mu.Lock()
++	defer hc.mu.Unlock()
++	if !hc.closed {
++		hc.proxies = append([]C.Proxy(nil), proxies...)
++	}
+@@ -76,0 +133,3 @@
++	if hc.closed {
++		return
++	}
+@@ -94 +152,0 @@
+-		log.Debugln("health check url: %s exists", url)
+@@ -116 +174,3 @@
+-	return hc.interval != 0
++	hc.mu.Lock()
++	defer hc.mu.Unlock()
++	return !hc.closed && hc.interval != 0
+@@ -124,4 +184,8 @@
+-	if len(hc.proxies) == 0 {
+-		return
+-	}
+-
++	if !hc.beginWork() {
++		return
++	}
++	defer hc.endWork()
++	hc.checkWork()
++}
++
++func (hc *HealthCheck) checkWork() {
+@@ -128,0 +193,18 @@
++		hc.mu.Lock()
++		if hc.closed {
++			hc.mu.Unlock()
++			return struct{}{}, context.Canceled
++		}
++		proxies := append([]C.Proxy(nil), hc.proxies...)
++		extra := make(map[string]*extraOption, len(hc.extra))
++		for url, option := range hc.extra {
++			copyOption := &extraOption{expectedStatus: option.expectedStatus, filters: map[string]struct{}{}}
++			for filter := range option.filters {
++				copyOption.filters[filter] = struct{}{}
++			}
++			extra[url] = copyOption
++		}
++		hc.mu.Unlock()
++		if len(proxies) == 0 {
++			return struct{}{}, nil
++		}
+@@ -133,10 +215,3 @@
+-
+-		// execute default health check
+-		option := &extraOption{filters: nil, expectedStatus: hc.expectedStatus}
+-		hc.execute(b, hc.url, id, option)
+-
+-		// execute extra health check
+-		if len(hc.extra) != 0 {
+-			for url, option := range hc.extra {
+-				hc.execute(b, url, id, option)
+-			}
++		hc.execute(b, proxies, hc.url, id, &extraOption{expectedStatus: hc.expectedStatus})
++		for url, option := range extra {
++			hc.execute(b, proxies, url, id, option)
+@@ -150 +225 @@
+-func (hc *HealthCheck) execute(b *errgroup.Group, url, uid string, option *extraOption) {
++func (hc *HealthCheck) execute(b *errgroup.Group, proxies []C.Proxy, url, uid string, option *extraOption) {
+@@ -171 +246,4 @@
+-	for _, proxy := range hc.proxies {
++	for _, proxy := range proxies {
++		if hc.ctx.Err() != nil {
++			return
++		}
+@@ -180,0 +259,3 @@
++			if hc.ctx.Err() != nil {
++				return nil
++			}
+@@ -190,0 +272 @@
++// close is deliberately non-blocking and may be invoked by a URLTest callback.
+@@ -191,0 +274,6 @@
++	hc.mu.Lock()
++	defer hc.mu.Unlock()
++	if hc.closed {
++		return
++	}
++	hc.closed = true
+@@ -192,0 +281,25 @@
++	if hc.active == 0 {
++		close(hc.drained)
++	}
++}
++
++// An uncooperative URLTest may outlive its cancellation. Keep ownership and let
++// the caller retry instead of declaring that a timed-out drain succeeded.
++func (hc *HealthCheck) waitClosed(ctx context.Context) error {
++	hc.mu.Lock()
++	closed, drained := hc.closed, hc.drained
++	hc.mu.Unlock()
++	if !closed {
++		return errors.New("health check must be closed before waiting")
++	}
++	select {
++	case <-drained:
++		return nil
++	default:
++	}
++	select {
++	case <-drained:
++		return nil
++	case <-ctx.Done():
++		return ctx.Err()
++	}
+@@ -208 +321,2 @@
+-		proxies:        proxies,
++		proxies:        append([]C.Proxy(nil), proxies...),
++		drained:        make(chan struct{}),
+--- adapter/provider/provider.go
++++ adapter/provider/provider.go
+@@ -3,0 +4 @@
++	"context"
+@@ -65,4 +66 @@
+-	if bp.healthCheck.auto() {
+-		go bp.healthCheck.process()
+-	}
+-	return nil
++	return bp.healthCheck.start()
+@@ -110 +108 @@
+-		go bp.healthCheck.check()
++		bp.healthCheck.startCheck()
+@@ -116,0 +115,5 @@
++}
++
++// WaitClosed joins health checks for compatible and inline providers as well.
++func (bp *baseProvider) WaitClosed(ctx context.Context) error {
++	return bp.healthCheck.waitClosed(ctx)
+@@ -181,0 +185,6 @@
++}
++
++// Override both embedded waiters: promoted Fetcher.WaitClosed alone does not
++// cover health checks. Both components share the Android stop drain deadline.
++func (pp *proxySetProvider) WaitClosed(ctx context.Context) error {
++	return errors.Join(pp.Fetcher.WaitClosed(ctx), pp.baseProvider.WaitClosed(ctx))
+--- dns/client.go
++++ dns/client.go
+@@ -51 +51 @@
+-	go func() {
++	if !startResolverTask(ctx, func(ctx context.Context) {
+@@ -79 +79,3 @@
+-	}()
++	}) {
++		return nil, context.Canceled
++	}
+--- dns/dot.go
++++ dns/dot.go
+@@ -50 +50 @@
+-	go func() {
++	if !startResolverTask(ctx, func(ctx context.Context) {
+@@ -98,0 +99 @@
++				var evicted net.Conn
+@@ -100,3 +101,10 @@
+-				if t.connections.Len() >= maxOldDotConns {
+-					oldConn := t.connections.PopFront()
+-					go oldConn.Close() // close in a new goroutine, not blocking the current task
++				published := commitResolverTask(ctx, func() {
++					if t.connections.Len() >= maxOldDotConns {
++						evicted = t.connections.PopFront()
++					}
++					t.connections.PushBack(conn)
++				})
++				t.access.Unlock()
++				if !published {
++					_ = conn.Close()
++					return
+@@ -104,2 +112,7 @@
+-				t.connections.PushBack(conn)
+-				t.access.Unlock()
++				if evicted != nil {
++					if !startResolverTask(ctx, func(context.Context) { _ = evicted.Close() }) {
++						// The current exchange task retains the close debt. Never
++						// run arbitrary connection Close while holding access.
++						_ = evicted.Close()
++					}
++				}
+@@ -111 +124,3 @@
+-	}()
++	}) {
++		return nil, context.Canceled
++	}
+--- dns/dhcp.go
++++ dns/dhcp.go
+@@ -38,0 +39,3 @@
++	d.lock.Lock()
++	clients := append([]dnsClient(nil), d.clients...)
++	d.lock.Unlock()
+@@ -40 +43 @@
+-	for _, c := range d.clients {
++	for _, c := range clients {
+@@ -57 +60,4 @@
+-	for _, client := range d.clients {
++	d.lock.Lock()
++	clients := append([]dnsClient(nil), d.clients...)
++	d.lock.Unlock()
++	for _, client := range clients {
+@@ -69,32 +75 @@
+-		done := make(chan struct{})
+-
+-		d.done = done
+-
+-		go func() {
+-			ctx, cancel := context.WithTimeout(context.Background(), DHCPTimeout)
+-			defer cancel()
+-
+-			var res []dnsClient
+-			dns, err := dhcp.ResolveDNSFromDHCP(ctx, d.ifaceName)
+-			// dns never empty if err is nil
+-			if err == nil {
+-				nameserver := make([]NameServer, 0, len(dns))
+-				for _, item := range dns {
+-					nameserver = append(nameserver, NameServer{
+-						Addr:      net.JoinHostPort(item.String(), "53"),
+-						ProxyName: d.ifaceName,
+-					})
+-				}
+-
+-				res = transform(nameserver, nil)
+-			}
+-
+-			d.lock.Lock()
+-			defer d.lock.Unlock()
+-
+-			close(done)
+-
+-			d.done = nil
+-			d.clients = res
+-			d.err = err
+-		}()
++		d.startRefresh(ctx, dhcp.ResolveDNSFromDHCP)
+@@ -123,0 +99,34 @@
++	}
++}
++
++// Caller holds d.lock. Discovery remains a generation-owned task even when a
++// dirty cached answer lets resolve return immediately.
++func (d *dhcpClient) startRefresh(ctx context.Context, discover func(context.Context, string) ([]netip.Addr, error)) {
++	done := make(chan struct{})
++	d.done = done
++	taskCtx := resolverTaskContext(ctx)
++	if !startResolverTask(taskCtx, func(ctx context.Context) {
++		ctx, cancel := context.WithTimeout(ctx, DHCPTimeout)
++		defer cancel()
++		addresses, err := discover(ctx, d.ifaceName)
++		var clients []dnsClient
++		if err == nil && resolverRequestError(ctx) == nil {
++			nameservers := make([]NameServer, 0, len(addresses))
++			for _, address := range addresses {
++				nameservers = append(nameservers, NameServer{Addr: net.JoinHostPort(address.String(), "53"), ProxyName: d.ifaceName})
++			}
++			clients = transform(nameservers, nil)
++		}
++		d.lock.Lock()
++		defer d.lock.Unlock()
++		close(done)
++		d.done = nil
++		if !commitResolverTask(ctx, func() { d.clients = clients; d.err = err }) && d.clients == nil {
++			d.err = context.Canceled
++		}
++	}) {
++		close(done)
++		d.done = nil
++		if d.clients == nil {
++			d.err = context.Canceled
++		}
+--- dns/util.go
++++ dns/util.go
+@@ -426,0 +427,4 @@
++		done, ok := beginResolverTask(ctx)
++		if !ok {
++			continue
++		}
+@@ -427,0 +432 @@
++			defer done()
+--- component/dhcp/dhcp.go
++++ component/dhcp/dhcp.go
+@@ -23,0 +24 @@
++	owned := true
+@@ -25 +26,3 @@
+-		_ = conn.Close()
++		if owned {
++			_ = conn.Close()
++		}
+@@ -40 +43,3 @@
+-	go receiveOffer(conn, discovery.TransactionID, result)
++	owned = false // exchangeDNSFromDHCP closes the socket and joins its receiver.
++	return exchangeDNSFromDHCP(context, conn, discovery, result)
++}
+@@ -42 +47,6 @@
+-	_, err = conn.WriteTo(discovery.ToBytes(), &net.UDPAddr{IP: net.IPv4bcast, Port: 67})
++func exchangeDNSFromDHCP(context context.Context, conn net.PacketConn, discovery *dhcpv4.DHCPv4, result chan []netip.Addr) ([]netip.Addr, error) {
++	done := make(chan struct{})
++	go func() { defer close(done); receiveOffer(conn, discovery.TransactionID, result) }()
++	defer func() { _ = conn.Close(); <-done }()
++
++	_, err := conn.WriteTo(discovery.ToBytes(), &net.UDPAddr{IP: net.IPv4bcast, Port: 67})
+--- ntp/ntp/service.go
++++ ntp/ntp/service.go
+@@ -4,0 +5,2 @@
++	"errors"
++	"net"
+@@ -19,0 +22,3 @@
++
++// Reload and disable cancel old services but do not lose their join ownership.
++var retiredServices = make(map[*Service]struct{})
+@@ -27,0 +33,165 @@
++	lifecycleMu    sync.Mutex
++	started        bool
++	stopped        bool
++	done           chan struct{}
++	resources      map[*exchangeDialer]struct{}
++}
++
++// Each Exchange owns one exact connection. No watcher reads globalSrv or a
++// mutable service socket; a retired exchange cannot close its replacement.
++type exchangeDialer struct {
++	base      proxydialer.SingDialer
++	ctx       context.Context
++	mu        sync.Mutex
++	conn      net.Conn
++	dialed    bool
++	stopWatch func() bool
++	watchDone chan struct{}
++	inflight  chan struct{}
++	attempted bool
++	released  bool
++	err       error
++	reported  bool
++}
++type exchangeConn struct {
++	net.Conn
++	owner *exchangeDialer
++}
++
++func (c *exchangeConn) Close() error { return c.owner.Close() }
++func newExchangeDialer(base proxydialer.SingDialer, ctx context.Context) *exchangeDialer {
++	return &exchangeDialer{base: base, ctx: ctx}
++}
++func (d *exchangeDialer) ListenPacket(ctx context.Context, dst M.Socksaddr) (net.PacketConn, error) {
++	return d.base.ListenPacket(ctx, dst)
++}
++func (d *exchangeDialer) DialContext(ctx context.Context, network string, dst M.Socksaddr) (net.Conn, error) {
++	d.mu.Lock()
++	if d.dialed {
++		d.mu.Unlock()
++		return nil, errors.New("NTP exchange dial already used")
++	}
++	d.dialed = true
++	d.mu.Unlock()
++	conn, err := d.base.DialContext(ctx, network, dst)
++	// Even a non-nil connection returned with an error remains owned.
++	if conn == nil {
++		if err == nil {
++			err = errors.New("NTP dial returned no connection")
++		}
++		return nil, err
++	}
++	d.mu.Lock()
++	d.conn = conn
++	d.watchDone = make(chan struct{})
++	watchDone := d.watchDone
++	d.stopWatch = context.AfterFunc(d.ctx, func() {
++		d.beginClose(false)
++		close(watchDone)
++	})
++	d.mu.Unlock()
++	if err != nil || d.ctx.Err() != nil {
++		closeErr := d.Close()
++		return nil, errors.Join(err, d.ctx.Err(), closeErr)
++	}
++	return &exchangeConn{Conn: conn, owner: d}, nil
++}
++
++// Only closed-only errors establish release; a joined real failure is debt.
++func ntpClosedOnly(err error) bool {
++	if err == net.ErrClosed {
++		return true
++	}
++	if joined, ok := err.(interface{ Unwrap() []error }); ok {
++		causes := joined.Unwrap()
++		if len(causes) == 0 {
++			return false
++		}
++		for _, cause := range causes {
++			if !ntpClosedOnly(cause) {
++				return false
++			}
++		}
++		return true
++	}
++	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
++		return ntpClosedOnly(wrapped.Unwrap())
++	}
++	return false
++}
++
++// beginClose never executes arbitrary transport code on Stop's caller. Every
++// waiter shares the same attempt; only an explicit debt retry can start another.
++func (d *exchangeDialer) beginClose(retry bool) <-chan struct{} {
++	d.mu.Lock()
++	defer d.mu.Unlock()
++	if d.inflight != nil {
++		return d.inflight
++	}
++	if d.conn == nil || d.released || (d.attempted && !retry) {
++		return nil
++	}
++	done := make(chan struct{})
++	d.inflight = done
++	d.attempted = true
++	raw := d.conn
++	go func() {
++		err := raw.Close()
++		if ntpClosedOnly(err) {
++			err = nil
++		}
++		d.mu.Lock()
++		d.err = err
++		d.released = err == nil
++		d.inflight = nil
++		close(done)
++		d.mu.Unlock()
++	}()
++	return done
++}
++func (d *exchangeDialer) Close() error {
++	d.mu.Lock()
++	stop, watchDone := d.stopWatch, d.watchDone
++	d.mu.Unlock()
++	if stop != nil {
++		if stop() {
++			close(watchDone)
++		}
++		<-watchDone
++	}
++	if done := d.beginClose(false); done != nil {
++		<-done
++	}
++	d.mu.Lock()
++	defer d.mu.Unlock()
++	return d.err
++}
++
++// Called only after the Exchange worker has left. A first failed attempt is
++// reported, not silently retried into success. Subsequent explicit waits retry
++// only this captured resource, retaining any blocked attempt past the deadline.
++func (d *exchangeDialer) drain(ctx context.Context) error {
++	d.mu.Lock()
++	if d.conn == nil || d.released {
++		d.mu.Unlock()
++		return nil
++	}
++	if !d.reported && d.err != nil {
++		d.reported = true
++		err := d.err
++		d.mu.Unlock()
++		return err
++	}
++	d.reported = true
++	d.mu.Unlock()
++	if done := d.beginClose(true); done != nil {
++		select {
++		case <-done:
++		case <-ctx.Done():
++			return ctx.Err()
++		}
++	}
++	d.mu.Lock()
++	defer d.mu.Unlock()
++	d.reported = true
++	return d.err
+@@ -33,0 +204 @@
++		retiredServices[globalSrv] = struct{}{}
+@@ -34,0 +206 @@
++		globalSrv = nil
+@@ -36,0 +209 @@
++		mihomoNtp.SetOffset(0)
+@@ -45,6 +218,4 @@
+-		server:         M.ParseSocksaddr(server),
+-		dialer:         proxydialer.NewSingDialer(cDialer),
+-		ticker:         time.NewTicker(interval * time.Minute),
+-		ctx:            ctx,
+-		cancel:         cancel,
+-		syncSystemTime: syncSystemTime,
++		server: M.ParseSocksaddr(server),
++		dialer: proxydialer.NewSingDialer(cDialer),
++		ticker: time.NewTicker(interval * time.Minute),
++		ctx:    ctx, cancel: cancel, syncSystemTime: syncSystemTime,
+@@ -54,0 +226,35 @@
++// Cancel every service before joining any. An exchange or dependency which
++// ignores cancellation remains owned after timeout, including across reloads.
++// Callers serialize configuration replacement with this operation; Android
++// holds androidTunMu across cancellation, joining and debt publication. This
++// snapshot does not cancel a later generation installed by an independent caller.
++// Successful drain includes Exchange's deferred connection Close and ticker
++// cleanup. A failed raw Close remains a resource debt and is not reported as a
++// successful drain.
++func StopNTPService(ctx context.Context) error {
++	globalMu.Lock()
++	if globalSrv != nil {
++		retiredServices[globalSrv] = struct{}{}
++	}
++	services := make([]*Service, 0, len(retiredServices))
++	for srv := range retiredServices {
++		srv.Stop()
++		services = append(services, srv)
++	}
++	globalMu.Unlock()
++	var failures []error
++	for _, srv := range services {
++		if err := srv.WaitClosed(ctx); err != nil {
++			failures = append(failures, err)
++			continue
++		}
++		globalMu.Lock()
++		delete(retiredServices, srv)
++		if globalSrv == srv {
++			globalSrv = nil
++		}
++		globalMu.Unlock()
++	}
++	return errors.Join(failures...)
++}
++
+@@ -55,0 +262,7 @@
++	srv.lifecycleMu.Lock()
++	defer srv.lifecycleMu.Unlock()
++	if srv.started || srv.stopped {
++		return
++	}
++	srv.started = true
++	srv.done = make(chan struct{})
+@@ -57 +270 @@
+-	go srv.loopUpdate()
++	go func() { defer close(srv.done); srv.loopUpdate() }()
+@@ -61,2 +274,45 @@
+-	log.Infoln("NTP service stop")
+-	srv.cancel()
++	srv.lifecycleMu.Lock()
++	defer srv.lifecycleMu.Unlock()
++	if !srv.stopped {
++		srv.stopped = true
++		srv.cancel()
++		// Serialize cancellation with publication, so a late response cannot
++		// write the process clock/offset after Stop has returned.
++		if !srv.started {
++			srv.ticker.Stop()
++		}
++	}
++}
++
++func (srv *Service) WaitClosed(ctx context.Context) error {
++	srv.lifecycleMu.Lock()
++	done := srv.done
++	srv.lifecycleMu.Unlock()
++	if done != nil {
++		select {
++		case <-done:
++		default:
++			select {
++			case <-done:
++			case <-ctx.Done():
++				return ctx.Err()
++			}
++		}
++	}
++	srv.lifecycleMu.Lock()
++	resources := make([]*exchangeDialer, 0, len(srv.resources))
++	for r := range srv.resources {
++		resources = append(resources, r)
++	}
++	srv.lifecycleMu.Unlock()
++	var failures []error
++	for _, r := range resources {
++		if err := r.drain(ctx); err != nil {
++			failures = append(failures, err)
++			continue
++		}
++		srv.lifecycleMu.Lock()
++		delete(srv.resources, r)
++		srv.lifecycleMu.Unlock()
++	}
++	return errors.Join(failures...)
+@@ -69 +325,18 @@
+-		response, err = ntp.Exchange(srv.ctx, srv.dialer, srv.server)
++		if srv.ctx.Err() != nil {
++			return nil
++		}
++		ed := newExchangeDialer(srv.dialer, srv.ctx)
++		srv.lifecycleMu.Lock()
++		if srv.resources == nil {
++			srv.resources = make(map[*exchangeDialer]struct{})
++		}
++		srv.resources[ed] = struct{}{}
++		srv.lifecycleMu.Unlock()
++		response, err = ntp.Exchange(srv.ctx, ed, srv.server)
++		closeErr := ed.Close()
++		if closeErr != nil {
++			return closeErr
++		}
++		srv.lifecycleMu.Lock()
++		delete(srv.resources, ed)
++		srv.lifecycleMu.Unlock()
+@@ -74,0 +348,5 @@
++		}
++		srv.lifecycleMu.Lock()
++		if srv.stopped || srv.ctx.Err() != nil {
++			srv.lifecycleMu.Unlock()
++			return nil
+@@ -92,0 +371 @@
++		srv.lifecycleMu.Unlock()
+@@ -99 +378,9 @@
+-	defer mihomoNtp.SetOffset(0)
++	// Only the current generation may reset the process offset. A retired
++	// worker finishing after reload must not erase its replacement's offset.
++	defer func() {
++		globalMu.Lock()
++		if globalSrv == srv {
++			mihomoNtp.SetOffset(0)
++		}
++		globalMu.Unlock()
++	}()
+--- adapter/outbound/socks5.go
++++ adapter/outbound/socks5.go
+@@ -10,0 +11,2 @@
++	"sync"
++	"time"
+@@ -147,9 +149 @@
+-	go func() {
+-		io.Copy(io.Discard, c)
+-		c.Close()
+-		// A UDP association terminates when the TCP connection that the UDP
+-		// ASSOCIATE request arrived on terminates. RFC1928
+-		pc.Close()
+-	}()
+-
+-	return NewPacketConn(&socksPacketConn{PacketConn: pc, rAddr: bindUDPAddr, tcpConn: c}, ss), nil
++	return NewPacketConn(newSocksPacketConn(pc, c, bindUDPAddr), ss), nil
+@@ -218,2 +212,5 @@
+-	rAddr   net.Addr
+-	tcpConn net.Conn
++	rAddr        net.Addr
++	tcpConn      net.Conn
++	monitorDone  <-chan struct{}
++	closeMu      sync.Mutex
++	closeAttempt *socks5SocketClose
+@@ -253,0 +251,16 @@
++// newSocksPacketConn owns the RFC1928 control-connection monitor as well as
++// both sockets. The monitor closes raw sockets, never this wrapper: otherwise
++// its cleanup would join itself.
++func newSocksPacketConn(pc net.PacketConn, control net.Conn, relay net.Addr) *socksPacketConn {
++	done := make(chan struct{})
++	uc := &socksPacketConn{PacketConn: pc, tcpConn: control, rAddr: relay, monitorDone: done}
++	go func() {
++		defer close(done)
++		_, _ = io.Copy(io.Discard, control)
++		// The monitor shares the same owned close attempt as external callers.
++		// It must not call wrapper Close, which would join the monitor itself.
++		<-uc.beginSocketClose().done
++	}()
++	return uc
++}
++
+@@ -255,3 +268,99 @@
+-	uc.tcpConn.Close()
+-	return uc.PacketConn.Close()
+-}
++	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
++	defer cancel()
++	return uc.closeWithContext(ctx)
++}
++
++// One attempt owns both raw closes, including dependencies that ignore Close.
++// Timeout does not abandon these workers or start another attempt on retry.
++// A completed failure can be retried; successful socket retirement is cached.
++type socks5SocketClose struct {
++	done chan struct{}
++	err  error // published by closing done
++}
++
++func (uc *socksPacketConn) beginSocketClose() *socks5SocketClose {
++	uc.closeMu.Lock()
++	defer uc.closeMu.Unlock()
++	if previous := uc.closeAttempt; previous != nil {
++		select {
++		case <-previous.done:
++			if previous.err == nil {
++				return previous
++			}
++		default:
++			return previous
++		}
++	}
++	attempt := &socks5SocketClose{done: make(chan struct{})}
++	uc.closeAttempt = attempt
++	// Try both independently: a stuck TCP Close must not skip UDP retirement.
++	tcpDone := make(chan error, 1)
++	udpDone := make(chan error, 1)
++	go func() { tcpDone <- uc.tcpConn.Close() }()
++	go func() { udpDone <- uc.PacketConn.Close() }()
++	go func() {
++		tcpErr, udpErr := <-tcpDone, <-udpDone
++		if socks5ClosedOnly(tcpErr) {
++			tcpErr = nil
++		}
++		if socks5ClosedOnly(udpErr) {
++			udpErr = nil
++		}
++		attempt.err = errors.Join(tcpErr, udpErr)
++		close(attempt.done)
++	}()
++	return attempt
++}
++
++// Wait for raw socket closes AND final monitor cleanup under one deadline.
++// Never discard the attempt/completion owner on timeout or a real close error.
++func (uc *socksPacketConn) closeWithContext(ctx context.Context) error {
++	attempt := uc.beginSocketClose()
++	select {
++	case <-attempt.done:
++	default:
++		select {
++		case <-attempt.done:
++		case <-ctx.Done():
++			return fmt.Errorf("SOCKS5 UDP socket cleanup: %w", ctx.Err())
++		}
++	}
++	if attempt.err != nil {
++		return attempt.err
++	}
++	select {
++	case <-uc.monitorDone:
++		return nil
++	default:
++	}
++	select {
++	case <-uc.monitorDone:
++		return nil
++	case <-ctx.Done():
++		return fmt.Errorf("SOCKS5 UDP control monitor cleanup: %w", ctx.Err())
++	}
++}
++
++// errors.Is alone would also match Join(net.ErrClosed, realFailure), silently
++// discarding a failed cleanup. Normalize only trees made entirely of closed.
++func socks5ClosedOnly(err error) bool {
++	if err == net.ErrClosed {
++		return true
++	}
++	if joined, ok := err.(interface{ Unwrap() []error }); ok {
++		children := joined.Unwrap()
++		if len(children) == 0 {
++			return false
++		}
++		for _, child := range children {
++			if !socks5ClosedOnly(child) {
++				return false
++			}
++		}
++		return true
++	}
++	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
++		return socks5ClosedOnly(wrapped.Unwrap())
++	}
++	return false
++}
+--- adapter/outbound/dns.go
++++ adapter/outbound/dns.go
+@@ -4,0 +5 @@
++	"fmt"
+@@ -6,0 +8 @@
++	"sync"
+@@ -39,7 +41 @@
+-	ctx, cancel := context.WithCancel(context.Background())
+-
+-	return NewPacketConn(&dnsPacketConn{
+-		response: make(chan dnsPacket, 1),
+-		ctx:      ctx,
+-		cancel:   cancel,
+-	}, d), nil
++	return NewPacketConn(newDNSPacketConn(resolver.RelayDnsPacket), d), nil
+@@ -65,0 +62,29 @@
++	relay    func(context.Context, []byte, []byte) ([]byte, error)
++	get      func(int) []byte
++	put      func([]byte) error
++
++	mu          sync.Mutex
++	closing     bool
++	generation  uint64
++	workers     sync.WaitGroup
++	closeWaiter *dnsCloseWaiter
++}
++
++type dnsCloseWaiter struct {
++	done chan struct{}
++	err  error
++}
++
++func newDNSPacketConn(relay func(context.Context, []byte, []byte) ([]byte, error)) *dnsPacketConn {
++	ctx, cancel := context.WithCancel(context.Background())
++	if relay == nil {
++		relay = resolver.RelayDnsPacket
++	}
++	return &dnsPacketConn{
++		response: make(chan dnsPacket, 1),
++		ctx:      ctx,
++		cancel:   cancel,
++		relay:    relay,
++		get:      pool.Get,
++		put:      pool.Put,
++	}
+@@ -69,0 +95,5 @@
++	case <-d.ctx.Done():
++		return nil, nil, nil, net.ErrClosed
++	default:
++	}
++	select {
+@@ -70,0 +101,9 @@
++		d.mu.Lock()
++		closed := d.closing
++		d.mu.Unlock()
++		if closed {
++			if packet.put != nil {
++				packet.put()
++			}
++			return nil, nil, nil, net.ErrClosed
++		}
+@@ -78,0 +118,5 @@
++	case <-d.ctx.Done():
++		return 0, nil, net.ErrClosed
++	default:
++	}
++	select {
+@@ -79,0 +124,9 @@
++		d.mu.Lock()
++		closed := d.closing
++		d.mu.Unlock()
++		if closed {
++			if packet.put != nil {
++				packet.put()
++			}
++			return 0, nil, net.ErrClosed
++		}
+@@ -91,2 +144,3 @@
+-	select {
+-	case <-d.ctx.Done():
++	d.mu.Lock()
++	if d.closing {
++		d.mu.Unlock()
+@@ -94,3 +148,2 @@
+-	default:
+-	}
+-
++	}
++	d.mu.Unlock()
+@@ -102,2 +155,12 @@
+-	buf := pool.Get(resolver.SafeDnsPacketSize)
+-	put := func() { _ = pool.Put(buf) }
++	d.mu.Lock()
++	if d.closing {
++		d.mu.Unlock()
++		return 0, net.ErrClosed
++	}
++	generation := d.generation
++	d.workers.Add(1)
++	d.mu.Unlock()
++
++	buf := d.get(resolver.SafeDnsPacketSize)
++	var putOnce sync.Once
++	put := func() { putOnce.Do(func() { _ = d.put(buf) }) }
+@@ -106 +169,2 @@
+-	go func() { // don't block the WriteTo function
++	go func() { // admission is counted until final buffer/queue cleanup
++		defer d.workers.Done()
+@@ -110 +174 @@
+-		buf, err := resolver.RelayDnsPacket(ctx, buf[:len(p)], buf)
++		buf, err := d.relay(ctx, buf[:len(p)], buf)
+@@ -120,0 +185,7 @@
++		d.mu.Lock()
++		publish := !d.closing && generation == d.generation
++		d.mu.Unlock()
++		if !publish {
++			put()
++			return
++		}
+@@ -123 +194 @@
+-			break
++			return
+@@ -132,2 +203,44 @@
+-	d.cancel()
+-	return nil
++	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
++	defer cancel()
++	return d.closeWithContext(ctx)
++}
++
++func (d *dnsPacketConn) closeWithContext(ctx context.Context) error {
++	d.mu.Lock()
++	if d.closeWaiter == nil {
++		w := &dnsCloseWaiter{done: make(chan struct{})}
++		d.closeWaiter = w
++		d.closing = true
++		d.generation++
++		d.cancel()
++		go d.finishClose(w)
++	}
++	w := d.closeWaiter
++	d.mu.Unlock()
++	select {
++	case <-w.done:
++		return w.err
++	default:
++	}
++	select {
++	case <-w.done:
++		return w.err
++	case <-ctx.Done():
++		return fmt.Errorf("DNS packet cleanup: %w", ctx.Err())
++	}
++}
++
++func (d *dnsPacketConn) finishClose(w *dnsCloseWaiter) {
++	d.workers.Wait()
++	for {
++		select {
++		case packet := <-d.response:
++			if packet.put != nil {
++				packet.put()
++			}
++		default:
++			w.err = nil
++			close(w.done)
++			return
++		}
++	}

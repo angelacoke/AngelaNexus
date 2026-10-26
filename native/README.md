@@ -24,3 +24,199 @@ Mihomo, sing-box, or Xray adapter and verify them on each target OS.
 No native implementation may silently fall back to direct networking when the
 selected proxy runtime fails. Fail-closed behavior belongs to the application
 security/policy layer and must remain explicit and testable.
+
+## Android provider stop boundary
+
+Explicit Android stop cancels all retained provider generations before waiting
+for any of them. Compatible and inline providers join their health checks;
+proxy-set providers join both the Fetcher and health checks under the same
+shared two-second drain deadline. Admission is registered before asynchronous
+startup, repeated startup is idempotent, and closed providers cannot restart a
+health check. Configuration snapshots are synchronized without holding their
+lock across proxy URLTest calls. Close remains non-blocking for reentrant
+callbacks; WaitClosed is the exit barrier.
+Already-admitted work may finish after Close, but must finish before a
+successful WaitClosed return.
+
+A timed-out or failed drain retains ownership and blocks reconfiguration or
+attachment until a later stop successfully retries cleanup. The deadline bounds
+provider drain, not each Close call or the entire stop operation. This is not
+complete kernel shutdown: DNS listeners/services, all other background workers,
+synchronous reload cleanup, new native library packaging, and real-device TUN,
+leak and battery acceptance remain separate work.
+
+The upstream commit and dependency pins are unchanged. Both
+`adapter/provider/healthcheck.go` and `adapter/provider/provider.go` have exact
+pristine and reviewed-output SHA-256 checks in `prepare-upstream.py`. The patch
+requires twelve exact sections, and each ABI provenance must include matching
+`providerHealthCheck` and `proxyProvider` paths/hashes in addition to all existing
+source and artifact gates. Unknown, missing or modified inputs fail closed.
+
+## Android resource-stop retry gate
+
+A failed explicit Mihomo stop also retains an independent retry gate for TUN
+listener Close, tracked-connection Close, admitted setup drain, and late setup
+connections. Fresh configuration, DNS reconfiguration and TUN attachment reject
+before parsing or replacement cleanup until an explicit stop retry acknowledges
+that resource cleanup. Success in provider, DNS or NTP teardown cannot clear this
+gate; conversely resource cleanup cannot clear another component's failed drain.
+The original joined stop errors and retained resource owners remain available to
+the existing JNI/Kotlin failure-and-retry path.
+
+The pinned-source host tests exercise the real bridge bodies under the race
+detector, including a deferred request whose stop-generation token is still
+current, mixed closed/error causes, setup timeout, descriptor preservation and
+independent component retries. Nine negative controls remove only one of the
+three entry gates at a time and must fail at its specific assertion. They do not
+prove bounded Close calls, complete kernel shutdown, overall recovery, or Android
+TUN/JNI device acceptance. Upstream/dependency pins and source/hash/provenance
+gates are unchanged.
+
+## Android default mixed TCP stop boundary
+
+The default `mixed-port` TCP listener is created by `ApplyConfig`, separately
+from the Android TUN. Its accept loop and connections waiting for a first byte
+or an incomplete HTTP/SOCKS handshake do not enter the tunnel tracker snapshot.
+Explicit Android stop now closes every retained default mixed TCP generation,
+then joins its accept/handler exits under one shared two-second deadline. A
+handler may still be inside a synchronous tunnel call; its generation remains
+owned if that call has not returned. Connection-close failures, including a late
+Accept result, and missing listener-close acknowledgements remain concrete retry
+responsibilities even when the handler itself has exited. Only a pure wrapped
+or joined `net.ErrClosed` counts as an already-released socket.
+
+A separate mixed-cleanup debt blocks apply, DNS update and TUN attachment until
+an explicit stop retry succeeds. A successful TUN/DNS/NTP/provider cleanup does
+not erase it. Attachment replacement does not cancel newly applied mixed ingress.
+After successful stop, reapplying the same TCP port creates a fresh listener
+without replacing or losing ownership of an existing mixed UDP listener.
+
+The host tests use the actual bridge, real TCP peers, controlled late Accept and
+Close failures, and race detection. Five actual-bridge negative mutations run
+three times each and must fail at their designated ownership/gate assertions,
+not at a build error, race report or unrelated timeout. The reviewed three-file
+`mixed-lifecycle.patch`, its exact pristine/output hashes, and all three new
+source records are mandatory ABI provenance evidence. Existing pins and gates
+remain enforced.
+
+This is deliberately limited to **default mixed-port TCP accept/handler work**.
+Named mixed inbounds, mixed UDP, other inbound protocols, asynchronously dispatched
+tunnel work, complete kernel shutdown, overall recovery and Android/JNI real-device
+acceptance are not established by this repair. The deadline bounds joining these
+workers, not arbitrary implementation-defined `Close` calls or total stop time.
+
+## Android named mixed inbound stop boundary
+
+Named `listeners: [{type: mixed, ...}]` are distinct from the default
+`mixed-port` registry. Explicit Android stop also retains each named mixed
+instance from the beginning of `Listen`, including partially created and retired
+instances, closes its sockets, and joins its TCP accept loop and synchronous
+first-byte/HTTP/SOCKS handshake handlers under a separate shared deadline.
+Failed close acknowledgements and handler timeouts retain that concrete generation
+for a later stop retry. Independent named-cleanup debt blocks apply, DNS updates
+and TUN attachment; successful cleanup of another component cannot erase it.
+Attachment replacement itself does not close freshly applied named listeners.
+
+A stopped named mixed instance is not reused merely because its configuration is
+equal. Reload/removal must retain a failed-close owner, and explicit stop can
+still reach generations no longer present in the current listener map. The
+`named-inbound-lifecycle.patch`, exact pristine/intermediate/final digests and
+named source records are mandatory provenance evidence alongside the reviewed
+default mixed adapter and upstream pins. Actual-bridge race tests cover idle and
+half-handshake peers, same-configuration rebuild, failed-close retry gates and a
+handler whose exit remains blocked after its socket closes. Mutation controls
+must fail at the designated ownership/gate assertion, never merely fail to build.
+The bridge listener fixture uses an explicit named authentication store so the
+test isolates resource ownership from default authentication/IP-filter policy.
+The separate admission-state adapter below covers concurrent policy publication;
+the stop fixture itself is not evidence of authentication correctness.
+
+This is **named mixed TCP/UDP ingress cleanup**, not a generic inbound shutdown.
+Named mixed UDP uses the owned packet adapter without registering in the default
+mixed-port UDP registry. Its containing named `Mixed` generation joins the UDP
+reader (including its synchronous tunnel callback), retained packets until
+`Drop`, and admitted write-backs until method exit. Closing the socket alone
+cannot acknowledge any of these. A timeout retains the whole named generation
+and its independent named-cleanup debt for a later explicit stop retry. Payload
+buffers are not forcibly reclaimed while retained; malformed and late packets
+are returned, and `Drop` acknowledges a valid packet exactly once. Retired packets
+cannot initiate a new write-back after close. Ordinary named SOCKS UDP is not
+silently enrolled in either mixed registry.
+
+Actual-bridge race regressions cover held packets, dropped-but-blocked handlers,
+write-backs, close-acknowledgement failures, default/named registry isolation,
+and real named UDP tunnel round-trips over same-configuration stop/restart.
+Eighteen UDP-specific negative controls reject the old unowned constructor,
+wrong registry membership, forgotten generations and each missing packet/write-back/reader join.
+The exact reviewed UDP and named source hashes remain mandatory ABI provenance.
+The deadline bounds exit waiting, not arbitrary synchronous `Close` calls.
+Other named inbound protocols, asynchronous tunnel
+work, arbitrary blocking `Close` implementations, complete kernel shutdown and
+Android/JNI real-device acceptance remain outside this boundary. No packaged
+library hash, licensing approval or release gate is relaxed by the repair.
+
+## Authentication and IP-filter apply boundary
+
+The pinned upstream publishes default credentials, skip-auth prefixes, allowed
+prefixes and denied prefixes through independent mutable globals. Concurrent
+admission can race those writes, and a mixed connection accepted before a reload
+can read a later configuration's credentials when its first byte finally arrives.
+The separate `auth-state.patch` publishes the four fields under one bounded
+in-memory lock and captures one immutable admission view per default mixed,
+SOCKS or HTTP TCP connection. Neither parsing nor network I/O runs under that
+lock. Prefix input and getter slices are copied, not exposed as mutable backing
+storage. A non-forced executor apply changes credentials only, preserving the
+existing filter policy. Individual filter setter APIs remain synchronized.
+
+Named listeners with omitted users still inherit default credentials and filters;
+explicit named users and an explicit empty user list retain their independent
+authentication and global-filter bypass semantics. An already admitted connection
+keeps its captured authentication policy until its handshake finishes; later
+connections use the newly published policy. This is admission consistency, not
+retroactive revocation of established connections or a change to UDP admission.
+
+Host regressions use the production bridge, real TCP peers and actual config
+apply. Independent old-source controls must reproduce both cross-generation
+credentials at pre-first-byte admission and the specific auth/filter data races;
+build errors, unrelated panics and empty test selections are not accepted as
+evidence. The exact patch and every pre-adapter/final source digest are mandatory
+three-ABI provenance, alongside all existing pins and source checks. Full kernel
+shutdown, arbitrary asynchronous work, Android/JNI real-device acceptance and
+packaging/release approval remain separate, unfinished boundaries.
+
+## Debug APK native packaging evidence
+
+`android-build` verifies the final debug APK, not just Gradle declarations.
+`scripts/verify-android-debug-native-package.py` checks the full source lock,
+producer checkout SHA, Android toolchain and final deduplicated libXray AAR digest,
+then requires each of `arm64-v8a`, `armeabi-v7a` and `x86_64` to contain exactly
+the AAR's `libgojni.so` bytes, with the correct ELF machine. Duplicate ZIP
+entries, missing/extra Xray ABIs, stale reports and modified native bytes fail
+closed. The report includes the APK, AAR, provenance and per-library SHA-256s.
+Separate native-build AARs are different build instances: matching source does
+not establish matching bytes, and they must not be substituted in this claim.
+
+Normal Android Gradle Plugin stripping changes native-library bytes. Debug CI
+uses `-Pangelanexus.debugNativePackagingEvidence=true` to preserve original
+`libgojni.so` and `libbox.so` bytes. This opt-in mode rejects any requested task
+other than `assembleDebug`; release packaging/signing remains unchanged.
+Provenance validation here checks the producer's recorded claims against the
+reviewed source lock and exact downloaded artifact. It is not an independent
+source rebuild or a reproducible-build proof.
+
+For a debug-only replay, dispatch `xray-android-native-build` with
+`evidence_android_run` set to a successful `android-build` push run ID and
+`evidence_source_commit` set to that run's full immutable source SHA. This mode
+skips native rebuilding, checks run metadata and actual AAR checkout provenance,
+downloads only that run's prepared AARs, assembles **debug only**, and retains
+an inspectable APK with its original AARs, provenance and packaging report.
+The verifier still uses this checkout's reviewed source lock. A source-lock
+change, wrong producer run or unavailable/expired artifact fails rather than
+falling back to a different build. No release tasks, release credentials,
+distribution approvals, fixed Mihomo library hashes or signing gates are changed.
+
+The existing Mihomo JNI shim is reported separately from `libclash.so` core
+presence. Shim presence is not proof that the Mihomo core is installed, and
+neither native-file hashing nor the existing UI emulator smoke proves kernel
+JNI invocation, VPN traffic or real-device acceptance. Those remain separate
+acceptance requirements.

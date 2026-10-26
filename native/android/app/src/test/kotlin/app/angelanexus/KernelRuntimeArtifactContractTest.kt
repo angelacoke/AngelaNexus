@@ -22,7 +22,7 @@ class KernelRuntimeArtifactContractTest {
         abi = "arm64-v8a",
         linkage = "embedded",
         artifactFileName = "libclash.so",
-        sha256 = "667c94964d0a60f86cdcc130b2cdf3b385b02d9f2c5d3b324b3ed7a6b7326007",
+        sha256 = "b1153849d99633a439d4d96d03d16b722c93ee1e009e27a0b3361fbc173463f7",
         sourceRepository = "https://github.com/MetaCubeX/mihomo",
         sourceCommit = "88dcbf7f1614a67c3b36b848ee3592dfa92ada36",
         licenseId = "GPL-3.0",

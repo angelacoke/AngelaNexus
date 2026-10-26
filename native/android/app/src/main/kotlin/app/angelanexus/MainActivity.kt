@@ -127,6 +127,13 @@ private fun AngelaNexusRoot() {
                 context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 context.contentResolver.openInputStream(uri)?.use { stream ->
                     importCoordinator.importLocalFile(stream, uri.lastPathSegment)
+                }?.also { result ->
+                    // Publish the resolved lifecycle before a later START intent.
+                    // Keep validation inside runCatching so unsupported imports
+                    // and illegal lifecycle changes reach the visible failure UI.
+                    AndroidKernelExecutionStateStore.markImportResolved(
+                        result.kernel ?: throw IllegalStateException("Core import did not resolve a kernel"),
+                    )
                 } ?: throw IllegalStateException("selected configuration cannot be opened")
             }.fold(
                 onSuccess = { result ->
