@@ -24,7 +24,7 @@ export async function runAndroidSmoke({ adb, apk, samples = 30, intervalMs = 100
       throw new Error(`adb ${args.slice(0, 3).join(" ")} failed: ${error.message}`, { cause: error });
     }
   };
-  const installed = await invoke(["install", "-r", apk], 300_000);
+  const installed = await invoke(["install", "-r", apk], 360_000);
   if (!/^Success\s*$/m.test(installed)) throw new Error("APK installation did not report Success");
   await invoke(["shell", "am", "force-stop", PACKAGE]);
   await invoke(["logcat", "-c"]);
