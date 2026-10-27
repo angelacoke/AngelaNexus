@@ -37,7 +37,11 @@ test("Android smoke verifies install, launch, sustained identity and resumed act
   assert.equal(result.samples, 3);
   assert.equal(f.sleeps, 3);
   assert.equal(f.calls[0].timeout, 360_000);
-  assert.ok(f.calls.slice(1).every(call => call.timeout === 20_000));
+  const launchCall = f.calls.find(call => call.args[2] === "start");
+  assert.ok(launchCall);
+  assert.deepEqual(launchCall.args, ["shell", "am", "start", "-W", "-n", "app.angelanexus/.MainActivity"]);
+  assert.equal(launchCall.timeout, 60_000);
+  assert.ok(f.calls.filter(call => call !== f.calls[0] && call !== launchCall).every(call => call.timeout === 20_000));
   assert.deepEqual(f.calls[1].args, ["shell", "am", "force-stop", "app.angelanexus"]);
 });
 

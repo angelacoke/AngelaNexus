@@ -28,7 +28,7 @@ export async function runAndroidSmoke({ adb, apk, samples = 30, intervalMs = 100
   if (!/^Success\s*$/m.test(installed)) throw new Error("APK installation did not report Success");
   await invoke(["shell", "am", "force-stop", PACKAGE]);
   await invoke(["logcat", "-c"]);
-  const launched = await invoke(["shell", "am", "start", "-W", "-n", ACTIVITY]);
+  const launched = await invoke(["shell", "am", "start", "-W", "-n", ACTIVITY], 60_000);
   if (!/^Status:\s*ok\s*$/m.test(launched) || /(?:Error:|Exception|Permission Denial)/i.test(launched)) {
     throw new Error("Launcher did not report Status: ok");
   }
