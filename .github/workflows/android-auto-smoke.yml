@@ -133,9 +133,9 @@ jobs:
             sleep 2
           done
           "$ADB" shell getprop sys.boot_completed | tr -d '\r' | grep -q '^1'
-          "$ADB" shell settings put global window_animation_scale 0
-          "$ADB" shell settings put global transition_animation_scale 0
-          "$ADB" shell settings put global animator_duration_scale 0
+          # sys.boot_completed can precede responsive Binder services; require a stable readiness gate first.
+          export ADB
+          ANDROID_SYSTEM_READY_TIMEOUT_MS=180000 node scripts/wait-for-android-system-services.mjs
           echo "emulator ready"
 
       - name: Smoke test (install -> launch -> screenshot -> logcat)
