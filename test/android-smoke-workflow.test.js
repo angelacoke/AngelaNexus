@@ -45,3 +45,16 @@ test("Android auto smoke skips PR runs without release artifacts and always clea
   assert.equal(workflow.jobs.smoke.steps.find(step => step.name === "Stop emulator").if, "always()");
   assert.equal(workflow.jobs.smoke.steps.find(step => step.name === "Upload smoke artifacts").if, "always()");
 });
+
+test("Android auto smoke waits for stable system services before running the unchanged app smoke", () => {
+  const steps = workflow.jobs.smoke.steps;
+  const boot = steps.find(step => step.name === "Boot emulator (AOSP, no Google APIs / no Play Services)");
+  assert.ok(boot);
+  const readinessCall = "node scripts/wait-for-android-system-services.mjs";
+  assert.ok(boot.run.indexOf("getprop sys.boot_completed") < boot.run.indexOf(readinessCall));
+  assert.ok(boot.run.indexOf(readinessCall) < boot.run.indexOf('echo "emulator ready"'));
+  assert.match(boot.run, /ANDROID_SYSTEM_READY_TIMEOUT_MS=180000/);
+  assert.doesNotMatch(boot.run, /\$ADB"\s+shell\s+settings\s+put/);
+  assert.ok(steps.indexOf(boot) < steps.indexOf(smoke));
+  assert.match(smoke.run, /node scripts\/android-runtime-smoke\.mjs/);
+});
