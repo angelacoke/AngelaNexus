@@ -76,6 +76,18 @@ test("Android smoke waits for delayed process and actual resumed MainActivity", 
   assert.equal(f.sleeps, 5);
 });
 
+test("Android smoke retries pidof exit code 1 with empty output during startup", async () => {
+  let pidChecks = 0;
+  const noProcess = Object.assign(new Error("Command failed with exit code 1"), {
+    code: 1, stdout: "", stderr: "",
+  });
+  const f = fixture({ "shell pidof": () => ++pidChecks === 1 ? noProcess : "4123" });
+  const result = await runAndroidSmoke(f.options);
+  assert.equal(result.pids, "4123");
+  assert.equal(pidChecks, 5); // one startup miss, one startup success, three stability samples.
+  assert.equal(f.elapsedMs, 1_003);
+});
+
 test("Android smoke fails closed at 60 seconds when am start says timeout and no app process appears", async () => {
   const f = fixture({
     "shell am start": { stdout: "Status: timeout\n", stderr: "wait expired\n" },
@@ -175,6 +187,7 @@ for (const [name, overrides, error] of [
   ["permission denial alongside ok status", { "shell am start": "Status: ok\nPermission Denial" }, /Launcher start command reported an error/],
   ["missing process", { "shell pidof": "" }, /Timed out after 60000ms/],
   ["adb timeout", { "shell pidof": new Error("adb timeout") }, /adb timeout/],
+  ["pidof exit code 1 with diagnostics", { "shell pidof": Object.assign(new Error("exit code 1"), { code: 1, stdout: "", stderr: "device offline" }) }, /device offline/],
   ["zero pid", { "shell pidof": "0" }, /last pidof stdout/],
   ["non-numeric pid", { "shell pidof": "error: device offline" }, /last pidof stdout/],
   ["background-only activity", { "shell dumpsys": "ActivityRecord{abc app.angelanexus/.MainActivity t1}\nmResumedActivity: other/.Activity" }, /other\/.Activity/],

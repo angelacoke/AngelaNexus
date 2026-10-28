@@ -55,10 +55,15 @@ export async function runAndroidSmoke({ adb, apk, samples = 30, intervalMs = 100
       !Number.isInteger(intervalMs) || intervalMs < 1 || intervalMs > 10_000) {
     throw new Error("Invalid bounded observation window");
   }
-  const invoke = async (args, timeout = COMMAND_TIMEOUT_MS) => {
+  const invoke = async (args, timeout = COMMAND_TIMEOUT_MS, { allowEmptyExitCode } = {}) => {
     try {
       return normalizeCommandResult(await command(args, timeout));
     } catch (error) {
+      if (error?.code === allowEmptyExitCode && allowEmptyExitCode !== undefined &&
+          typeof error.stdout === "string" && !error.stdout.trim() &&
+          typeof error.stderr === "string" && !error.stderr.trim()) {
+        return { stdout: "", stderr: "" };
+      }
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`adb ${args.slice(0, 3).join(" ")} failed: ${message}${errorStreamDetails(error)}`, { cause: error });
     }
@@ -87,7 +92,10 @@ export async function runAndroidSmoke({ adb, apk, samples = 30, intervalMs = 100
   while (now() < launchDeadline) {
     const pidTimeout = Math.min(COMMAND_TIMEOUT_MS, launchDeadline - now());
     if (pidTimeout <= 0) break;
-    const pidResult = await invoke(["shell", "pidof", PACKAGE], pidTimeout);
+    // Android pidof exits with code 1 and no output while the app process is
+    // not present yet. During startup, treat only that exact result as a poll
+    // miss; transport errors and diagnostics still fail immediately.
+    const pidResult = await invoke(["shell", "pidof", PACKAGE], pidTimeout, { allowEmptyExitCode: 1 });
     lastPidOutput = pidResult.stdout;
     if (now() >= launchDeadline) break;
 
