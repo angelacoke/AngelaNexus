@@ -11,7 +11,7 @@ on:
           - arm64-experience
         default: release
       source_run_id:
-        description: Successful universal android-native-package run used as the verified source APK
+        description: 'Baseline package run ID, or "current-branch" to build this ref from exact-SHA AAR/Mihomo artifacts'
         required: true
         type: string
         default: "40762654959"
@@ -82,8 +82,250 @@ jobs:
           path: native/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
 
+  arm64-experience-current:
+    if: ${{ inputs.mode == 'arm64-experience' && inputs.source_run_id == 'current-branch' }}
+    name: Build current-source signed ARM64 experience APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      ANGELANEXUS_RELEASE_KEYSTORE_B64: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_B64 }}
+      ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD }}
+      ANGELANEXUS_RELEASE_KEY_ALIAS: ${{ secrets.ANGELANEXUS_RELEASE_KEY_ALIAS }}
+      ANGELANEXUS_RELEASE_KEY_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Build canonical Android Core bundle
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run core:android:bundle
+          test -s native/android/app/src/main/assets/angelanexus-core.bundle.js
+
+      - name: Resolve successful exact-commit CI runs and artifacts
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_BRANCH: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$SOURCE_BRANCH" = "feat/arm64-experience-apk-20261029"
+          runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?branch=${SOURCE_BRANCH}&head_sha=${SOURCE_SHA}&per_page=100")"
+          find_successful_run() {
+            local name="$1"
+            local allow_dispatch="$2"
+            local result
+            result="$(jq -c --arg name "$name" --arg sha "$SOURCE_SHA" --arg branch "$SOURCE_BRANCH" --arg allow_dispatch "$allow_dispatch" '
+              [.workflow_runs[]?
+                | select(.name == $name and .head_sha == $sha and .head_branch == $branch
+                  and .status == "completed" and .conclusion == "success"
+                  and (if $allow_dispatch == "true" then (.event == "push" or .event == "workflow_dispatch") else .event == "push" end))]
+              | sort_by(.run_number) | last // empty
+            ' <<< "$runs")"
+            if [[ -z "$result" ]]; then
+              echo "No successful $name run found for $SOURCE_BRANCH@$SOURCE_SHA." >&2
+              return 1
+            fi
+            jq -r '.id' <<< "$result"
+          }
+          check_artifact() {
+            local run_id="$1"
+            local name="$2"
+            local artifacts
+            artifacts="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100")"
+            jq -e --arg name "$name" '[.artifacts[]? | select(.name == $name and .expired == false and .size_in_bytes > 0)] | length == 1' <<< "$artifacts" >/dev/null
+          }
+
+          ANDROID_RUN_ID="$(find_successful_run android-build false)"
+          TEST_RUN_ID="$(find_successful_run test false)"
+          SECURITY_RUN_ID="$(find_successful_run security-integrity false)"
+          KERNEL_RUN_ID="$(find_successful_run kernel-conformance false)"
+          MIHOMO_RUN_ID="$(find_successful_run mihomo-android-native-build true)"
+          check_artifact "$ANDROID_RUN_ID" angelanexus-android-native-kernel-aars
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            check_artifact "$MIHOMO_RUN_ID" "mihomo-v1.19.32-${abi}"
+          done
+
+          {
+            echo "android_run_id=$ANDROID_RUN_ID"
+            echo "test_run_id=$TEST_RUN_ID"
+            echo "security_run_id=$SECURITY_RUN_ID"
+            echo "kernel_run_id=$KERNEL_RUN_ID"
+            echo "mihomo_run_id=$MIHOMO_RUN_ID"
+          } >> "$GITHUB_OUTPUT"
+          echo "All required successful CI runs and exact-source artifacts are verified for $SOURCE_BRANCH@$SOURCE_SHA."
+
+      - name: Download exact-commit Android kernel AARs
+        uses: actions/download-artifact@v5
+        with:
+          name: angelanexus-android-native-kernel-aars
+          path: native/android/app/libs
+          run-id: ${{ steps.source.outputs.android_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download exact-commit Mihomo ARM64 artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: mihomo-v1.19.32-arm64-v8a
+          path: ${{ runner.temp }}/mihomo/arm64-v8a
+          run-id: ${{ steps.source.outputs.mihomo_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download exact-commit Mihomo armeabi-v7a artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: mihomo-v1.19.32-armeabi-v7a
+          path: ${{ runner.temp }}/mihomo/armeabi-v7a
+          run-id: ${{ steps.source.outputs.mihomo_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download exact-commit Mihomo x86_64 artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: mihomo-v1.19.32-x86_64
+          path: ${{ runner.temp }}/mihomo/x86_64
+          run-id: ${{ steps.source.outputs.mihomo_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Verify exact-source AARs and Mihomo provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIBS=native/android/app/libs
+          test -s "$LIBS/libXray.aar"
+          test -s "$LIBS/libxray-provenance.json"
+          test -s "$LIBS/libbox.aar"
+          test -s "$LIBS/libbox-legacy.aar"
+          python3 native/android/xray-bridge/verify-artifact.py "$LIBS/libXray.aar" --provenance "$LIBS/libxray-provenance.json"
+          unzip -t "$LIBS/libbox.aar" >/dev/null
+          unzip -t "$LIBS/libbox-legacy.aar" >/dev/null
+          python3 scripts/verify-mihomo-native-artifacts.py \
+            --artifacts-root "$RUNNER_TEMP/mihomo" \
+            --repo-root "$GITHUB_WORKSPACE" \
+            --expected-project-commit "$GITHUB_SHA"
+          mkdir -p native/android/app/src/main/jniLibs/arm64-v8a
+          install -m 0644 "$RUNNER_TEMP/mihomo/arm64-v8a/libclash-arm64-v8a.so" \
+            native/android/app/src/main/jniLibs/arm64-v8a/libclash.so
+
+      - name: Resolve and enforce the ARM64-only Gradle ABI
+        working-directory: native/android
+        run: |
+          set -euo pipefail
+          gradle --no-daemon --console=plain --stacktrace \
+            -Pangelanexus.androidAbis=arm64-v8a \
+            :app:printConfiguredAndroidAbis | tee "$RUNNER_TEMP/android-abi-config.log"
+          selected_abis="$(sed -n 's/^ANGELANEXUS_ANDROID_ABIS=//p' "$RUNNER_TEMP/android-abi-config.log" | tail -n 1)"
+          test "$selected_abis" = "arm64-v8a"
+
+      - name: Validate project release signing configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_B64"
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD"
+          test -n "$ANGELANEXUS_RELEASE_KEY_ALIAS"
+          test -n "$ANGELANEXUS_RELEASE_KEY_PASSWORD"
+
+      - name: Assemble current-source signed ARM64 APK
+        working-directory: native/android
+        run: |
+          gradle --no-daemon --console=plain --stacktrace \
+            -Pangelanexus.androidAbis=arm64-v8a \
+            assembleRelease
+
+      - name: Verify package ABI, Mihomo payload, alignment, and release signature
+        shell: bash
+        env:
+          APK: native/android/app/build/outputs/apk/release/app-release.apk
+        run: |
+          set -euo pipefail
+          test -s "$APK"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          ZIPALIGN="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          test -x "$ZIPALIGN"
+          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee "$RUNNER_TEMP/final-signature.txt"
+          "$ZIPALIGN" -c -p 4 "$APK"
+          KEYSTORE="$RUNNER_TEMP/angelanexus-release.keystore"
+          cleanup() { rm -f "$KEYSTORE"; }
+          trap cleanup EXIT
+          printf '%s' "$ANGELANEXUS_RELEASE_KEYSTORE_B64" | base64 --decode > "$KEYSTORE"
+          chmod 600 "$KEYSTORE"
+          KEYTOOL_OUTPUT="$(keytool -list -v -keystore "$KEYSTORE" -storepass "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD" -alias "$ANGELANEXUS_RELEASE_KEY_ALIAS")"
+          EXPECTED_CERT_SHA256="$(printf '%s' "$KEYTOOL_OUTPUT" | awk '/^[[:space:]]*SHA256:/ {sub(/^[^:]*:[[:space:]]*/, ""); print; exit}')"
+          ACTUAL_CERT_SHA256="$(awk '/certificate SHA-256 digest:/ {print $NF; exit}' "$RUNNER_TEMP/final-signature.txt")"
+          normalize_cert() { printf '%s' "$1" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]'; }
+          test -n "$EXPECTED_CERT_SHA256"
+          test -n "$ACTUAL_CERT_SHA256"
+          test "$(normalize_cert "$EXPECTED_CERT_SHA256")" = "$(normalize_cert "$ACTUAL_CERT_SHA256")"
+          unzip -tq "$APK"
+          python3 - "$APK" "$GITHUB_WORKSPACE/native/android/app/src/main/jniLibs/arm64-v8a/libclash.so" "$RUNNER_TEMP/arm64-package-report.json" <<'PY'
+          import hashlib
+          import json
+          import sys
+          import zipfile
+          from pathlib import Path
+
+          apk = Path(sys.argv[1])
+          source_libclash = Path(sys.argv[2])
+          report_path = Path(sys.argv[3])
+          with zipfile.ZipFile(apk) as archive:
+              names = set(archive.namelist())
+              native = sorted(name for name in names if name.startswith("lib/") and name.endswith(".so"))
+              abis = sorted({name.split("/")[1] for name in native if len(name.split("/")) >= 3})
+              required = {"lib/arm64-v8a/libclash.so", "lib/arm64-v8a/libmihomo-jni.so"}
+              if abis != ["arm64-v8a"]:
+                  raise SystemExit(f"APK must contain only ARM64 native libraries, found ABIs: {abis}")
+              if not required.issubset(names):
+                  raise SystemExit(f"APK is missing required Mihomo libraries: {sorted(required - names)}")
+              apk_libclash = archive.read("lib/arm64-v8a/libclash.so")
+          source_digest = hashlib.sha256(source_libclash.read_bytes()).hexdigest()
+          packaged_digest = hashlib.sha256(apk_libclash).hexdigest()
+          if source_digest != packaged_digest:
+              raise SystemExit("APK libclash.so bytes do not match the verified exact-commit artifact")
+          report = {
+              "sourceCommit": __import__("os").environ["GITHUB_SHA"],
+              "abis": abis,
+              "nativeLibraries": native,
+              "libclashSha256": packaged_digest,
+              "apkSha256": hashlib.sha256(apk.read_bytes()).hexdigest(),
+          }
+          report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps(report, sort_keys=True))
+          PY
+          printf 'Current-source ARM64 package verified for %s; APK SHA-256: %s\n' "$GITHUB_SHA" "$(sha256sum "$APK" | awk '{print $1}')" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload current-source ARM64 experience package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AngelaNexus-arm64-experience-current-${{ github.sha }}
+          path: |
+            native/android/app/build/outputs/apk/release/app-release.apk
+            ${{ runner.temp }}/arm64-package-report.json
+            ${{ runner.temp }}/final-signature.txt
+            native/android/app/libs/libxray-provenance.json
+            ${{ runner.temp }}/mihomo/*/mihomo-provenance-*.json
+          if-no-files-found: error
+          retention-days: 14
+
   arm64-experience:
-    if: ${{ inputs.mode == 'arm64-experience' }}
+    if: ${{ inputs.mode == 'arm64-experience' && inputs.source_run_id != 'current-branch' }}
     name: Package signed ARM64 experience APK
     runs-on: ubuntu-24.04
     timeout-minutes: 20

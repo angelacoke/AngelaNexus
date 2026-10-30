@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 
 const workflowCases = [
   { file: "../.github/workflows/android-release.yml", job: "release" },
+  { file: "../.github/workflows/android-release.yml", job: "arm64-experience-current" },
   { file: "../.github/workflows/android-native-package.yml", job: "package" },
   { file: "../.github/workflows/android-build.yml", job: "android-release" },
 ];
@@ -17,6 +18,34 @@ function extractJob(workflow, jobName, workflowFile) {
   const end = followingJob === -1 ? workflow.length : bodyStart + followingJob;
   return workflow.slice(bodyStart, end);
 }
+
+test("current-branch ARM64 packaging binds exact-source native artifacts and signing", async () => {
+  const file = "../.github/workflows/android-release.yml";
+  const workflow = await readFile(new URL(file, import.meta.url), "utf8");
+  const job = extractJob(workflow, "arm64-experience-current", file);
+
+  for (const marker of [
+    "inputs.source_run_id == 'current-branch'",
+    'test "$SOURCE_BRANCH" = "feat/arm64-experience-apk-20261029"',
+    "find_successful_run android-build false",
+    "find_successful_run test false",
+    "find_successful_run security-integrity false",
+    "find_successful_run kernel-conformance false",
+    "find_successful_run mihomo-android-native-build true",
+    "angelanexus-android-native-kernel-aars",
+    "mihomo-v1.19.32-${abi}",
+    "verify-artifact.py",
+    "verify-mihomo-native-artifacts.py",
+    "-Pangelanexus.androidAbis=arm64-v8a",
+    "assembleRelease",
+    "lib/arm64-v8a/libclash.so",
+    "lib/arm64-v8a/libmihomo-jni.so",
+    "apksigner",
+    "AngelaNexus-arm64-experience-current-${{ github.sha }}",
+  ]) {
+    assert.ok(job.includes(marker), `current-source package job must include ${marker}`);
+  }
+});
 
 test("Android release workflows build the canonical Core bundle before APK assembly", async () => {
   for (const { file, job } of workflowCases) {
