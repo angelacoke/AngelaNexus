@@ -1,13 +1,26 @@
 name: android-release
-
 on:
   workflow_dispatch:
-
+    inputs:
+      mode:
+        description: Build the existing release APK or an ARM64-only experience APK
+        required: true
+        type: choice
+        options:
+          - release
+          - arm64-experience
+        default: release
+      source_run_id:
+        description: Successful universal android-native-package run used as the verified source APK
+        required: true
+        type: string
+        default: "40762654959"
 permissions:
+  actions: read
   contents: read
-
 jobs:
   release:
+    if: ${{ inputs.mode == 'release' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -56,3 +69,152 @@ jobs:
           name: AngelaNexus-android-release
           path: native/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
+
+  arm64-experience:
+    if: ${{ inputs.mode == 'arm64-experience' }}
+    name: Package signed ARM64 experience APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      BASELINE_SOURCE_SHA: 6657509371621a5416c5e02669f5dbcf73d23b79
+      ANGELANEXUS_RELEASE_KEYSTORE_B64: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_B64 }}
+      ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD }}
+      ANGELANEXUS_RELEASE_KEY_ALIAS: ${{ secrets.ANGELANEXUS_RELEASE_KEY_ALIAS }}
+      ANGELANEXUS_RELEASE_KEY_PASSWORD: ${{ secrets.ANGELANEXUS_RELEASE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate the approved baseline package run
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SOURCE_RUN_ID"
+          run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}")"
+          jq -e --arg sha "$BASELINE_SOURCE_SHA" '
+            .name == "android-native-package" and
+            .event == "workflow_run" and
+            .head_branch == "main" and
+            .head_sha == $sha and
+            .status == "completed" and
+            .conclusion == "success"
+          ' <<< "$run_json" >/dev/null
+          artifacts="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/artifacts")"
+          expected_name="AngelaNexus-android-mihomo-v1.19.32-${BASELINE_SOURCE_SHA}"
+          artifact_name="$(jq -r --arg name "$expected_name" '
+            [.artifacts[]? | select(.name == $name and .expired == false and .size_in_bytes > 0)]
+            | if length == 1 then .[0].name else empty end
+          ' <<< "$artifacts")"
+          test -n "$artifact_name"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+          echo "Using verified successful package run $SOURCE_RUN_ID for source $BASELINE_SOURCE_SHA."
+      - name: Download verified universal package artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: ${{ steps.source.outputs.artifact_name }}
+          path: ${{ runner.temp }}/baseline-package
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Resolve the configured Android ABI set
+        id: abis
+        working-directory: native/android
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon --console=plain --stacktrace \
+            -Pangelanexus.androidAbis=arm64-v8a \
+            :app:printConfiguredAndroidAbis | tee "$RUNNER_TEMP/android-abi-config.log"
+          selected_abis="$(sed -n 's/^ANGELANEXUS_ANDROID_ABIS=//p' "$RUNNER_TEMP/android-abi-config.log" | tail -n 1)"
+          test "$selected_abis" = "arm64-v8a"
+          echo "selected=$selected_abis" >> "$GITHUB_OUTPUT"
+      - name: Check baseline APK and release signing configuration
+        id: tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_B64"
+          test -n "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD"
+          test -n "$ANGELANEXUS_RELEASE_KEY_ALIAS"
+          test -n "$ANGELANEXUS_RELEASE_KEY_PASSWORD"
+          mapfile -t source_apks < <(find "$RUNNER_TEMP/baseline-package" -type f -name app-release.apk -print)
+          test "${#source_apks[@]}" -eq 1
+          echo "apk=${source_apks[0]}" >> "$GITHUB_OUTPUT"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          ZIPALIGN="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          test -x "$ZIPALIGN"
+          "$APKSIGNER" verify --verbose "${source_apks[0]}"
+          echo "apksigner=$APKSIGNER" >> "$GITHUB_OUTPUT"
+          echo "zipalign=$ZIPALIGN" >> "$GITHUB_OUTPUT"
+      - name: Keep only the configured ARM64 native libraries
+        shell: bash
+        env:
+          SOURCE_APK: ${{ steps.tools.outputs.apk }}
+          SELECTED_ABIS: ${{ steps.abis.outputs.selected }}
+        run: |
+          set -euo pipefail
+          python3 scripts/filter-android-apk-abis.py filter \
+            --apk "$SOURCE_APK" \
+            --output "$RUNNER_TEMP/experience-unsigned.apk" \
+            --abis "$SELECTED_ABIS" \
+            --report "$RUNNER_TEMP/abi-filter-report.json"
+          "${{ steps.tools.outputs.zipalign }}" -f -p 4 \
+            "$RUNNER_TEMP/experience-unsigned.apk" \
+            "$RUNNER_TEMP/experience-aligned.apk"
+      - name: Re-sign with the existing release key and verify identity
+        shell: bash
+        env:
+          SOURCE_APK: ${{ steps.tools.outputs.apk }}
+          APKSIGNER: ${{ steps.tools.outputs.apksigner }}
+          ZIPALIGN: ${{ steps.tools.outputs.zipalign }}
+          SELECTED_ABIS: ${{ steps.abis.outputs.selected }}
+        run: |
+          set -euo pipefail
+          KEYSTORE="$RUNNER_TEMP/angelanexus-release.keystore"
+          FINAL_APK="$RUNNER_TEMP/AngelaNexus-arm64-experience.apk"
+          cleanup() { rm -f "$KEYSTORE"; }
+          trap cleanup EXIT
+          printf '%s' "$ANGELANEXUS_RELEASE_KEYSTORE_B64" | base64 --decode > "$KEYSTORE"
+          chmod 600 "$KEYSTORE"
+          "$APKSIGNER" sign \
+            --ks "$KEYSTORE" \
+            --ks-key-alias "$ANGELANEXUS_RELEASE_KEY_ALIAS" \
+            --ks-pass env:ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD \
+            --key-pass env:ANGELANEXUS_RELEASE_KEY_PASSWORD \
+            --out "$FINAL_APK" \
+            "$RUNNER_TEMP/experience-aligned.apk"
+          "$APKSIGNER" verify --verbose --print-certs "$FINAL_APK" | tee "$RUNNER_TEMP/final-signature.txt"
+          SOURCE_CERT="$("$APKSIGNER" verify --print-certs "$SOURCE_APK" | awk '/certificate SHA-256 digest:/ {print $NF; exit}')"
+          FINAL_CERT="$(awk '/certificate SHA-256 digest:/ {print $NF; exit}' "$RUNNER_TEMP/final-signature.txt")"
+          KEY_CERT="$(keytool -list -v -keystore "$KEYSTORE" -storepass "$ANGELANEXUS_RELEASE_KEYSTORE_PASSWORD" -alias "$ANGELANEXUS_RELEASE_KEY_ALIAS" | awk '/^[[:space:]]*SHA256:/ {sub(/^[^:]*:[[:space:]]*/, ""); print; exit}')"
+          normalize_cert() { printf '%s' "$1" | tr -d '[:space:]:' | tr '[:lower:]' '[:upper:]'; }
+          test -n "$SOURCE_CERT"
+          test -n "$FINAL_CERT"
+          test -n "$KEY_CERT"
+          test "$(normalize_cert "$SOURCE_CERT")" = "$(normalize_cert "$KEY_CERT")"
+          test "$(normalize_cert "$FINAL_CERT")" = "$(normalize_cert "$KEY_CERT")"
+          "$ZIPALIGN" -c -p 4 "$FINAL_APK"
+          python3 scripts/filter-android-apk-abis.py verify \
+            --original "$SOURCE_APK" \
+            --filtered "$FINAL_APK" \
+            --abis "$SELECTED_ABIS"
+          test "$(stat -c%s "$FINAL_APK")" -lt "$(stat -c%s "$SOURCE_APK")"
+          echo "Verified identical release certificate and retained APK payload; final bytes: $(stat -c%s "$FINAL_APK")." >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload ARM64 experience APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AngelaNexus-arm64-experience-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/AngelaNexus-arm64-experience.apk
+            ${{ runner.temp }}/abi-filter-report.json
+          if-no-files-found: error
+          retention-days: 14

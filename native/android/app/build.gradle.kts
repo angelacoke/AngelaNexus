@@ -15,6 +15,20 @@ if (debugNativePackagingEvidence) {
     }) { "Native packaging evidence mode permits assembleDebug only; never release tasks." }
 }
 
+val supportedAndroidAbis = listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+val selectedAndroidAbis = providers.gradleProperty("angelanexus.androidAbis")
+    .orNull
+    ?.split(',')
+    ?.map { it.trim() }
+    ?.filter { it.isNotEmpty() }
+    ?: supportedAndroidAbis
+check(selectedAndroidAbis.isNotEmpty() && selectedAndroidAbis.distinct().size == selectedAndroidAbis.size) {
+    "angelanexus.androidAbis must contain one or more unique Android ABIs."
+}
+check(selectedAndroidAbis.all { it in supportedAndroidAbis }) {
+    "Unsupported ABI in angelanexus.androidAbis: ${selectedAndroidAbis.joinToString(",")}."
+}
+
 android {
     namespace = "app.angelanexus"
     compileSdk = 35
@@ -27,7 +41,7 @@ android {
         versionName = "0.1.0"
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+            abiFilters += selectedAndroidAbis
         }
     }
 
@@ -94,6 +108,12 @@ android {
                 keepDebugSymbols.add("**/libbox.so")
             }
         }
+    }
+}
+
+tasks.register("printConfiguredAndroidAbis") {
+    doLast {
+        println("ANGELANEXUS_ANDROID_ABIS=${selectedAndroidAbis.joinToString(",")}")
     }
 }
 
