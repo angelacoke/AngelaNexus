@@ -26,6 +26,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Build canonical Android Core bundle
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run core:android:bundle
+          test -s native/android/app/src/main/assets/angelanexus-core.bundle.js
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

@@ -116,25 +116,15 @@ private fun AngelaNexusRoot() {
     var importResult by remember { mutableStateOf<CoreRuntimeImportResult?>(null) }
     val executionState by AndroidKernelExecutionStateStore.state.collectAsState()
 
-    val documentLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri == null) {
-            status = AndroidUiStatus.READY
-            return@rememberLauncherForActivityResult
-        }
+    fun importAndValidate(importAction: suspend () -> CoreRuntimeImportResult) {
         status = AndroidUiStatus.IMPORTING_CONFIG
         scope.launch {
             runCatching {
-                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                context.contentResolver.openInputStream(uri)?.use { stream ->
-                    importCoordinator.importLocalFile(stream, uri.lastPathSegment)
-                }?.also { result ->
-                    // Publish the resolved lifecycle before a later START intent.
-                    // Keep validation inside runCatching so unsupported imports
-                    // and illegal lifecycle changes reach the visible failure UI.
+                importAction().also { result ->
                     AndroidKernelExecutionStateStore.markImportResolved(
                         result.kernel ?: throw IllegalStateException("Core import did not resolve a kernel"),
                     )
-                } ?: throw IllegalStateException("selected configuration cannot be opened")
+                }
             }.fold(
                 onSuccess = { result ->
                     importResult = result
@@ -143,8 +133,21 @@ private fun AngelaNexusRoot() {
                 onFailure = {
                     importResult = null
                     status = AndroidUiStatus.CORE_RUNTIME_UNAVAILABLE
-                }
+                },
             )
+        }
+    }
+
+    val documentLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) {
+            status = AndroidUiStatus.READY
+            return@rememberLauncherForActivityResult
+        }
+        importAndValidate {
+            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                importCoordinator.importLocalFile(stream, uri.lastPathSegment)
+            } ?: throw IllegalStateException("selected configuration cannot be opened")
         }
     }
 
@@ -220,9 +223,15 @@ private fun AngelaNexusRoot() {
         executionState = executionState,
         uiStatus = status,
         onTransparentModeChange = { selectedMode = it },
-        onImportConfig = {
+        onImportLocalFile = {
             status = AndroidUiStatus.SELECTING_CONFIG
             documentLauncher.launch(arrayOf("*/*"))
+        },
+        onImportSubscriptionUrl = { url ->
+            importAndValidate { importCoordinator.importSubscriptionUrl(url) }
+        },
+        onImportText = { content ->
+            importAndValidate { importCoordinator.importText(content) }
         },
         onStartVpn = ::startSelectedMode,
         currentLocaleTag = currentLocaleTag,
@@ -253,7 +262,9 @@ private fun AngelaNexusPreview() {
             executionState = KernelExecutionState(),
             uiStatus = AndroidUiStatus.READY,
             onTransparentModeChange = {},
-            onImportConfig = {},
+            onImportLocalFile = {},
+            onImportSubscriptionUrl = {},
+            onImportText = {},
             onStartVpn = {},
             currentLocaleTag = "en",
             onLocaleSelected = {}

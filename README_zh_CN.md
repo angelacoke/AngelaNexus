@@ -99,7 +99,7 @@ CI 全绿、APK/AAB 已签名或开发版本能够运行，都不能单独证明
 - 统一 Driver Scheduler 与能力匹配：开发中。
 - Android APP 模块：位于 `native/android/app`。
 - Android VPN 边界：已接入原生 `VpnService`。
-- Android 配置导入：已实现有界 UTF-8 读取、版本化导入和内核无关的处理链路。
+- Android 配置导入：支持 HTTPS 订阅 URL、本地文件，以及粘贴单/多节点链接或 YAML/JSON；输入经有界 UTF-8 处理后交给 Core 自动识别和验证。
 - Android Root / 透明网络：能力与受控运行时基础已经建立；正式能力必须经过真实设备和真实内核验证。
 - Mihomo / sing-box / Xray 实际运行时嵌入：尚不宣称达到生产就绪。
 

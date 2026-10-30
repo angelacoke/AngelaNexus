@@ -3,6 +3,7 @@ package app.angelanexus.ui
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -12,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.angelanexus.AndroidTransparentMode
@@ -21,6 +23,7 @@ import app.angelanexus.KernelExecutionState
 import app.angelanexus.R
 
 private data class AppDestination(val label: Int, val icon: androidx.compose.ui.graphics.vector.ImageVector)
+private enum class ImportInputMode { SUBSCRIPTION_URL, TEXT }
 private val destinations = listOf(
     AppDestination(R.string.nav_home, Icons.Default.Home), AppDestination(R.string.nav_profiles, Icons.Default.CloudDownload),
     AppDestination(R.string.nav_proxies, Icons.Default.Dns), AppDestination(R.string.nav_rules, Icons.Default.List), AppDestination(R.string.nav_settings, Icons.Default.Settings)
@@ -36,12 +39,16 @@ fun AngelaNexusApp(
     executionState: KernelExecutionState,
     uiStatus: AndroidUiStatus,
     onTransparentModeChange: (AndroidTransparentMode) -> Unit,
-    onImportConfig: () -> Unit,
+    onImportLocalFile: () -> Unit,
+    onImportSubscriptionUrl: (String) -> Unit,
+    onImportText: (String) -> Unit,
     onStartVpn: () -> Unit,
     currentLocaleTag: String,
     onLocaleSelected: (String?) -> Unit
 ) {
     var selected by remember { mutableIntStateOf(0) }
+    var showImportMethods by remember { mutableStateOf(false) }
+    val openImportChooser = { showImportMethods = true }
     Scaffold(
         topBar = { TopAppBar(title = { Row(verticalAlignment = Alignment.CenterVertically) {
             Image(painterResource(R.drawable.angelanexus_logo), null, Modifier.size(34.dp))
@@ -55,14 +62,141 @@ fun AngelaNexusApp(
             RuntimeStatusBanner(uiStatus)
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (selected) {
-                    0 -> HomeScreen(PaddingValues(0.dp), transparentMode, rootAvailable, importResult, executionState, onTransparentModeChange, onImportConfig, onStartVpn)
-                    1 -> ProfilesScreen(PaddingValues(0.dp), onImportConfig, importResult)
+                    0 -> HomeScreen(PaddingValues(0.dp), transparentMode, rootAvailable, importResult, executionState, onTransparentModeChange, openImportChooser, onStartVpn)
+                    1 -> ProfilesScreen(PaddingValues(0.dp), openImportChooser, importResult)
                     2 -> ProxiesScreen(PaddingValues(0.dp))
                     3 -> RulesScreen(PaddingValues(0.dp))
                     else -> SettingsScreen(PaddingValues(0.dp), darkTheme, currentLocaleTag, onLocaleSelected)
                 }
             }
         }
+    }
+    ImportSourceDialogs(
+        showImportMethods = showImportMethods,
+        onDismissMethods = { showImportMethods = false },
+        onImportLocalFile = onImportLocalFile,
+        onImportSubscriptionUrl = onImportSubscriptionUrl,
+        onImportText = onImportText,
+    )
+}
+
+@Composable
+private fun ImportSourceDialogs(
+    showImportMethods: Boolean,
+    onDismissMethods: () -> Unit,
+    onImportLocalFile: () -> Unit,
+    onImportSubscriptionUrl: (String) -> Unit,
+    onImportText: (String) -> Unit,
+) {
+    var inputMode by remember { mutableStateOf<ImportInputMode?>(null) }
+    var subscriptionUrl by remember { mutableStateOf("") }
+    var pastedConfig by remember { mutableStateOf("") }
+
+    if (showImportMethods) {
+        AlertDialog(
+            onDismissRequest = onDismissMethods,
+            title = { Text(stringResource(R.string.import_methods_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(
+                        onClick = {
+                            onDismissMethods()
+                            subscriptionUrl = ""
+                            inputMode = ImportInputMode.SUBSCRIPTION_URL
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(stringResource(R.string.import_subscription_url)) }
+                    TextButton(
+                        onClick = {
+                            onDismissMethods()
+                            onImportLocalFile()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(stringResource(R.string.import_local_file)) }
+                    TextButton(
+                        onClick = {
+                            onDismissMethods()
+                            pastedConfig = ""
+                            inputMode = ImportInputMode.TEXT
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(stringResource(R.string.import_paste_text)) }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = onDismissMethods) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
+        )
+    }
+
+    when (inputMode) {
+        ImportInputMode.SUBSCRIPTION_URL -> AlertDialog(
+            onDismissRequest = { inputMode = null },
+            title = { Text(stringResource(R.string.import_subscription_url)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.subscription_url_help), style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(
+                        value = subscriptionUrl,
+                        onValueChange = { subscriptionUrl = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text(stringResource(R.string.subscription_url_label)) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = subscriptionUrl.isNotBlank(),
+                    onClick = {
+                        val url = subscriptionUrl.trim()
+                        inputMode = null
+                        onImportSubscriptionUrl(url)
+                    },
+                ) { Text(stringResource(R.string.import_action)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { inputMode = null }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
+        )
+        ImportInputMode.TEXT -> AlertDialog(
+            onDismissRequest = { inputMode = null },
+            title = { Text(stringResource(R.string.import_paste_text)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.paste_config_help), style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(
+                        value = pastedConfig,
+                        onValueChange = { pastedConfig = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 7,
+                        maxLines = 12,
+                        label = { Text(stringResource(R.string.paste_config_label)) },
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = pastedConfig.isNotBlank(),
+                    onClick = {
+                        val content = pastedConfig
+                        inputMode = null
+                        onImportText(content)
+                    },
+                ) { Text(stringResource(R.string.import_action)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { inputMode = null }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
+        )
+        null -> Unit
     }
 }
 
@@ -131,7 +265,9 @@ private fun ConnectionCard(mode: AndroidTransparentMode, rootAvailable: Boolean,
 @Composable private fun TrafficCard() { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(18.dp)) { Text(stringResource(R.string.traffic_title), fontWeight = FontWeight.SemiBold); Spacer(Modifier.height(12.dp)); Text(stringResource(R.string.traffic_idle)) } } }
 @Composable private fun EnvironmentCard() { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { InfoRow(R.string.route_policy, R.string.route_smart); InfoRow(R.string.leak_prevention, R.string.pending_policy); InfoRow(R.string.gfw_awareness, R.string.core_available); InfoRow(R.string.kernels, R.string.kernel_list) } } }
 @Composable private fun QuickActions(onImport: () -> Unit) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { FilledTonalButton(onClick = onImport, Modifier.weight(1f)) { Icon(Icons.Default.ImportExport, null); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.import_config)) }; OutlinedButton(onClick = {}, Modifier.weight(1f)) { Icon(Icons.Default.Speed, null); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.speed_test)) } } }
-@Composable private fun RuntimeCard(result: CoreRuntimeImportResult?, executionState: KernelExecutionState) {
+
+@Composable
+private fun RuntimeCard(result: CoreRuntimeImportResult?, executionState: KernelExecutionState) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(stringResource(R.string.runtime_title), fontWeight = FontWeight.SemiBold)
@@ -149,9 +285,19 @@ private fun ConnectionCard(mode: AndroidTransparentMode, rootAvailable: Boolean,
         }
     }
 }
-@Composable private fun ProfilesScreen(padding: PaddingValues, onImport: () -> Unit, result: CoreRuntimeImportResult?) { LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { item { PageHeader(R.string.nav_profiles, R.string.profiles_description) }; item { FilledTonalButton(onClick = onImport, Modifier.fillMaxWidth()) { Text(stringResource(R.string.add_config)) } }; item { if (result == null) ProfileCard(R.string.no_profiles, R.string.profile_support) else ProfileCard(R.string.import_result_ready, R.string.profile_support) } } }
+
+@Composable
+private fun ProfilesScreen(padding: PaddingValues, onImport: () -> Unit, result: CoreRuntimeImportResult?) {
+    LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { PageHeader(R.string.nav_profiles, R.string.profiles_description) }
+        item { FilledTonalButton(onClick = onImport, Modifier.fillMaxWidth()) { Text(stringResource(R.string.add_config)) } }
+        item { if (result == null) ProfileCard(R.string.no_profiles, R.string.profile_support) else ProfileCard(R.string.import_result_ready, R.string.profile_support) }
+    }
+}
+
 @Composable private fun ProxiesScreen(padding: PaddingValues) { LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp)) { item { PageHeader(R.string.nav_proxies, R.string.proxies_description) } } }
 @Composable private fun RulesScreen(padding: PaddingValues) { LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp)) { item { PageHeader(R.string.nav_rules, R.string.rules_description) } } }
+
 @Composable
 private fun SettingsScreen(
     padding: PaddingValues,
@@ -202,6 +348,7 @@ private fun SettingsScreen(
         )
     }
 }
+
 @Composable private fun PageHeader(title: Int, subtitle: Int) { Column(Modifier.padding(vertical = 8.dp)) { Text(stringResource(title), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text(stringResource(subtitle), style = MaterialTheme.typography.bodyMedium) } }
 @Composable private fun SectionTitle(text: Int) { Text(stringResource(text), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
 @Composable private fun ProfileCard(title: Int, subtitle: Int) { Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(18.dp)) { Text(stringResource(title), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(stringResource(subtitle), style = MaterialTheme.typography.bodySmall) } } }

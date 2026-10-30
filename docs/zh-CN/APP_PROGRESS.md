@@ -27,7 +27,7 @@ Implemented:
 - Launcher `MainActivity`.
 - AngelaNexus brand mark used by the application UI and launcher icon.
 - Native Android `VpnService` boundary wired into the application manifest.
-- Android document picker entry point for configuration import.
+- Android import-source chooser for subscription URLs, local files, and pasted configuration/node links.
 - Explicit runtime status indicating that kernel execution is not yet connected.
 - Dedicated Android debug-build CI workflow.
 
@@ -35,7 +35,9 @@ Implemented:
 
 Implemented and tested:
 
-- bounded UTF-8 reading with the 5 MiB input limit;
+- bounded UTF-8 reading with the 5 MiB input limit for local files and downloaded subscriptions;
+- HTTPS-only subscription downloads with a 30-second overall deadline, a 5 MiB response limit, strict UTF-8, bounded HTTPS redirects, and embedded-credential rejection;
+- pasted single/multiple supported node links and YAML/JSON text submitted through the same Core import pipeline;
 - versioned Android import DTO and serialized envelope;
 - Android transport boundary that sends only the serialized envelope;
 - platform-neutral runtime receiver that validates envelope type, version, source, name and byte limit;
