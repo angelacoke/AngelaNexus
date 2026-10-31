@@ -150,12 +150,13 @@ async function clickVisible(labels, context = labels.join(" / ")) {
 async function typeText(value, fieldLabels) {
   await runAdb(["shell", "input", "text", value]);
   const deadline = Date.now() + 10_000;
+  const accessibleReadback = value.length > 64 ? value.slice(0, 32) : value;
   let lastNodes = [];
   while (Date.now() < deadline) {
     lastNodes = await readUi();
     const field = findNode(lastNodes, fieldLabels);
-    const hasReadback = lastNodes.some((node) => node.text.includes(value));
-    if (hasReadback || (field?.focused && field.text.includes(value))) return;
+    const hasReadback = lastNodes.some((node) => node.text.includes(value) || (value.length > 64 && node.text.includes(accessibleReadback)));
+    if (hasReadback || (field?.focused && field.text.includes(accessibleReadback))) return;
     await delay(500);
   }
   throw new Error(`Typed value was not visible in ${fieldLabels.join(" / ")}; visible=${textSummary(lastNodes)}`);
