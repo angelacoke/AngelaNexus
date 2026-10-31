@@ -152,7 +152,7 @@ jobs:
             --aar native/android/app/libs/libXray.aar \
             --provenance native/android/app/libs/libxray-provenance.json \
             --expected-commit "$GITHUB_SHA" --report "$RUNNER_TEMP/android-debug-native-package.json"
-      - name: Run Android emulator runtime smoke test
+      - name: Run Android emulator smoke and configuration import UI tests
         shell: bash
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
@@ -186,12 +186,14 @@ jobs:
           echo "no" | "$AVDMANAGER" create avd --force --name angelanexus-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2"
           test -s "$ANDROID_AVD_HOME/angelanexus-api35.ini"
           "$EMULATOR" -list-avds | grep -Fx "angelanexus-api35"
-          nohup "$EMULATOR" -avd angelanexus-api35 -no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -gpu swiftshader_indirect -accel on >"$RUNNER_TEMP/angelanexus-emulator.log" 2>&1 &
+          nohup "$EMULATOR" -avd angelanexus-api35 -no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -gpu swiftshader_indirect -writable-system -accel on >"$RUNNER_TEMP/angelanexus-emulator.log" 2>&1 &
           EMULATOR_PID=$!
+          FIXTURE_PID=""
           cleanup() {
             rc=$?
             "$ADB" logcat -d -v threadtime > "$RUNNER_TEMP/angelanexus-logcat.txt" 2>&1 || true
             "$ADB" shell dumpsys activity activities > "$RUNNER_TEMP/angelanexus-activities.txt" 2>&1 || true
+            "$ADB" exec-out screencap -p > "$RUNNER_TEMP/android-config-import-ui.png" 2>/dev/null || true
             if [ "$rc" -ne 0 ]; then
               echo "=== emulator diagnostics ==="
               "$ADB" devices -l || true
@@ -202,6 +204,10 @@ jobs:
               "$ADB" logcat -d -t 300 || true
               echo "=== emulator process log ==="
               cat "$RUNNER_TEMP/angelanexus-emulator.log" || true
+            fi
+            if [ -n "$FIXTURE_PID" ]; then
+              kill "$FIXTURE_PID" 2>/dev/null || true
+              wait "$FIXTURE_PID" 2>/dev/null || true
             fi
             kill "$EMULATOR_PID" 2>/dev/null || true
             exit "$rc"
@@ -233,9 +239,94 @@ jobs:
           "$ADB" shell settings put global window_animation_scale 0
           "$ADB" shell settings put global transition_animation_scale 0
           "$ADB" shell settings put global animator_duration_scale 0
+          # Trust a per-run CA only inside this disposable AVD so the app can fetch
+          # one fixed, local HTTPS subscription fixture; no external subscription is used.
+          FIXTURE_DIR="$RUNNER_TEMP/angelanexus-ui-import-fixture"
+          mkdir -p "$FIXTURE_DIR"
+          openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 1 \
+            -keyout "$FIXTURE_DIR/ca.key" -out "$FIXTURE_DIR/ca.pem" \
+            -subj "/CN=AngelaNexus ephemeral UI fixture CA" \
+            -addext "basicConstraints=critical,CA:TRUE" \
+            -addext "keyUsage=critical,keyCertSign,cRLSign"
+          openssl req -newkey rsa:2048 -nodes -sha256 \
+            -keyout "$FIXTURE_DIR/server.key" -out "$FIXTURE_DIR/server.csr" \
+            -subj "/CN=10.0.2.2"
+          cat > "$FIXTURE_DIR/server.ext" <<'EOF'
+          [v3_req]
+          basicConstraints=critical,CA:FALSE
+          keyUsage=critical,digitalSignature,keyEncipherment
+          extendedKeyUsage=serverAuth
+          subjectAltName=IP:10.0.2.2
+          EOF
+          openssl x509 -req -in "$FIXTURE_DIR/server.csr" \
+            -CA "$FIXTURE_DIR/ca.pem" -CAkey "$FIXTURE_DIR/ca.key" -CAcreateserial \
+            -out "$FIXTURE_DIR/server.pem" -days 1 -sha256 \
+            -extfile "$FIXTURE_DIR/server.ext" -extensions v3_req
+          CA_HASH="$(openssl x509 -in "$FIXTURE_DIR/ca.pem" -subject_hash_old -noout)"
+          openssl x509 -in "$FIXTURE_DIR/ca.pem" -outform PEM > "$FIXTURE_DIR/$CA_HASH.0"
+          "$ADB" root
+          timeout 60 "$ADB" wait-for-device
+          "$ADB" remount
+          timeout 60 "$ADB" wait-for-device
+          "$ADB" push "$FIXTURE_DIR/$CA_HASH.0" "/system/etc/security/cacerts/$CA_HASH.0"
+          "$ADB" shell restorecon "/system/etc/security/cacerts/$CA_HASH.0"
+          "$ADB" shell chown root:root "/system/etc/security/cacerts/$CA_HASH.0"
+          "$ADB" shell chmod 0644 "/system/etc/security/cacerts/$CA_HASH.0"
+          "$ADB" reboot
+          timeout 180 "$ADB" wait-for-device
+          booted=false
+          for attempt in $(seq 1 180); do
+            if "$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' | grep -q '^1'; then
+              booted=true
+              break
+            fi
+            sleep 2
+          done
+          test "$booted" = true
+          "$ADB" shell getprop sys.boot_completed | tr -d '\r' | grep -q '^1'
+          "$ADB" shell test -r "/system/etc/security/cacerts/$CA_HASH.0"
+          "$ADB" shell ls -l "/system/etc/security/cacerts/$CA_HASH.0"
+          printf '%s\n' 'vless://user@node-fixture.invalid:443' > "$RUNNER_TEMP/angelanexus-ui-local-fixture.txt"
+          nohup env UI_FIXTURE_CERT="$FIXTURE_DIR/server.pem" \
+            UI_FIXTURE_KEY="$FIXTURE_DIR/server.key" UI_FIXTURE_PORT=18443 \
+            node scripts/android-config-import-fixture-server.mjs \
+            > "$RUNNER_TEMP/android-config-import-fixture-server.log" 2>&1 &
+          FIXTURE_PID=$!
+          server_ready=false
+          for attempt in $(seq 1 30); do
+            if grep -q "loopback UI fixture ready" "$RUNNER_TEMP/android-config-import-fixture-server.log" 2>/dev/null; then
+              server_ready=true
+              break
+            fi
+            if ! kill -0 "$FIXTURE_PID" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if [ "$server_ready" != true ]; then
+            cat "$RUNNER_TEMP/android-config-import-fixture-server.log" || true
+            exit 1
+          fi
           APK="native/android/app/build/outputs/apk/debug/app-debug.apk"
           test -s "$APK"
           ADB="$ADB" APK="$APK" node scripts/android-runtime-smoke.mjs
+          ADB="$ADB" FIXTURE_LOCAL_PATH="$RUNNER_TEMP/angelanexus-ui-local-fixture.txt" \
+            SUBSCRIPTION_URL="https://10.0.2.2:18443/subscription" \
+            node scripts/android-config-import-ui-smoke.mjs \
+            | tee "$RUNNER_TEMP/android-config-import-ui-results.txt"
+          "$ADB" exec-out screencap -p > "$RUNNER_TEMP/android-config-import-ui.png"
+          kill "$FIXTURE_PID" 2>/dev/null || true
+          if wait "$FIXTURE_PID"; then fixture_exit=0; else fixture_exit=$?; fi
+          FIXTURE_PID=""
+          test "$fixture_exit" -eq 0
+          served="$(grep -c "served fixed subscription fixture" "$RUNNER_TEMP/android-config-import-fixture-server.log" || true)"
+          test "$served" -eq 1
+          rejected="$(grep -c "Rejected unexpected fixture request" "$RUNNER_TEMP/android-config-import-fixture-server.log" || true)"
+          test "$rejected" -eq 0
+          {
+            echo "## Android configuration import UI tests"
+            cat "$RUNNER_TEMP/android-config-import-ui-results.txt"
+            echo "- Subscription fetch was served once by the runner-local HTTPS fixture at 10.0.2.2:18443."
+            echo "- No VPN permission or proxy runtime was started."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Android debug APK and diagnostics
         if: always()
@@ -250,6 +341,9 @@ jobs:
             ${{ runner.temp }}/angelanexus-activities.txt
             ${{ runner.temp }}/android-debug-native-package.json
             native/android/app/libs/libxray-provenance.json
+            ${{ runner.temp }}/android-config-import-ui-results.txt
+            ${{ runner.temp }}/android-config-import-ui.png
+            ${{ runner.temp }}/android-config-import-fixture-server.log
           if-no-files-found: warn
           retention-days: 14
 
