@@ -153,6 +153,9 @@ jobs:
       - name: Run Android unit tests
         working-directory: native/android
         run: gradle --no-daemon --console=plain --stacktrace testDebugUnitTest
+      - name: Assemble Android UI clipboard instrumentation APK
+        working-directory: native/android
+        run: gradle --no-daemon --console=plain --stacktrace assembleDebugAndroidTest
       - name: Assemble Android debug APK
         working-directory: native/android
         run: gradle --no-daemon --console=plain --stacktrace --info -Pangelanexus.debugNativePackagingEvidence=true assembleDebug
@@ -296,6 +299,9 @@ jobs:
             exit 1
           fi
           ADB="$ADB" APK="$APK" node scripts/android-runtime-smoke.mjs
+          UI_TEST_APK="native/android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
+          test -s "$UI_TEST_APK"
+          "$ADB" install -r -t "$UI_TEST_APK"
           ADB="$ADB" FIXTURE_LOCAL_PATH="$UI_FIXTURE_CONTENT" \
             SUBSCRIPTION_URL="https://10.0.2.2:18443/subscription" \
             node scripts/android-config-import-ui-smoke.mjs \

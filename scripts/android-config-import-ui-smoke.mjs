@@ -147,8 +147,22 @@ async function clickVisible(labels, context = labels.join(" / ")) {
   await tapNode(node);
 }
 
-async function typeText(value, fieldLabels) {
-  await runAdb(["shell", "input", "text", value]);
+async function seedClipboard(text) {
+  const { stdout, stderr } = await runAdb([
+    "shell", "am", "instrument", "-w",
+    "-e", "class", "app.angelanexus.UiClipboardSeederTest",
+    "-e", "clipboardText", text,
+    "app.angelanexus.test/androidx.test.runner.AndroidJUnitRunner",
+  ], 60_000);
+  const output = `${stdout}\n${stderr}`;
+  if (!/OK\s+\(1 test\)/.test(output) || /FAILURES!!!|INSTRUMENTATION_FAILED/i.test(output)) {
+    throw new Error(`Clipboard seeder instrumentation did not pass; stdout=${JSON.stringify(stdout)}; stderr=${JSON.stringify(stderr)}`);
+  }
+  console.log(`PASS instrumentation clipboard seed (${text.length} characters)`);
+}
+
+async function pasteTextFromClipboard(value, fieldLabels) {
+  await runAdb(["shell", "input", "keyevent", "279"]);
   const deadline = Date.now() + 10_000;
   const accessibleReadback = value.length > 64 ? value.slice(0, 32) : value;
   let lastNodes = [];
@@ -159,7 +173,7 @@ async function typeText(value, fieldLabels) {
     if (hasReadback || (field?.focused && field.text.includes(accessibleReadback))) return;
     await delay(500);
   }
-  throw new Error(`Typed value was not visible in ${fieldLabels.join(" / ")}; visible=${textSummary(lastNodes)}`);
+  throw new Error(`Pasted value was not visible in ${fieldLabels.join(" / ")}; visible=${textSummary(lastNodes)}`);
 }
 
 async function hideKeyboardAndVerifyImportButton() {
@@ -200,22 +214,24 @@ async function assertSuccessfulImport(sourceName) {
 }
 
 async function testTextImport() {
+  await seedClipboard(pastedFixtureContent);
   await launchCleanApp();
   await openImportSource(uiStrings.pastedText);
   await waitForNode(uiStrings.textLabel, { context: "pasted configuration field" });
   await clickVisible(uiStrings.textLabel, "pasted configuration field");
-  await typeText(pastedFixtureContent, uiStrings.textLabel);
+  await pasteTextFromClipboard(pastedFixtureContent, uiStrings.textLabel);
   await hideKeyboardAndVerifyImportButton();
   await tapText(uiStrings.importAction, "Import pasted configuration button");
   await assertSuccessfulImport("pasted URL-safe Base64 sing-box configuration text");
 }
 
 async function testSubscriptionImport() {
+  await seedClipboard(subscriptionUrl);
   await launchCleanApp();
   await openImportSource(uiStrings.subscription);
   await waitForNode(uiStrings.subscriptionLabel, { context: "subscription URL field" });
   await clickVisible(uiStrings.subscriptionLabel, "subscription URL field");
-  await typeText(subscriptionUrl, uiStrings.subscriptionLabel);
+  await pasteTextFromClipboard(subscriptionUrl, uiStrings.subscriptionLabel);
   await hideKeyboardAndVerifyImportButton();
   await tapText(uiStrings.importAction, "Import subscription button");
   await assertSuccessfulImport("HTTPS subscription fixture");
