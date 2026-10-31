@@ -1,0 +1,1 @@
+{"inbounds":[{"type":"tun","tag":"tun-in","address":["172.19.0.1/30"],"auto_route":false}],"outbounds":[{"type":"vless","tag":"ui-fixture","server":"node-fixture.invalid","server_port":443,"uuid":"123e4567-e89b-12d3-a456-426614174000"}],"route":{"rules":[],"final":"ui-fixture"}}

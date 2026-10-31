@@ -274,9 +274,11 @@ jobs:
           test -s "$APK"
           unzip -p "$APK" res/raw/angelanexus_ui_import_ca.pem > "$FIXTURE_DIR/apk-ca.pem"
           cmp "$FIXTURE_DIR/ca.pem" "$FIXTURE_DIR/apk-ca.pem"
-          printf '%s\n' 'vless://user@node-fixture.invalid:443' > "$RUNNER_TEMP/angelanexus-ui-local-fixture.txt"
+          UI_FIXTURE_CONTENT="$PWD/scripts/fixtures/android-config-import-singbox.json"
+          test -s "$UI_FIXTURE_CONTENT"
           nohup env UI_FIXTURE_CERT="$FIXTURE_DIR/server.pem" \
             UI_FIXTURE_KEY="$FIXTURE_DIR/server.key" UI_FIXTURE_PORT=18443 \
+            UI_FIXTURE_CONTENT_PATH="$UI_FIXTURE_CONTENT" \
             node scripts/android-config-import-fixture-server.mjs \
             > "$RUNNER_TEMP/android-config-import-fixture-server.log" 2>&1 &
           FIXTURE_PID=$!
@@ -294,7 +296,7 @@ jobs:
             exit 1
           fi
           ADB="$ADB" APK="$APK" node scripts/android-runtime-smoke.mjs
-          ADB="$ADB" FIXTURE_LOCAL_PATH="$RUNNER_TEMP/angelanexus-ui-local-fixture.txt" \
+          ADB="$ADB" FIXTURE_LOCAL_PATH="$UI_FIXTURE_CONTENT" \
             SUBSCRIPTION_URL="https://10.0.2.2:18443/subscription" \
             node scripts/android-config-import-ui-smoke.mjs \
             | tee "$RUNNER_TEMP/android-config-import-ui-results.txt"

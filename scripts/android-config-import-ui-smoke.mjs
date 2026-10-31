@@ -7,8 +7,8 @@ const execFileAsync = promisify(execFile);
 const adb = process.env.ADB;
 const packageName = "app.angelanexus";
 const activityName = `${packageName}/.MainActivity`;
-const fixtureFile = "/sdcard/Download/angelanexus-ui-fixture.txt";
-const fixtureContent = "vless://user@node-fixture.invalid:443";
+const fixtureFile = "/sdcard/Download/angelanexus-ui-fixture.json";
+let fixtureContent = "";
 const expectedSubscriptionUrl = "https://10.0.2.2:18443/subscription";
 const subscriptionUrl = process.env.SUBSCRIPTION_URL ?? expectedSubscriptionUrl;
 const commandTimeoutMs = 30_000;
@@ -206,7 +206,7 @@ async function testTextImport() {
   await typeText(fixtureContent, uiStrings.textLabel);
   await hideKeyboardAndVerifyImportButton();
   await tapText(uiStrings.importAction, "Import pasted configuration button");
-  await assertSuccessfulImport("pasted text/node link");
+  await assertSuccessfulImport("pasted sing-box configuration text");
 }
 
 async function testSubscriptionImport() {
@@ -266,6 +266,9 @@ async function testLocalFileImport() {
 async function main() {
   requireAdb();
   if (!process.env.FIXTURE_LOCAL_PATH) throw new Error("FIXTURE_LOCAL_PATH is required");
+  const { readFile } = await import("node:fs/promises");
+  fixtureContent = (await readFile(process.env.FIXTURE_LOCAL_PATH, "utf8")).trim();
+  if (!fixtureContent) throw new Error("UI import fixture file is empty");
   if (subscriptionUrl !== expectedSubscriptionUrl) {
     throw new Error(`Subscription fixture URL must equal ${expectedSubscriptionUrl}`);
   }

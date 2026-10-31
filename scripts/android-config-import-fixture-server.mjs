@@ -6,8 +6,11 @@ const certPath = process.env.UI_FIXTURE_CERT;
 const keyPath = process.env.UI_FIXTURE_KEY;
 if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error("UI_FIXTURE_PORT must be a valid TCP port");
 if (!certPath || !keyPath) throw new Error("UI_FIXTURE_CERT and UI_FIXTURE_KEY are required");
+const fixturePath = process.env.UI_FIXTURE_CONTENT_PATH;
+if (!fixturePath) throw new Error("UI_FIXTURE_CONTENT_PATH is required");
 const expectedHost = `10.0.2.2:${port}`;
-const body = "vless://user@node-fixture.invalid:443";
+const body = fs.readFileSync(fixturePath, "utf8").trim();
+if (!body) throw new Error("UI fixture content file is empty");
 let requestCount = 0;
 let rejectedRequestCount = 0;
 const server = https.createServer({ cert: fs.readFileSync(certPath), key: fs.readFileSync(keyPath) }, (request, response) => {
