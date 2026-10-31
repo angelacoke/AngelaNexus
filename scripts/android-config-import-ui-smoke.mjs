@@ -13,6 +13,7 @@ const expectedSubscriptionUrl = "https://10.0.2.2:18443/subscription";
 const subscriptionUrl = process.env.SUBSCRIPTION_URL ?? expectedSubscriptionUrl;
 const commandTimeoutMs = 30_000;
 const uiDumpPath = "/sdcard/window.xml";
+let lastUiDumpDiagnostic = "no UI dump attempted";
 const successTexts = [
   "Configuration imported by Core. Runtime start is a separate step.",
   "Core 已完成配置导入；启动运行时是独立步骤。",
@@ -87,10 +88,20 @@ function parseNodes(xml) {
 }
 
 async function readUi() {
-  await runAdb(["shell", "uiautomator", "dump", uiDumpPath], 45_000);
-  const { stdout } = await runAdb(["exec-out", "cat", uiDumpPath]);
-  if (!stdout.includes("<hierarchy")) throw new Error("UIAutomator returned no hierarchy XML");
-  return parseNodes(stdout);
+  try {
+    await runAdb(["shell", "rm", "-f", uiDumpPath]);
+    const dump = await runAdb(["shell", "uiautomator", "dump", uiDumpPath], 45_000);
+    const { stdout, stderr } = await runAdb(["exec-out", "cat", uiDumpPath]);
+    if (!stdout.includes("<hierarchy")) {
+      lastUiDumpDiagnostic = `no hierarchy XML; dump=${JSON.stringify(dump.stdout).slice(0, 240)}; dump stderr=${JSON.stringify(dump.stderr).slice(0, 240)}; file bytes=${Buffer.byteLength(stdout)}; cat stderr=${JSON.stringify(stderr).slice(0, 240)}; file preview=${JSON.stringify(stdout.slice(0, 240))}`;
+      return [];
+    }
+    lastUiDumpDiagnostic = `hierarchy XML read (${Buffer.byteLength(stdout)} bytes)`;
+    return parseNodes(stdout);
+  } catch (error) {
+    lastUiDumpDiagnostic = `UIAutomator read failed: ${String(error?.message ?? error).slice(0, 480)}`;
+    return [];
+  }
 }
 
 function findNode(nodes, labels) {
@@ -113,7 +124,7 @@ async function waitForNode(labels, { timeoutMs = 30_000, context = "UI" } = {}) 
     if (node) return node;
     await delay(750);
   }
-  throw new Error(`Timed out waiting for ${context} (${labels.join(" / ")}); visible=${textSummary(lastNodes)}`);
+  throw new Error(`Timed out waiting for ${context} (${labels.join(" / ")}); visible=${textSummary(lastNodes)}; UI dump=${lastUiDumpDiagnostic}`);
 }
 
 async function tapNode(node) {
